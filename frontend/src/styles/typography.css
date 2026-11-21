@@ -1,0 +1,209 @@
+/**
+ * 全站字体与排版变量 — 现代企业 ERP 风格
+ * 中文优先 HarmonyOS Sans SC / PingFang SC，英文与数字 Inter
+ */
+:root {
+  --font-sans: Inter, "HarmonyOS Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif;
+  --font-num: Inter, "HarmonyOS Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif;
+  --font-display: "Noto Serif SC", "Songti SC", "STSong", "SimSun", serif;
+
+  /* 文字颜色层级 — 与用户管理页一致：深灰正文、近黑标题 */
+  --text-main: #334155;
+  --text-muted: #334155;
+  --text-subtle: #475569;
+  --text-placeholder: #94a3b8;
+  --text-inverse: #ffffff;
+  --heading-color: #1f2937;
+
+  /* 字重层级：标题 700 / 模块标题与表头 700 / 菜单与标签 600 / 正文 500 */
+  --heading-weight: 700;
+  --module-weight: 700;
+  --body-weight: 500;
+  --body-weight-medium: 600;
+  --brand-weight: 700;
+  --nav-weight: 600;
+  --nav-weight-active: 700;
+  --btn-weight: 600;
+  --table-head-weight: 700;
+  --label-weight: 600;
+
+  --fs-base: 14px;
+  --fs-body-sm: 13px;
+  --fs-nav: 14px;
+  --fs-nav-brand: 15px;
+  --fs-hero-breadcrumb: 13px;
+  --fs-hero-label: 13px;
+  --fs-hero-title: 46px;
+  --fs-hero-desc: 16px;
+  --fs-section-title: 16px;
+  --fs-section-lead: 14px;
+  --fs-card-title: 16px;
+  --fs-card-label: 13px;
+  --fs-card-desc: 14px;
+  --fs-card-link: 13px;
+  --fs-btn: 14px;
+  --fs-page-title: 24px;
+  --fs-dashboard-title: 16px;
+  --fs-kpi-value: 28px;
+  --fs-kpi-label: 13px;
+  --fs-table-head: 14px;
+  --fs-table-body: 14px;
+  --fs-tag: 12px;
+  --fs-caption: 13px;
+
+  --lh-hero: 1.15;
+  --lh-tight: 1.2;
+  --lh-heading: 1.45;
+  --lh-card-title: 1.45;
+  --lh-body: 1.5;
+  --lh-lead: 1.5;
+  --lh-card-desc: 1.5;
+
+  --ls-hero-label: 0;
+  --ls-hero-title: 0;
+  --ls-section-title: 0;
+  --ls-card-label: 0;
+  --ls-btn-en: 0;
+  --ls-login-header: 0.02em;
+
+  --nav-height: 56px;
+
+  /* 管理后台顶栏与内容区高度（贴边布局，无外边距） */
+  --layout-header-h: 52px;
+  --layout-main-padding-y: 0px;
+  --layout-content-min-h: calc(100vh - var(--layout-header-h));
+  --layout-viewport-h: calc(100vh - var(--layout-header-h));
+}
+
+@media (max-width: 768px) {
+  :root {
+    --fs-hero-title: 36px;
+    --fs-section-title: 18px;
+    --fs-card-title: 16px;
+    --fs-hero-desc: 16px;
+    --fs-section-lead: 14px;
+    --fs-kpi-value: 24px;
+    --nav-height: 52px;
+  }
+}
+
+@media (max-width: 480px) {
+  :root {
+    --fs-hero-title: 32px;
+    --fs-section-title: 16px;
+  }
+}
+
+html,
+body,
+#app {
+  font-family: var(--font-sans);
+  font-size: var(--fs-base);
+  font-weight: var(--body-weight);
+  line-height: var(--lh-body);
+  letter-spacing: 0;
+  color: var(--text-main);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-weight: var(--module-weight);
+  color: var(--heading-color);
+  line-height: var(--lh-heading);
+  letter-spacing: 0;
+}
+
+.el-button,
+.el-input,
+.el-input__inner,
+.el-menu,
+.el-table,
+.el-form-item__label,
+.el-message,
+.el-dialog__title {
+  font-family: var(--font-sans) !important;
+}
+
+.el-button {
+  font-weight: var(--btn-weight) !important;
+  font-size: var(--fs-btn);
+}
+
+.el-menu-item,
+.el-sub-menu__title {
+  font-weight: var(--nav-weight) !important;
+  font-size: var(--fs-nav) !important;
+}
+
+.el-form-item__label {
+  font-weight: var(--label-weight) !important;
+}
+
+.el-input__inner,
+.el-textarea__inner,
+.el-select__wrapper,
+.el-select .el-input__inner {
+  font-weight: var(--body-weight) !important;
+}
+
+.el-tag {
+  font-weight: var(--body-weight-medium) !important;
+}
+
+.el-dropdown-menu__item {
+  font-weight: var(--body-weight) !important;
+}
+
+.el-table th.el-table__cell {
+  font-size: var(--fs-table-head);
+  font-weight: var(--table-head-weight) !important;
+  color: var(--heading-color);
+}
+
+.el-table td.el-table__cell {
+  font-size: var(--fs-table-body);
+  font-weight: var(--body-weight);
+  color: var(--text-main);
+}
+
+/* 核心指标数字 — Inter 大号加粗，数字使用等宽数位 */
+.kpi-value,
+.stat-value,
+.module-kpi-card__num {
+  font-family: var(--font-num);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+
+.type-section-title {
+  margin: 0 0 12px;
+  font-size: var(--fs-section-title);
+  font-weight: var(--module-weight);
+  line-height: var(--lh-heading);
+  color: var(--heading-color);
+}
+
+.type-section-lead {
+  margin: 0 0 32px;
+  font-size: var(--fs-section-lead);
+  font-weight: var(--body-weight);
+  line-height: var(--lh-lead);
+  color: var(--text-subtle);
+}
+
+.type-page-title {
+  font-size: var(--fs-page-title);
+  font-weight: var(--heading-weight);
+  line-height: var(--lh-heading);
+  color: var(--heading-color);
+}
+
+.type-caption {
+  font-size: var(--fs-caption);
+  font-weight: var(--body-weight);
+  line-height: var(--lh-body);
+  color: var(--text-subtle);
+}

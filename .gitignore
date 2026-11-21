@@ -1,0 +1,65 @@
+HELP.md
+target/
+.mvn/wrapper/maven-wrapper.jar
+!**/src/main/**/target/
+!**/src/test/**/target/
+
+### STS ###
+.apt_generated
+.classpath
+.factorypath
+.project
+.settings
+.springBeans
+.sts4-cache
+
+### IntelliJ IDEA ###
+.idea
+*.iws
+*.iml
+*.ipr
+
+### NetBeans ###
+/nbproject/private/
+/nbbuild/
+/dist/
+/nbdist/
+/.nb-gradle/
+build/
+!**/src/main/**/build/
+!**/src/test/**/build/
+
+### VS Code ###
+.vscode/
+
+/backend/target/
+backend/src/main/resources/application-local.yaml
+
+# 手机屏幕缺陷检测项目
+Mobile-Phone-Defect/models/
+Mobile-Phone-Defect/runs/
+*.pt
+
+/miniprogram/
+/doc-work/
+/docs/
+/deliverables/
+# Local execution evidence / runtime artifacts
+*.log
+*.err
+.env
+.env.*
+!.env.example
+!.env.*.example
+__pycache__/
+.pytest_cache/
+.playwright-mcp/
+course-report/
+frontend/.order-verification-dist/
+project.private.config.json
+!/docs/
+/docs/*
+!/docs/ai-planning-2026-11-07/
+/docs/ai-planning-2026-11-07/*
+!/docs/ai-planning-2026-11-07/papers/
+!/docs/ai-planning-2026-11-07/paper-text/

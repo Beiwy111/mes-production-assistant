@@ -1,0 +1,6 @@
+# Explicit maintenance window only. Always restore neo4j.compose.yml afterwards.
+# Graph-assisted API refuses graph reads in this writable state; vector RAG remains available.
+services:
+  neo4j:
+    environment:
+      NEO4J_server_databases_default__to__read__only: "false"

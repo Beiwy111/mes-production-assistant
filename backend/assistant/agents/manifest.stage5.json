@@ -1,0 +1,23 @@
+{
+  "status": "LIVE_BUSINESS_EVIDENCE_EIGHT_PROFILES_VERIFIED",
+  "files": {
+    "prompts/stage5/AFTERSALES.txt": "4f4182228213f5776a1efa8fabfbf55b4270768ddee890f7f0b3753db996e719",
+    "prompts/stage5/EQUIPMENT.txt": "27d8f05a1422345429fcfaa6477ea42ea32b005fff2008123ff5b8c8c734fed7",
+    "prompts/stage5/ORDER.txt": "5a390b84b27455eaa491578e1dc428ed79d7dca522232885008bd2616b85550b",
+    "prompts/stage5/PRODUCTION.txt": "c3ae61e87a50d71ae7336f01b287e29414a00968606f6be05eb3bdb6b3f2c1ba",
+    "prompts/stage5/QUALITY.txt": "095d8776ddab9d19c4c04ee88af8e12a1eaded3bcca1f4c17b558c02971da5eb",
+    "prompts/stage5/SUP.txt": "d77afc4ff68d2be06346210d01fbccf910fe7ca9fab9e79f7d7f7fb01251a6ad",
+    "prompts/stage5/SUPPLY.txt": "714e013d8be05c2b59111f70bd3ed6a3075655a55d3de127821c07d376e80554",
+    "scripts/build_stage5.py": "5ff21f0d824f50b5ac37882920bde7894289d32f6fb9e993823059bb5f5cc862",
+    "scripts/stage5_nodes.py": "2b6c49271e3ec7bd92c7e4cd6b8af8df3319d290f336aff5e86c7c3d569e11c8",
+    "workflows/stage5/AFTERSALES.yml": "8de3860fa7cb9516be2f872bb8e049c8a8153d93da12cb59ad49c82ab8135784",
+    "workflows/stage5/EQUIPMENT.yml": "8d7816fbcde10530e849ff7ea031698c4abe53b3023528a0bf9ba97b301bcac1",
+    "workflows/stage5/ORDER.yml": "82f6419ad72f96fecdb139813b9df9718d9ac03997635febaf48a32d16720d2b",
+    "workflows/stage5/PRODUCTION.yml": "949fd3d216efa09c314063629b4042531a35bcb809741b3648bef9d77beb4eea",
+    "workflows/stage5/QUALITY.yml": "36978911b2518bcf81c0bc26954861f1d4dc1dfc9753985a1a2b28eb59b6a5c1",
+    "workflows/stage5/SUP.yml": "dd876b5227498e23898b0780671adb015fd0403d41c2c63959cbac4b8c5370c8",
+    "workflows/stage5/SUPPLY.yml": "98984119913a1e1baffbad92a720cb6fd60958ae28cf85ff8925c1c8add891e7"
+  },
+  "live_verified_client_date": "2026-11-09",
+  "businessEvidenceVersion": "order-business-2"
+}

@@ -1,0 +1,99 @@
+{
+  "schemaVersion": "1",
+  "exportId": "00000000-0000-4000-8000-000000000001",
+  "scope": {
+    "orderPk": "900001"
+  },
+  "sourceObservedAt": "2026-11-08T00:00:00Z",
+  "readFinishedAt": "2026-11-08T00:00:01Z",
+  "complete": true,
+  "nodes": [
+    {
+      "id": "Order:900001",
+      "kind": "Order",
+      "source_table": "customer_order",
+      "source_id": "900001",
+      "properties": {
+        "status": "APPROVED"
+      }
+    },
+    {
+      "id": "OrderItem:2",
+      "kind": "OrderItem",
+      "source_table": "customer_order_item",
+      "source_id": "2",
+      "properties": {
+        "quantity": 5
+      }
+    },
+    {
+      "id": "Plan:3",
+      "kind": "Plan",
+      "source_table": "production_plan",
+      "source_id": "3",
+      "properties": {}
+    },
+    {
+      "id": "WorkOrder:5",
+      "kind": "WorkOrder",
+      "source_table": "work_order",
+      "source_id": "5",
+      "properties": {
+        "status": "COMPLETED",
+        "planned_quantity": 5,
+        "completed_quantity": 5
+      }
+    },
+    {
+      "id": "Inspection:7",
+      "kind": "Inspection",
+      "source_table": "quality_inspection",
+      "source_id": "7",
+      "properties": {
+        "status": "QUALIFIED",
+        "sample_quantity": 2,
+        "qualified_quantity": 2,
+        "unqualified_quantity": 0
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "HAS_ITEM:customer_order_item:2",
+      "source": "Order:900001",
+      "target": "OrderItem:2",
+      "type": "HAS_ITEM",
+      "source_table": "customer_order_item",
+      "source_id": "2",
+      "reliability": "CONFIRMED"
+    },
+    {
+      "id": "PLANNED_AS:production_plan_item:4",
+      "source": "OrderItem:2",
+      "target": "Plan:3",
+      "type": "PLANNED_AS",
+      "source_table": "production_plan_item",
+      "source_id": "4",
+      "reliability": "CONFIRMED"
+    },
+    {
+      "id": "HAS_WORK_ORDER:work_order:5",
+      "source": "Plan:3",
+      "target": "WorkOrder:5",
+      "type": "HAS_WORK_ORDER",
+      "source_table": "work_order",
+      "source_id": "5",
+      "reliability": "CONFIRMED"
+    },
+    {
+      "id": "HAS_INSPECTION:quality_inspection:7",
+      "source": "WorkOrder:5",
+      "target": "Inspection:7",
+      "type": "HAS_INSPECTION",
+      "source_table": "quality_inspection",
+      "source_id": "7",
+      "reliability": "CONFIRMED"
+    }
+  ],
+  "missingLinks": []
+}

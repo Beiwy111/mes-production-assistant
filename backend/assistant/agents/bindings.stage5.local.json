@@ -1,0 +1,99 @@
+{
+  "schemaVersion": "1.0",
+  "status": "LIVE_BUSINESS_EVIDENCE_EIGHT_PROFILES_VERIFIED",
+  "sourceMode": "LOCAL_READONLY_PREVIEW",
+  "plugin": "langgenius/agent:0.0.51@3c6c32e593b33476cb52f4e5aaf1bf23e1c71b3d07ba64d40690e0dbce3a7e34",
+  "apps": {
+    "KNOWLEDGE": {
+      "app_id": "6224d5ee-bd56-4ad3-a77e-a0f5eea1e447",
+      "name": "MES 共享知识工具（第五阶段）",
+      "tool_id": "62bad1ad-0a38-4988-9603-01f876582fa6",
+      "published_version": "2026-11-08 09:27:38.017568",
+      "node_count": 7,
+      "graph_matches_local": null,
+      "secret_names": [
+        "KNOWLEDGE_API_KEY"
+      ]
+    },
+    "ORDER": {
+      "app_id": "b9f177c3-e232-4367-9401-36f7e237fdff",
+      "name": "MES 订单计划Agent（第五阶段）",
+      "tool_id": "c121be83-23dd-4c15-a2b8-0494746435a9",
+      "published_version": "2026-11-09 06:01:56.099684",
+      "node_count": 9,
+      "graph_matches_local": true,
+      "secret_names": [
+        "ROLE_API_KEY"
+      ]
+    },
+    "SUPPLY": {
+      "app_id": "1cd78b75-ed86-4589-bf38-75b337104a15",
+      "name": "MES 采购库存Agent（第五阶段）",
+      "tool_id": "8bc9f8cd-1d66-4e2a-85dc-394973bb93fc",
+      "published_version": "2026-11-15 16:38:32.987495",
+      "node_count": 9,
+      "graph_matches_local": true,
+      "secret_names": [
+        "ROLE_API_KEY"
+      ]
+    },
+    "PRODUCTION": {
+      "app_id": "90aceeba-bed6-434a-9945-931bb809721a",
+      "name": "MES 生产调度Agent（第五阶段）",
+      "tool_id": "eeba6610-b847-4433-af6b-15a1b6eeff09",
+      "published_version": "2026-11-15 16:38:33.216372",
+      "node_count": 9,
+      "graph_matches_local": true,
+      "secret_names": [
+        "ROLE_API_KEY"
+      ]
+    },
+    "QUALITY": {
+      "app_id": "728429ed-ad64-43fc-8433-018b74a66725",
+      "name": "MES 质量检测Agent（第五阶段）",
+      "tool_id": "c03bc38d-fa42-40e3-8009-451c737a59f6",
+      "published_version": "2026-11-14 15:03:55.897667",
+      "node_count": 10,
+      "graph_matches_local": true,
+      "secret_names": [
+        "ROLE_API_KEY"
+      ]
+    },
+    "EQUIPMENT": {
+      "app_id": "a86a9204-d860-4116-b258-3fda12f92566",
+      "name": "MES 设备保障Agent（第五阶段）",
+      "tool_id": "2473a42b-da92-4d2e-ab9e-b88dc855ad11",
+      "published_version": "2026-11-15 12:34:28.453683",
+      "node_count": 9,
+      "graph_matches_local": true,
+      "secret_names": [
+        "ROLE_API_KEY"
+      ]
+    },
+    "AFTERSALES": {
+      "app_id": "850e0f0d-3e72-4dbd-b23d-dd64319ef155",
+      "name": "MES 售后追溯Agent（第五阶段）",
+      "tool_id": "d37cdf7b-9d61-4508-b1dc-483ab5eb9465",
+      "published_version": "2026-11-09 08:24:20.717085",
+      "node_count": 10,
+      "graph_matches_local": true,
+      "secret_names": [
+        "ROLE_API_KEY"
+      ]
+    },
+    "SUP": {
+      "app_id": "82cda4ca-f087-48c6-9f1b-f8004e55fd4d",
+      "name": "MES 总协调Agent（第五阶段）",
+      "tool_id": null,
+      "published_version": "2026-11-15 16:38:32.707508",
+      "node_count": 56,
+      "graph_matches_local": true,
+      "secret_names": [
+        "ROLE_API_KEY"
+      ]
+    }
+  },
+  "lastVerifiedAt": "2026-11-08T09:47:44.174116+00:00",
+  "live_verified_client_date": "2026-11-09",
+  "businessEvidenceVersion": "order-business-2"
+}

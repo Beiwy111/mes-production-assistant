@@ -1,0 +1,15 @@
+# Independent from Dify/MES. Use --project-name mes-knowledge-local.
+services:
+  qdrant:
+    image: qdrant/qdrant:v1.20.0
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:16333:6333"
+    environment:
+      QDRANT__SERVICE__API_KEY: ${QDRANT__SERVICE__API_KEY:?Set private writer credential}
+      QDRANT__SERVICE__READ_ONLY_API_KEY: ${QDRANT__SERVICE__READ_ONLY_API_KEY:?Set private reader credential}
+      QDRANT__TELEMETRY_DISABLED: "true"
+    volumes:
+      - mes_knowledge_qdrant:/qdrant/storage
+volumes:
+  mes_knowledge_qdrant:

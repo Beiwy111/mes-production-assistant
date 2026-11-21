@@ -1,0 +1,53 @@
+/* Unicode-range subsets load only as needed, served locally. SIL OFL-1.1. */
+@import '@fontsource-variable/noto-sans-sc/wght.css';
+/* Workspace-only theme. See THIRD_PARTY_NOTICES.md for font notices. */
+@font-face {
+  font-family: 'MES Inter'; font-style: normal; font-weight: 100 900; font-display: swap;
+  src: url('@fontsource-variable/inter/files/inter-latin-wght-normal.woff2') format('woff2');
+  unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;
+}
+@font-face {
+  font-family: 'MES Mono'; font-style: normal; font-weight: 100 800; font-display: swap;
+  src: url('@fontsource-variable/jetbrains-mono/files/jetbrains-mono-latin-wght-normal.woff2') format('woff2');
+  unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;
+}
+.agent-workbench {
+  --mes-bg-primary: #ffffff;
+  --mes-bg-sidebar: #f8f9fc;
+  --mes-bg-panel: #f5f6f9;
+  --mes-bg-hover: #eef0f5;
+  --mes-bg-selected: #eeebf6;
+  --mes-text-primary: #242833;
+  --mes-text-secondary: #626b7a;
+  --mes-text-muted: #687181;
+  --mes-border-primary: #e3e6ee;
+  --mes-border-subtle: #edf0f5;
+  --mes-accent: #6e5a9b;
+  --mes-accent-hover: #594782;
+  --mes-accent-soft: #f1eef8;
+  --mes-success: #28765a;
+  --mes-warning: #94621e;
+  --mes-danger: #b34248;
+  --mes-radius-sm: 6px;
+  --mes-radius-md: 10px;
+  --mes-radius-lg: 14px;
+  --mes-radius-xl: 18px;
+  --mes-motion-fast: 150ms;
+  --mes-motion-normal: 220ms;
+  --mes-ease: cubic-bezier(.2,.7,.2,1);
+  --mes-shadow-composer: 0 2px 8px #20232e06, 0 8px 24px #20232e04;
+  --mes-focus-halo: 0 0 0 3px #6e5a9b0c;
+  --aw-bg: var(--mes-bg-primary); --aw-surface: var(--mes-bg-sidebar);
+  --aw-panel: var(--mes-bg-panel); --aw-hover: var(--mes-bg-hover);
+  --aw-border: var(--mes-border-primary); --aw-text: var(--mes-text-primary);
+  --aw-muted: var(--mes-text-secondary); --aw-subtle: var(--mes-text-muted);
+  --aw-success: var(--mes-success); --aw-warning: var(--mes-warning); --aw-danger: var(--mes-danger);
+  --aw-link: var(--mes-accent);
+  --aw-font-sans: 'MES Inter', 'Noto Sans SC Variable', 'Microsoft YaHei UI', 'PingFang SC', system-ui, sans-serif;
+  --aw-font-mono: 'MES Mono', 'Noto Sans SC Variable', 'Microsoft YaHei UI', 'PingFang SC', monospace;
+  --aw-text-size: 15px; --aw-label-size: 14px; --aw-meta-size: 12px;
+  --aw-header-height: 64px; --aw-content-width: 880px; --aw-content-gutter: 36px;
+  /* Existing MES heading rules inherit only these workspace-scoped values. */
+  --layout-text-title: var(--aw-text); --layout-text-body: var(--aw-text);
+  --layout-text-caption: var(--aw-muted); --text-main: var(--aw-text); --heading-color: var(--aw-text);
+}

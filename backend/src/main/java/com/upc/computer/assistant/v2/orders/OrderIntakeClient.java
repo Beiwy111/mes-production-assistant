@@ -1,0 +1,30 @@
+package com.upc.computer.assistant.v2.orders;
+
+import com.fasterxml.jackson.databind.*;
+import com.upc.computer.common.BusinessException;
+import org.springframework.stereotype.Component;
+import java.net.URI;
+import java.net.http.*;
+import java.time.Duration;
+import java.util.Map;
+
+@Component
+public class OrderIntakeClient {
+    private final ObjectMapper json;
+    private final HttpClient http=HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build();
+    public OrderIntakeClient(ObjectMapper json){this.json=json;}
+    public JsonNode interpret(String authorization,String text,Map<String,Object> context) {
+        try {
+            String body=json.writeValueAsString(Map.of("text",text,"context",json.writeValueAsString(context)));
+            HttpRequest request=HttpRequest.newBuilder(URI.create("http://127.0.0.1:18083/assistant-workbench/order-intake"))
+                    .timeout(Duration.ofSeconds(110)).header("Content-Type","application/json").header("Authorization",authorization)
+                    .POST(HttpRequest.BodyPublishers.ofString(body)).build();
+            HttpResponse<String> response=http.send(request,HttpResponse.BodyHandlers.ofString());
+            if(response.statusCode()!=200||response.body().length()>16000)throw new BusinessException(503,"订单理解服务暂不可用，请稍后重试；尚未提交订单");
+            JsonNode parsed=json.readTree(response.body());
+            if(!parsed.isObject())throw new IllegalArgumentException();return parsed;
+        }catch(BusinessException ex){throw ex;}
+        catch(InterruptedException ex){Thread.currentThread().interrupt();throw new BusinessException(503,"订单理解已中断，尚未提交订单");}
+        catch(Exception ex){throw new BusinessException(503,"订单理解服务暂不可用，草稿和已有订单未被提交或修改");}
+    }
+}

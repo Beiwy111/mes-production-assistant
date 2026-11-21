@@ -1,0 +1,25 @@
+# 可选 profile：assistant-v2。开启后使用 Dify 接入；关闭时保留原助手。
+# 无需启用此 profile 即可正常使用原系统；即使加载它，开关默认仍是 false。
+spring:
+  config:
+    activate:
+      on-profile: assistant-v2
+
+assistant:
+  v2:
+    enabled: ${ASSISTANT_V2_ENABLED:false}
+    assets-root: ${ASSISTANT_V2_ASSETS_ROOT:}
+    dify:
+      base-url: ${ASSISTANT_V2_DIFY_BASE_URL:}
+      api-key: ${ASSISTANT_V2_DIFY_API_KEY:}
+      connect-timeout: ${ASSISTANT_V2_DIFY_CONNECT_TIMEOUT:5s}
+      read-timeout: ${ASSISTANT_V2_DIFY_READ_TIMEOUT:120s}
+    knowledge:
+      enabled: ${ASSISTANT_V2_KNOWLEDGE_ENABLED:false}
+      base-url: ${ASSISTANT_V2_KNOWLEDGE_BASE_URL:}
+      api-key: ${ASSISTANT_V2_KNOWLEDGE_API_KEY:}
+      connect-timeout: ${ASSISTANT_V2_KNOWLEDGE_CONNECT_TIMEOUT:5s}
+      read-timeout: ${ASSISTANT_V2_KNOWLEDGE_READ_TIMEOUT:120s}
+    runtime:
+      run-timeout: ${ASSISTANT_V2_RUN_TIMEOUT:10m}
+      retention: ${ASSISTANT_V2_RETENTION:24h}

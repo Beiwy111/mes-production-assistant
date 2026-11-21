@@ -1,0 +1,96 @@
+# 新助手工作台独立网关
+
+自然语言下单已接入：详见 [CONVERSATIONAL-ORDER-SETUP.md](CONVERSATIONAL-ORDER-SETUP.md)。管理员和订单员可代录订单，客户可按自身绑定身份下单；旧有全域查询仍限管理员。新增下单分支与下述只读查询分支分别鉴权。
+
+## 日常一键启动（2026-11-14）
+
+在项目根目录双击 `Start-Assistant.cmd`。它会打开启动结果窗口，启动 Docker Desktop，恢复本项目已安装的 Dify、Qdrant、Neo4j 容器，再依次启动 Python 知识服务（18081）、Agent 运行时（18082）、聊天网关（18083）。已运行服务跳过；重复点击有启动锁保护。完成后打开 `http://localhost:5173/assistant`，或在现有页面点击“重新连接”。
+
+原后端仍在 `backend` 执行 `mvn spring-boot:run`，原前端仍在 `frontend` 执行 `npm run dev`；脚本不启动、停止或重新编译它们，不覆盖配置或密钥，不拉取镜像、不重建容器、不执行初始化容器、不修改业务数据。此入口用于当前已部署的本机环境，不是首次安装工具。关闭结果窗口不会关闭后台服务。
+
+终端也可在项目根目录运行 `powershell -NoProfile -ExecutionPolicy Bypass -File .\backend\assistant\deploy\Start-AssistantLocal.ps1`。每个阶段默认等待180秒，较慢电脑可追加 `-TimeoutSeconds 300`。`[SKIP]` 表示已运行，`[READY]` 表示就绪探测通过，`[FAILED]` 表示需处理原因后再运行。端口被其他进程占用时保留该进程并报错；运行中但不健康的服务不会被强制重启。
+
+探测验证服务响应及带健康检查的容器状态；网关匿名401表示鉴权接口就绪，不代表已登录或模型调用成功。启动过程不调用收费模型API；登录与业务查询在浏览器验证。缺少容器、虚拟环境或编译产物时明确报错，按对应阶段文档恢复即可；独立服务日志位于 `backend/assistant/rag/logs`。Docker Desktop 自身可能按既有重启策略恢复其他容器，本脚本的显式启动仅限三个助手项目。
+
+现有 MES 继续监听 `8088`；维护运行时监听 `18082`；新增网关只绑定 `127.0.0.1:18083`。启动网关不会重启 MES，也不会修改原助手或 Dify 应用。前端通过 Vite 同源 `/api/assistant-workbench` 代理访问网关 `/assistant-workbench`。
+
+1. 保留现有 `.env.agents.local` 与订单白名单。网关复用其中 BOOTSTRAP 和只读 JDBC 配置；管理员授权通过新固定 SELECT 同时验证当前用户、角色均启用且角色为 ADMIN。
+2. 将 `.env.workbench.local.example` 复制为 `.env.workbench.local`，填入第五阶段 SUP 应用（`82cda4ca-f087-48c6-9f1b-f8004e55fd4d`）的**应用 API 密钥**。此文件已被 `backend/assistant/.gitignore` 忽略，不得提交。默认 Dify API 地址为 `http://127.0.0.1:18080/v1`。不要放入浏览器环境或聊天。
+3. 运行 `Build-AssistantRuntime.ps1`，构建输出位于 `assistant/rag/data/runtime-build/classes`，不覆盖正在运行的 MES 的 `target/classes`。仅在确认 PID 属于 `stage5-java.args` 对应的独立 JVM 后重启该 JVM，运行 `Start-AgentRuntimeLocal.ps1`；不要停止原 MES。
+4. 运行 `powershell -File backend/assistant/deploy/Start-WorkbenchLocal.ps1 -Build`。脚本隐藏启动窗口，拒绝占用端口，不会停止已有进程。密钥为空时网关可启动，已认证管理员访问 status 返回 `configured:false`。
+5. 填好密钥后只重启有 PID 和命令行确认的 `workbench-java.args` 对应网关 JVM。密钥读取发生在启动时；没有热更新。
+
+## 使用新界面
+
+原 MES 后端、Dify 和独立运行时保持运行。在 `frontend` 执行 `npm run dev`，打开 `http://127.0.0.1:5173/assistant`，使用现有管理员账号登录；也可以从系统侧栏进入“生产协作助手”。直接输入“查库存”“看生产进度”“分析质量问题”或“订单 ID 123 能交付吗”，无需选择订单和场景。总协调规划问题并派发必要的专家；缺少具体订单时先追问。卡片显示真正启动的 Agent，展开查看摘要；“业务证据”展示查询范围、记录总数及全部已取回明细（最多100条），默认折叠。
+
+原“智能对话”位于 `/chat`，继续使用原助手。自然语言查询仍限当前已登录且实时验证的 ADMIN，可查现有订单，不再受100/101维护预览白名单限制；旧显式预览请求仍受白名单限制。新入口仅查询和分析。生产静态部署时需由反向代理配置同源 `/api/assistant-workbench` 转发至18083；Vite配置仅用于本地开发。
+
+## 浏览器协议
+
+所有接口都要求当前 MES 的 `Authorization: Bearer ...`。每次请求向 `/auth/userInfo` 验证会话，并通过新只读查询验证当前 ADMIN 权限。不使用缓存角色作为授权依据。模型只选择固定查询计划，不能生成SQL、业务URL或授权。
+
+- `GET /assistant-workbench/status` → `{configured,available,naturalLanguage,message,allowedOrderIds,profiles}`。available 表示配置已备齐，不表示已完成 Dify 端到端探测。allowedOrderIds/profiles仅用于兼容旧显式请求。
+- `POST /assistant-workbench/runs/stream`，JSON `{text,sessionId,requestId,previousRunId?}`。text 1–2000 字符；sessionId/requestId 为 1–80 位字母、数字、下划线、连字符。previousRunId 必须属于同一用户、同一会话的已完成自然运行，服务端上下文有效期10分钟。旧历史不自动作为自然运行上下文。重复请求10分钟内返回409，不自动重跑。旧 `{text,orderPk,profile,sessionId,requestId}` 请求保持兼容。
+- `GET /assistant-workbench/runs/{runId}` → `{runId,status,agents,result?}`；`POST .../{runId}/cancel`，JSON `{}`。均检查当前用户归属，其他用户返回 404。
+- NDJSON 扁平事件：`{type:"run",runId}`、`{type:"agent",agentId,status,summary?,evidence?,startedAt?,completedAt?}`、`{type:"result",data:{reply,facts,missing,verdict,...}}`、`{type:"error",message}`、`{type:"done"}`。忽略空白行。HTTP 非 2xx 错误为 `{message:固定错误码}`。
+
+SUP 状态来自 Dify workflow_started/finished 事件；六领域任务来自运行时实际 begin/complete/cancel 状态，未执行角色不生成事件。摘要为模型解释，不能视为业务事实。reply 来自 SUP 工作流最终 answer；facts、missing、verdict 等来自运行时最后一次真实 finalize，决策运行引用及 verdict 必须匹配。Dify 输入遵循已发布 DSL：`inputs.run_ref` 与 `inputs.query`。
+
+最多同时运行 2 次，最多保留 64 条运行/幂等记录，记录 TTL 10 分钟，单次截止 5 分钟。请求正文上限 32 KiB；事件/依赖响应均有限制。断开、取消、失败或超时均尽力取消运行时并停止 Dify task；原始内部异常、调用参数与密钥不输出。断流后不自动重复执行；上游停止只能尽力完成，已开始的只读查询可能结束后才响应取消。
+
+Dify SSE 单事件最多1,048,576字符、累计最多4,194,304字符，以容纳全域六专家产生的实际中间节点体积；这些诊断事件只用于读取生命周期，不转发内部内容。完成前会再次读取权威任务快照。若最终 verdict 为 DATA_CHANGED，缓存和后续恢复响应中的旧 Agent 摘要/证据会清空。
+
+生产部署需提供同源 TLS 反向代理、禁用流缓冲，并设置适当连接超时。当前内存状态不跨 JVM 重启保留，网关适用于单机受控工作台。
+
+## 自动规划与数据口径
+
+SUP新增读取上下文、规划LLM、校验JSON和提交计划节点，再通过原六个工作流工具调用业务Agent。必须同步发布 `agents/workflows/stage5` 的七个应用，沿用已有应用密钥；不需要另买模型API。公开RAG/GraphRAG工具继续提供有来源的方法知识，实时库存和订单事实以业务接口为准。
+
+概览支持当前记录、今天、最近7天、本月及一个名称/编号关键词。日期过滤以Asia/Shanghai和各表业务时间字段为准，不能作为历史时点库存。暂不支持的复杂条件先澄清；精确订单评估使用当前整单证据。库存按物料原单位逐行显示，不跨物料相加；账面可用量不等于确认可发货量。质量概览记录数不等于产品或缺陷数量。运行结束复核数据，变化时要求重新查询。
+
+## 质量分析与售后追溯（2026-11-09）
+
+直接提问“分析质量问题”“分析订单100的质量问题，给出核查依据”或“追溯订单100的售后质量问题”。精确订单售后流程先完成 QUALITY，再将同一运行的质量业务摘录与查询凭据交给 AFTERSALES；无需手动选择专家。没有案件时明确已查无登记案件，仍可解释已读取的工单、检验、领料和发货链。关系保留显式、候选及冲突状态，不自动确认责任或根因。
+
+QUALITY/AFTERSALES 的固定 research 节点调用 Java 运行时，运行时以白名单领域词访问现有 Python 知识服务，不把订单、客户或内部标识放入公开知识查询。`Start-AgentRuntimeLocal.ps1` 自动读取已有 `.env.knowledge.local` 的知识服务密钥，无需新购 API。Qdrant 提供原文片段，Neo4j 提供有页码、原句和文档版本支持的研究关系。无命中、图谱降级和服务不可用均明确显示；研究关系不能代替真实业务追溯。
+
+回答区的“Agent 协作过程”显示真实的业务读取、视觉证据核对、知识检索、分析完成事件。“业务与研究证据”默认折叠，包含样本口径、视觉来源、公开论文页码、图谱路径以及带引用的观察/待验证假设/建议。引用核验只确认来源属于本次任务，不保证模型解释正确。完成前重新读取业务指纹，数据变化时清除旧分析和引用。
+
+### 新检测的可选证据归档
+
+原 `POST /quality/vision/detect` 兼容无检验单调用。质检工作台现在附带当前实际 `inspectionId`；后端验证当前启用的 QC/ADMIN 身份及真实检验单，取得实际 YOLO 响应后，另存到 `backend/assistant/data/vision-evidence`，不改变业务表、检测结论、放行或入库逻辑。归档失败返回提示，不使原检测失败。
+
+这段兼容接入位于原 MES 后端，需要按原方式停止当前后端，再在 `backend` 执行 `mvn spring-boot:run` 才会加载。不要在运行中覆盖 `target/classes`。YOLO 服务沿用项目已有服务与权重，可使用 CPU；本轮未租 GPU。不能用联通测试图片绑定真实检验单。
+
+保存字段包括检验单、服务器时间、上传图像哈希、模型声明、算法声明、模拟标志、检测框与置信度。新schema2还保留用户上传原图、实际推理输入图和模型返回的标注图，并固定检测时的检验单号、批次、工单和物料。旧schema1仅有结果与哈希，历史图片无法补回；权重版本不可得时仍明确缺失。模拟记录不计入真实检测，图片数不等于产品数。
+
+归档目录已被 Git 忽略。若跨机器部署，需共享或同步该目录；也可在 MES 与独立运行时同时配置相同的绝对路径 `ASSISTANT_VISION_EVIDENCE_DIR`。每单上限100份，单次业务查询读取最多40份结果且总结果JSON内容64KiB；图片不进入LLM上下文或聊天历史。损坏、超限及缺失均显式标记不完整，不能作为“零缺陷”。
+
+### 图片保存与聊天查看
+
+在具体检验单的“AI智能外观检测”上传JPEG/PNG并检测。前端保留原有压缩推理行为，额外以可选`originalFile`传原始文件；无检验单的演示不归档。后台按实际字节验证格式、尺寸与哈希，批次取数据库记录，不采信客户端批次参数。单图上限10MiB、4000万像素，默认归档目录总预算2GiB；原图过大/格式不支持、标注未返回或空间不足时提示未保存/部分保存，不改变原质检结果。
+
+在新助手询问具体订单的质量或售后问题后，展开“查看业务与研究证据 → 视觉证据 → 归档记录”，点击“原图 / 标注图对照”或“查看推理输入图”，支持放大。标注坐标对应实际推理输入，原图分辨率可不同。历史回答需要重新提问才会取得新归档；未保存图片不会显示成可查看。
+
+读图接口`GET /quality/vision/evidence/{inspectionId}/{recordId}/{variant}`仅接受original/input/annotated。每次读取重新验证MES登录、当前启用的QC/ADMIN角色和检验单，返回真实JPEG/PNG并设no-store，未提供公开静态目录。浏览器以Bearer读取blob，关闭/退出登录/数据变化时释放，不把令牌写入链接。Agent收到元数据和检测数据，并未自动阅读图像像素；当前无需新增模型API或GPU。
+
+文件名由服务端生成，图片先保存、结果manifest最后提交；满额时不会自动清理旧证据。可通过保存图片的MES JVM系统属性`assistant.vision.max-storage-bytes`调整预算，默认无需配置。该目录需自行定期备份，不能作为生产级对象存储或长期备份系统。
+
+## 动态 Agent 协作面板（2026-11-09）
+
+新自然语言运行通过既有流式连接新增 `workflow` 快照，无需安装 AgentScope 或配置新 API。沿用 Dify 总协调与六个业务 Agent，Vue 聊天区展示确认计划、实际开始的角色、业务读取/知识检索步骤和前序依据交接。计划中的角色未执行时标为等待，不表示所有专家都已调用。独立角色不绘制虚构的顺序依赖。
+
+`GET /assistant-workbench/runs/{runId}` 增加可选 `workflow`；NDJSON 新增 `{type:"workflow",runId,plan,events,invalidated,truncated?}`。plan 只包含 action、requiredAgents、dependencies、confirmedAt。事件仅取运行时真实生命周期，包含 seq、kind、agentId、可选 taskId/fromAgent/toAgent、status、label、detail、at；不转发内部提示词、模型思维过程或原始 Dify 调试内容。单运行最多128条，超出时明确标记截断。短步骤可能同一轮到达，但起止记录保留。
+
+运行时自动展开协作卡片，完成后收起，点击可重新查看。动态效果只表示正在运行的已知步骤。停止、失败、断流或重新打开历史后停止动画；旧历史没有计划/时间线时只展示原有观测记录。数据复核发现变化时清空计划、交接与旧证据，恢复接口同样清空，不以旧图片或论文引用继续下结论。
+
+这是现有 Dify 调用过程的实时可视化，并未替换执行引擎，也未新增任意重规划、循环重试或写业务权限。更新只需加载独立18082/18083运行时和刷新前端。部署时先隔离编译，确认并停止这两个独立 JVM 后再替换其类文件；原8088、Dify、数据库和知识库无需重启。
+
+## 库存结果与新界面（2026-11-09）
+
+查询当前库存时，物料供应Agent返回数据后，协作过程显示物料名称、可用量、单位、仓库和批次，标注等待最终复核。数据按实际返回批次显示；动画只标示当前运行，不模拟逐物料查询。最终回答直接展示库存一览表，包含现存、预留、可用量及仓库/批次。支持在已返回记录中筛选与每页10条翻页；筛选框不会发起数据库查询。
+
+完整的单库存请求显示短总结，完整文字保留在折叠区。混合查询、截断或证据不足时保留原有解释。失效、取消或缺失证据不显示过期的临时结果。库存原值只做小数/千分位格式化，不重新计算或跨单位相加。
+
+本轮参考Element Plus X的执行链与内容区交互，在现有Vue组件内自行实现，无新UI依赖。刷新前端即可，无需新增API或重启Dify、MES与独立助手。实施及验证详见docs/ai-planning-2026-11-07/planning/26-conversational-results-ui.md。

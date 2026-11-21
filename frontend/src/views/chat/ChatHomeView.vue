@@ -1,0 +1,582 @@
+<script setup>
+import { computed, nextTick, ref, watch, onBeforeUnmount } from 'vue'
+import { ElMessage } from 'element-plus'
+import {
+  MagicStick, Box, DataAnalysis, Bell, ShoppingCart,
+  Monitor, Checked, Van, Tools, Service, Coin, User
+} from '@element-plus/icons-vue'
+import { useUserStore } from '@/stores/user'
+import { useMesStore } from '@/stores/mes'
+import { useChatStore } from '@/stores/chat'
+import { asr, interpretStream, execute } from '@/api/assistant'
+import ChatBubble from '@/components/chat/ChatBubble.vue'
+import ChatComposer from '@/components/chat/ChatComposer.vue'
+
+defineProps({ embedded: Boolean })
+const user = useUserStore()
+const mes = useMesStore()
+const chat = useChatStore()
+chat.ensureLoaded()
+
+const confirmCard = ref(null)
+const editParam = ref('')
+const inputText = ref('')
+const busy = ref(false)
+const recording = ref(false)
+const listEl = ref(null)
+const canCancelReply = ref(false)
+let disposed = false
+let replyAbort = null
+function stopReply() { replyAbort?.abort() }
+onBeforeUnmount(() => {
+  disposed = true
+  stopReply()
+  if (recording.value) import('@/utils/recorder').then(r => r.stopRecording()).catch(() => {})
+})
+watch(() => user.token, () => { if (canCancelReply.value) stopReply() })
+
+const messages = computed(() => chat.activeSession?.messages || [])
+const started = computed(() => messages.value.length > 0)
+
+// 切换会话 / 返回主页时，丢弃未处理的确认卡（提议属于旧会话上下文）
+watch(() => chat.activeId, () => {
+  if (canCancelReply.value) stopReply()
+  confirmCard.value = null
+  editParam.value = ''
+  scrollBottom()
+})
+
+const greeting = computed(() => {
+  const h = new Date().getHours()
+  if (h < 6) return '夜深了'
+  if (h < 12) return '早上好'
+  if (h < 14) return '中午好'
+  if (h < 18) return '下午好'
+  return '晚上好'
+})
+
+/** interpret 的 module 直接传角色码，后端 normalizeModule 会归一（admin→system 全放行） */
+const moduleKey = computed(() => user.roleKey || '')
+
+const ROLE_SUGGESTIONS = {
+  order: [
+    { icon: ShoppingCart, title: '对话下单', text: '给深圳华创下 200 台 27寸4K显示器' },
+    { icon: DataAnalysis, title: '订单概况', text: '订单什么情况' },
+    { icon: Box, title: '查库存', text: '查库存' },
+    { icon: Bell, title: '协办通知', text: '通知计划 新订单已审核，请尽快排产' }
+  ],
+  admin: [
+    { icon: ShoppingCart, title: '对话下单', text: '给深圳华创下 200 台 27寸4K显示器' },
+    { icon: Box, title: '查库存', text: '查库存' },
+    { icon: DataAnalysis, title: '生产概况', text: '生产什么情况' },
+    { icon: User, title: '用户概况', text: '系统里有多少用户' }
+  ],
+  manager: [
+    { icon: DataAnalysis, title: '生产概况', text: '生产什么情况' },
+    { icon: Monitor, title: '设备概况', text: '设备什么情况' },
+    { icon: Checked, title: '质检概况', text: '质检什么情况' },
+    { icon: Box, title: '查库存', text: '查库存' }
+  ],
+  planner: [
+    { icon: DataAnalysis, title: '生产概况', text: '生产什么情况' },
+    { icon: ShoppingCart, title: '订单概况', text: '订单什么情况' },
+    { icon: Box, title: '查库存', text: '查库存' },
+    { icon: Bell, title: '协办通知', text: '通知采购 请关注缺料风险' }
+  ],
+  operator: [
+    { icon: MagicStick, title: '接收派工', text: '接收派工' },
+    { icon: DataAnalysis, title: '生产概况', text: '生产什么情况' },
+    { icon: Bell, title: '协办通知', text: '通知设备 请检查产线设备状态' },
+    { icon: Box, title: '查库存', text: '查库存' }
+  ],
+  quality: [
+    { icon: Checked, title: '质检概况', text: '质检什么情况' },
+    { icon: DataAnalysis, title: '生产概况', text: '生产什么情况' },
+    { icon: Bell, title: '协办通知', text: '通知生产 不合格品正在复检中' },
+    { icon: Box, title: '查库存', text: '查库存' }
+  ],
+  warehouse: [
+    { icon: Box, title: '查库存', text: '查库存' },
+    { icon: Box, title: '物料查询', text: 'MAT-001 还有多少' },
+    { icon: Van, title: '仓库概况', text: '仓库什么情况' },
+    { icon: Bell, title: '协办通知', text: '通知采购 部分物料低于安全库存' }
+  ],
+  purchase: [
+    { icon: ShoppingCart, title: '采购概况', text: '采购什么情况' },
+    { icon: Box, title: '查库存', text: '查库存' },
+    { icon: Van, title: '到货确认', text: '采购单到货了' },
+    { icon: Bell, title: '协办通知', text: '通知仓库 明天有一批物料到货' }
+  ],
+  device: [
+    { icon: Monitor, title: '设备概况', text: '设备什么情况' },
+    { icon: Bell, title: '报警查询', text: '现在有多少报警' },
+    { icon: Tools, title: '设备诊断', text: 'EQ-001 健康怎么样' },
+    { icon: Bell, title: '协办通知', text: '通知生产 设备维护中请暂缓排产' }
+  ],
+  aftersale: [
+    { icon: Service, title: '售后概况', text: '售后什么情况' },
+    { icon: MagicStick, title: '受理工单', text: '受理最新的售后单' },
+    { icon: DataAnalysis, title: '客户追溯', text: '查一下星辰的售后' },
+    { icon: Bell, title: '协办通知', text: '通知质检 请协查售后质量问题' }
+  ],
+  cost: [
+    { icon: Coin, title: '成本概况', text: '成本什么情况' },
+    { icon: ShoppingCart, title: '订单概况', text: '订单什么情况' },
+    { icon: DataAnalysis, title: '生产概况', text: '生产什么情况' },
+    { icon: Bell, title: '协办通知', text: '通知订单 请核对本月订单金额' }
+  ]
+}
+const suggestions = computed(() => {
+  if (user.roleKey === 'customer') {
+    const name = user.userInfo?.customerName || user.displayName
+    return [
+      { icon: ShoppingCart, title: '对话下单', text: `给${name}下 100 台 27寸4K显示器` },
+      { icon: DataAnalysis, title: '订单进展', text: '订单什么情况' },
+      { icon: Monitor, title: '看看能订什么', text: '我要下一个订单' },
+      { icon: Service, title: '售后进展', text: '售后什么情况' }
+    ]
+  }
+  return ROLE_SUGGESTIONS[user.roleKey] || ROLE_SUGGESTIONS.admin
+})
+
+function scrollBottom() {
+  nextTick(() => { if (listEl.value) listEl.value.scrollTop = listEl.value.scrollHeight })
+}
+
+function push(role, text) {
+  chat.pushMessage(role, text)
+  scrollBottom()
+}
+
+async function send(text) {
+  const t = (text ?? inputText.value).trim()
+  if (!t || busy.value) return
+  inputText.value = ''
+  push('user', t)
+  const targetSession = chat.activeSession
+  const requestToken = user.token
+  const canWrite = () => user.token === requestToken && chat.sessions.some(s => s.id === targetSession?.id)
+  const appendReply = text => {
+    if (!canWrite()) return
+    targetSession.messages.push({ role: 'assistant', text })
+    chat.persist()
+  }
+  busy.value = true
+  canCancelReply.value = false
+  replyAbort = new AbortController()
+  let streamMessage = null
+  try {
+    const conversation = (targetSession?.messages || []).slice(0, -1).map((item) => ({
+      role: item.role,
+      text: item.text
+    }))
+    const r = await interpretStream({
+      sessionId: targetSession?.apiSessionId,
+      text: t,
+      module: moduleKey.value,
+      conversation
+    }, {
+      signal: replyAbort.signal,
+      onEvent(event) {
+        if (event.type === 'run') {
+          canCancelReply.value = true
+          if (chat.activeId !== targetSession?.id || user.token !== requestToken) stopReply()
+        }
+      },
+      onDelta(delta) {
+        if (!delta || !canWrite()) return
+        if (!streamMessage) {
+          targetSession.messages.push({ role: 'assistant', text: '' })
+          streamMessage = targetSession.messages.at(-1)
+        }
+        if (streamMessage) streamMessage.text += delta
+        scrollBottom()
+      }
+    })
+    if (streamMessage && canWrite()) chat.persist()
+    if (canWrite() && chat.activeId === targetSession?.id) handle(r, { skipReply: Boolean(streamMessage) || r.streamed })
+  } catch (e) {
+    if (streamMessage && canWrite()) chat.persist()
+    appendReply(e.name === 'AbortError' ? '已停止等待。' : '出错了：' + (e.message || '请求失败'))
+  } finally {
+    canCancelReply.value = false
+    replyAbort = null
+    busy.value = false
+    scrollBottom()
+  }
+}
+
+function handle(r, { skipReply = false } = {}) {
+  if (r.reply && !skipReply) push('assistant', r.reply)
+  if (r.type === 'confirm') {
+    confirmCard.value = r
+    editParam.value = ''
+    scrollBottom()
+  }
+}
+
+async function onApprove(decision) {
+  if (!confirmCard.value || busy.value) return
+  busy.value = true
+  const card = confirmCard.value
+  const body = {
+    proposalId: card.proposalId,
+    decision,
+    operator: user.userInfo?.username || '',
+    roleKey: user.roleKey || ''
+  }
+  if (decision === 'MODIFY' && editParam.value.trim() && card.editable?.key) {
+    body.finalParams = { [card.editable.key]: editParam.value.trim() }
+  }
+  try {
+    const res = await execute(body)
+    push('assistant', res.reply)
+    confirmCard.value = null
+    if (res.ok) {
+      ElMessage.success((res.reply || '已执行').split('\n')[0])
+      mes.hydrateFromApi({ force: true }).catch(() => {})
+    }
+    if (res.next) handle(res.next)
+  } catch (e) {
+    push('assistant', '执行失败：' + (e.message || ''))
+  } finally {
+    busy.value = false
+    scrollBottom()
+  }
+}
+
+function cancelConfirm() {
+  if (confirmCard.value) onApprove('SKIP')
+}
+
+async function toggleMic() {
+  if (busy.value) return
+  if (!recording.value) {
+    if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) {
+      ElMessage.warning('当前为普通 HTTP 访问，浏览器禁用了麦克风；请改用 HTTPS 或 localhost 后录音，文字对话不受影响。')
+      return
+    }
+    try {
+      const { startRecording } = await import('@/utils/recorder')
+      await startRecording()
+      if (disposed) { const { stopRecording } = await import('@/utils/recorder'); await stopRecording(); return }
+      recording.value = true
+    } catch (e) {
+      ElMessage.error(e.message || '无法打开麦克风，请检查浏览器授权')
+    }
+    return
+  }
+  recording.value = false
+  busy.value = true
+  let text = ''
+  try {
+    const { stopRecording } = await import('@/utils/recorder')
+    const blob = await stopRecording()
+    if (!blob || blob.size < 2000) {
+      busy.value = false
+      push('assistant', '没录到声音。点一下麦克风开始，说完再点一次停止。')
+      return
+    }
+    const res = await asr(blob)
+    text = res.text
+  } catch (e) {
+    busy.value = false
+    push('assistant', '识别失败：' + (e.message || ''))
+    return
+  }
+  busy.value = false
+  if (disposed) return
+  if (text) await send(text)
+  else push('assistant', '没识别到内容，请靠近麦克风重试。')
+}
+</script>
+
+<template>
+  <div class="chat-home" :class="{ 'is-started': started }">
+    <!-- ═══ 欢迎态：居中问候 + 大输入框 + 建议卡 ═══ -->
+    <div v-if="embedded && chat.sessions.length" class="action-history"><select aria-label="业务指令历史" :value="chat.activeId || ''" @change="$event.target.value ? chat.setActive($event.target.value) : chat.exitToHome()"><option value="">新业务指令</option><option v-for="item in chat.sessions" :key="item.id" :value="item.id">{{ item.title }}</option></select></div>
+    <div v-if="!started" class="ch-hero">
+      <div v-if="!embedded" class="ch-badge">MES 智能工作台</div>
+      <h1 v-if="!embedded" class="ch-greet">{{ greeting }}，{{ user.displayName }}</h1>
+
+      <ChatComposer
+        v-model="inputText"
+        variant="hero"
+        :busy="busy"
+        :recording="recording"
+        placeholder="今天想完成什么？直接用一句话描述，例如「给深圳华创下 200 台 27寸4K显示器」"
+        @send="send()"
+        @mic="toggleMic"
+      >
+        <template #meta>{{ user.userInfo?.roleName || '成员' }} · 按角色执行，写操作先确认</template>
+      </ChatComposer>
+
+      <div class="ch-suggest-head">试试这些</div>
+      <div class="ch-suggest-grid">
+        <button v-for="(s, i) in suggestions" :key="i" class="ch-suggest" @click="send(s.text)">
+          <el-icon class="ch-suggest-icon"><component :is="s.icon" /></el-icon>
+          <span class="ch-suggest-title">{{ s.title }}</span>
+          <span class="ch-suggest-text">{{ s.text }}</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- ═══ 对话态：消息流 + 底部输入 ═══ -->
+    <template v-else>
+      <div ref="listEl" class="ch-thread">
+        <div class="ch-thread-inner">
+          <ChatBubble v-for="(m, i) in messages" :key="i" :role="m.role" :text="m.text" />
+
+          <!-- 人工闸门确认卡 -->
+          <div v-if="confirmCard" class="ch-gate">
+            <div class="ch-gate-title">待你确认</div>
+            <pre class="ch-gate-body">{{ confirmCard.humanReadable }}</pre>
+            <el-input
+              v-if="confirmCard.editable"
+              v-model="editParam" size="small" type="textarea" :rows="2"
+              :placeholder="confirmCard.editable.placeholder" />
+            <div class="ch-gate-btns">
+              <el-button type="primary" :loading="busy"
+                @click="onApprove(editParam.trim() && confirmCard.editable ? 'MODIFY' : 'APPROVE')">确认执行</el-button>
+              <el-button @click="cancelConfirm">取消</el-button>
+            </div>
+          </div>
+
+          <div v-if="busy && !confirmCard" class="ch-typing" aria-label="正在回复">
+            <span></span><span></span><span></span>
+          </div>
+          <div class="ch-thread-spacer" aria-hidden="true" />
+        </div>
+      </div>
+
+      <div class="ch-footer">
+        <el-button v-if="busy && canCancelReply" size="small" @click="stopReply">停止等待</el-button>
+        <ChatComposer
+          v-model="inputText"
+          variant="slim"
+          class="ch-footer-composer"
+          :busy="busy"
+          :recording="recording"
+          placeholder="继续对话，回车发送…"
+          @send="send()"
+          @mic="toggleMic"
+        />
+      </div>
+    </template>
+  </div>
+</template>
+
+<style scoped>
+.chat-home {
+  min-height: calc(100vh - 96px);
+  display: flex;
+  flex-direction: column;
+  font-family: Inter, "PingFang SC", "Noto Sans SC", "Microsoft YaHei", system-ui, sans-serif;
+  font-size: 15px;
+  font-weight: 400;
+  line-height: 1.7;
+  color: #1f2937;
+  background: #fafbfc;
+}
+
+/* ─── 欢迎态 ─── */
+.ch-hero {
+  flex: 1;
+  max-width: 900px;
+  width: 100%;
+  margin: 0 auto;
+  padding: 48px 24px 40px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  box-sizing: border-box;
+}
+.ch-badge {
+  padding: 4px 12px;
+  border-radius: 6px;
+  background: #ddeff0;
+  color: #1f2937;
+  font-size: 13px;
+  font-weight: 500;
+  margin-bottom: 24px;
+}
+.ch-greet {
+  margin: 0 0 28px;
+  font-size: 32px;
+  font-weight: 600;
+  line-height: 1.3;
+  color: #1f2937;
+  text-align: center;
+}
+.ch-hero :deep(.chat-composer) {
+  width: 100%;
+  max-width: 860px;
+}
+
+.ch-suggest-head {
+  align-self: flex-start;
+  width: 100%;
+  max-width: 860px;
+  margin: 32px 0 10px;
+  font-size: 13px;
+  font-weight: 400;
+  color: #6b7280;
+}
+.ch-suggest-grid {
+  width: 100%;
+  max-width: 860px;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 10px;
+}
+.ch-suggest {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 12px 14px;
+  background: #fff;
+  border: 1px solid #dce3e8;
+  border-radius: 10px;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.15s, border-color 0.15s;
+}
+.ch-suggest:hover {
+  background: #f8fafb;
+  border-color: #c5d0d8;
+}
+.ch-suggest-icon {
+  color: #667085;
+  font-size: 17px;
+}
+.ch-suggest-title {
+  font-size: 14px;
+  font-weight: 500;
+  color: #1f2937;
+}
+.ch-suggest-text {
+  font-size: 13px;
+  font-weight: 400;
+  color: #667085;
+  line-height: 1.5;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* ─── 对话态 ─── */
+.chat-home.is-started {
+  min-height: calc(100vh - 96px);
+  height: calc(100vh - 96px);
+}
+
+.ch-thread {
+  flex: 1;
+  overflow-y: auto;
+  padding: 28px 20px 0;
+  scroll-behavior: smooth;
+}
+.ch-thread-inner {
+  max-width: 900px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  padding-bottom: 8px;
+}
+.ch-thread-spacer {
+  flex-shrink: 0;
+  height: 120px;
+}
+
+.ch-gate {
+  width: 100%;
+  max-width: 100%;
+  background: #fff;
+  border: 1px solid #dce3e8;
+  border-left: 3px solid #7eb8bd;
+  border-radius: 8px;
+  padding: 14px 16px;
+  box-sizing: border-box;
+}
+.ch-gate-title {
+  font-size: 14px;
+  font-weight: 500;
+  color: #1f2937;
+  margin-bottom: 8px;
+}
+.ch-gate-body {
+  margin: 0 0 10px;
+  font-size: 15px;
+  font-weight: 400;
+  line-height: 1.7;
+  white-space: pre-wrap;
+  font-family: inherit;
+  color: #2f2f2f;
+}
+.ch-gate-btns {
+  display: flex;
+  gap: 10px;
+  margin-top: 10px;
+  flex-wrap: wrap;
+}
+
+.ch-typing {
+  display: flex;
+  gap: 5px;
+  padding: 4px 0;
+}
+.ch-typing span {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #667085;
+  animation: ch-blink 1.2s infinite ease-in-out;
+}
+.ch-typing span:nth-child(2) { animation-delay: 0.2s; }
+.ch-typing span:nth-child(3) { animation-delay: 0.4s; }
+@keyframes ch-blink { 0%, 80%, 100% { opacity: 0.25; } 40% { opacity: 1; } }
+
+.ch-footer {
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  padding: 12px 20px 20px;
+  background: linear-gradient(to top, #fafbfc 75%, rgba(250, 251, 252, 0));
+  box-sizing: border-box;
+}
+.ch-footer-composer {
+  max-width: 900px;
+  margin: 0 auto;
+}
+
+@media (max-width: 768px) {
+  .ch-hero {
+    padding: 32px 16px 28px;
+  }
+  .ch-greet {
+    font-size: 26px;
+  }
+  .ch-suggest-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+  .ch-thread {
+    padding: 20px 12px 0;
+  }
+  .ch-footer {
+    padding: 10px 12px 16px;
+  }
+  .ch-thread-spacer {
+    height: 100px;
+  }
+}
+
+@media (max-width: 480px) {
+  .ch-suggest-grid {
+    grid-template-columns: 1fr;
+  }
+}
+</style>

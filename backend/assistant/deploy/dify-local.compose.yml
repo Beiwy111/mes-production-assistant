@@ -1,0 +1,64 @@
+# 配合 Dify 1.19.0 官方 docker/docker-compose.yaml 使用。
+# 只开放本机 18080；运行数据使用 Docker Linux 命名卷，避免 PostgreSQL 写入 NTFS。
+services:
+  web:
+    environment:
+      NEXT_PUBLIC_SOCKET_URL: "ws://127.0.0.1:18080"
+  nginx:
+    ports: !override
+      - "127.0.0.1:18080:80"
+  plugin_daemon:
+    ports: !reset []
+    depends_on:
+      init_plugin_permissions:
+        condition: service_completed_successfully
+    volumes:
+      - mes_dify_plugins:/app/storage
+  init_plugin_permissions:
+    image: busybox:latest
+    user: "0:0"
+    network_mode: none
+    command: ["chown", "1001:1001", "/plugin-storage"]
+    restart: "no"
+    volumes:
+      - mes_dify_plugins:/plugin-storage
+  init_permissions:
+    volumes:
+      - mes_dify_storage:/app/api/storage
+  api:
+    environment:
+      CONSOLE_API_URL: "http://127.0.0.1:18080"
+      CODE_EXECUTION_API_KEY: "${SANDBOX_API_KEY:?Local sandbox credential is required}"
+    volumes:
+      - mes_dify_storage:/app/api/storage
+  worker:
+    environment:
+      CODE_EXECUTION_API_KEY: "${SANDBOX_API_KEY:?Local sandbox credential is required}"
+    volumes:
+      - mes_dify_storage:/app/api/storage
+  db_postgres:
+    volumes:
+      - mes_dify_postgres:/var/lib/postgresql/data
+  redis:
+    volumes:
+      - mes_dify_redis:/data
+  weaviate:
+    volumes:
+      - mes_dify_weaviate:/var/lib/weaviate
+  sandbox:
+    volumes:
+      - mes_dify_sandbox_dependencies:/dependencies
+      - mes_dify_sandbox_conf:/conf
+  ssrf_proxy:
+    environment:
+      # Docker Desktop host only; do not allow all RFC1918/private networks.
+      # Applies to this trusted local Dify instance, not just one Workflow.
+      SSRF_PROXY_ALLOW_PRIVATE_DOMAINS: "host.docker.internal"
+volumes:
+  mes_dify_plugins:
+  mes_dify_storage:
+  mes_dify_postgres:
+  mes_dify_redis:
+  mes_dify_weaviate:
+  mes_dify_sandbox_dependencies:
+  mes_dify_sandbox_conf:

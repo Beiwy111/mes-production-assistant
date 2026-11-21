@@ -1,0 +1,214 @@
+{
+  "schema_version": 1,
+  "curation_note": "Source passages checked by coding assistant on 2026-11-08. SOURCE_VERIFIED means text support, not human-approved factory standards or causal conclusions. No project DRAFT cards included.",
+  "entities": [
+    {
+      "id": "DEF_LCD",
+      "kind": "DefectConcept",
+      "name": "LCD显示屏缺陷",
+      "aliases": [
+        "LCD缺陷",
+        "显示屏缺陷",
+        "液晶缺陷"
+      ]
+    },
+    {
+      "id": "DEF_MURA",
+      "kind": "DefectConcept",
+      "name": "Mura缺陷",
+      "aliases": [
+        "Mura",
+        "亮度不均",
+        "云斑"
+      ]
+    },
+    {
+      "id": "DEF_CROSSTALK",
+      "kind": "DefectConcept",
+      "name": "串扰缺陷",
+      "aliases": [
+        "串扰",
+        "Crosstalk"
+      ]
+    },
+    {
+      "id": "METHOD_YOLO_DEI",
+      "kind": "Method",
+      "name": "YOLO-DEI",
+      "aliases": [
+        "YOLO-DEI",
+        "YOLO DEI"
+      ]
+    },
+    {
+      "id": "METHOD_DCN",
+      "kind": "Method",
+      "name": "DCNv2",
+      "aliases": [
+        "DCNv2",
+        "可变形卷积"
+      ]
+    },
+    {
+      "id": "METHOD_PGC",
+      "kind": "Method",
+      "name": "分段伽马校正",
+      "aliases": [
+        "PGC",
+        "分段伽马",
+        "分段Gamma"
+      ]
+    },
+    {
+      "id": "METHOD_APSO",
+      "kind": "Method",
+      "name": "APSO参数优化",
+      "aliases": [
+        "APSO"
+      ]
+    },
+    {
+      "id": "METHOD_CNN",
+      "kind": "Method",
+      "name": "CNN分类",
+      "aliases": [
+        "CNN分类",
+        "卷积神经网络分类"
+      ]
+    },
+    {
+      "id": "METHOD_SCCFF",
+      "kind": "Method",
+      "name": "显著颜色通道频域滤波",
+      "aliases": [
+        "显著颜色通道",
+        "频域滤波",
+        "SCCFF"
+      ]
+    },
+    {
+      "id": "METHOD_HFT",
+      "kind": "Method",
+      "name": "超复数傅里叶变换",
+      "aliases": [
+        "超复数傅里叶",
+        "hyper-complex Fourier"
+      ]
+    },
+    {
+      "id": "METHOD_RGBY",
+      "kind": "Method",
+      "name": "最大相对熵通道选择",
+      "aliases": [
+        "RGBY",
+        "最大相对熵"
+      ]
+    }
+  ],
+  "claims": [
+    {
+      "id": "CL_LCD_YOLO",
+      "subject": "METHOD_YOLO_DEI",
+      "object": "DEF_LCD",
+      "relation": "DETECTS",
+      "document_id": "P01",
+      "document_version": "eb7e4098eb47ca2c59429a510953655f79c8569b298c5b8ed6c2ce65c2e5b023",
+      "page": 1,
+      "quote": "To address these challenges, this paper presents the YOLO-DEI (Deep Enhancement Information) model",
+      "statement": "论文提出YOLO-DEI用于LCD缺陷检测，实验适用范围以原文为准。",
+      "review_status": "SOURCE_VERIFIED",
+      "authority_type": "PUBLIC_RESEARCH"
+    },
+    {
+      "id": "CL_YOLO_DCN",
+      "subject": "METHOD_YOLO_DEI",
+      "object": "METHOD_DCN",
+      "relation": "USES",
+      "document_id": "P01",
+      "document_version": "eb7e4098eb47ca2c59429a510953655f79c8569b298c5b8ed6c2ce65c2e5b023",
+      "page": 1,
+      "quote": "which integrates DCNv2 (Deformable convolution) into the backbone network to enhance feature extraction under geometric transformations.",
+      "statement": "YOLO-DEI在骨干网络引入DCNv2以增强几何变换下的特征提取。",
+      "review_status": "SOURCE_VERIFIED",
+      "authority_type": "PUBLIC_RESEARCH"
+    },
+    {
+      "id": "CL_MURA_PGC",
+      "subject": "METHOD_PGC",
+      "object": "DEF_MURA",
+      "relation": "DETECTS",
+      "document_id": "P02",
+      "document_version": "1014dab6439cbdf7dbf6d295273d13f30268b8c45d106378c240874fc7b75216",
+      "page": 16,
+      "quote": "this study proposes a PGC segmentation method to enhance the grayscale contrast in the images.",
+      "statement": "Mura研究使用分段伽马校正增强灰度对比，服务于缺陷检测。",
+      "review_status": "SOURCE_VERIFIED",
+      "authority_type": "PUBLIC_RESEARCH"
+    },
+    {
+      "id": "CL_PGC_APSO",
+      "subject": "METHOD_PGC",
+      "object": "METHOD_APSO",
+      "relation": "USES",
+      "document_id": "P02",
+      "document_version": "1014dab6439cbdf7dbf6d295273d13f30268b8c45d106378c240874fc7b75216",
+      "page": 16,
+      "quote": "The optimal segmentation proportions and associated gamma values are obtained through the APSO algorithm.",
+      "statement": "研究使用APSO求取分段比例和伽马参数。",
+      "review_status": "SOURCE_VERIFIED",
+      "authority_type": "PUBLIC_RESEARCH"
+    },
+    {
+      "id": "CL_MURA_CNN",
+      "subject": "METHOD_CNN",
+      "object": "DEF_MURA",
+      "relation": "CLASSIFIES",
+      "document_id": "P02",
+      "document_version": "1014dab6439cbdf7dbf6d295273d13f30268b8c45d106378c240874fc7b75216",
+      "page": 16,
+      "quote": "The proposed optimal CNN classification model achieves an average CAR of approximately 95.13%.",
+      "statement": "该Mura研究另用CNN进行缺陷分类；不是工厂批次检测结论。",
+      "review_status": "SOURCE_VERIFIED",
+      "authority_type": "PUBLIC_RESEARCH"
+    },
+    {
+      "id": "CL_CT_FILTER",
+      "subject": "METHOD_SCCFF",
+      "object": "DEF_CROSSTALK",
+      "relation": "DETECTS",
+      "document_id": "P03",
+      "document_version": "d7c2e15e72fb99af3278379b5c46d103e8aa5fbbe526ff5e820c2ac45ed2283c",
+      "page": 1,
+      "quote": "We propose a crosstalk defect detection method based on salient color channel frequency domain filtering.",
+      "statement": "论文提出显著颜色通道频域滤波用于串扰缺陷检测。",
+      "review_status": "SOURCE_VERIFIED",
+      "authority_type": "PUBLIC_RESEARCH"
+    },
+    {
+      "id": "CL_CT_RGBY",
+      "subject": "METHOD_SCCFF",
+      "object": "METHOD_RGBY",
+      "relation": "USES",
+      "document_id": "P03",
+      "document_version": "d7c2e15e72fb99af3278379b5c46d103e8aa5fbbe526ff5e820c2ac45ed2283c",
+      "page": 1,
+      "quote": "Firstly, the salient color channel in RGBY is selected by the maximum relative entropy criterion",
+      "statement": "方法通过最大相对熵准则选择RGBY显著颜色通道。",
+      "review_status": "SOURCE_VERIFIED",
+      "authority_type": "PUBLIC_RESEARCH"
+    },
+    {
+      "id": "CL_CT_HFT",
+      "subject": "METHOD_SCCFF",
+      "object": "METHOD_HFT",
+      "relation": "USES",
+      "document_id": "P03",
+      "document_version": "d7c2e15e72fb99af3278379b5c46d103e8aa5fbbe526ff5e820c2ac45ed2283c",
+      "page": 1,
+      "quote": "Secondly, the image color quaternion matrix is converted into the logarithmic spectrum in the frequency domain through the hyper‐complex Fourier transform.",
+      "statement": "方法将颜色四元数矩阵经超复数傅里叶变换转换为频域对数谱。",
+      "review_status": "SOURCE_VERIFIED",
+      "authority_type": "PUBLIC_RESEARCH"
+    }
+  ]
+}

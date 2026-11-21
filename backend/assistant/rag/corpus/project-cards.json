@@ -1,0 +1,490 @@
+[
+  {
+    "id": "MES-PROJECT-001",
+    "title": "项目全流程与八道生产工序",
+    "knowledge_domain": "mes_process",
+    "text": "当前 ProductionWorkshopCatalog 的生产顺序为：主板装配→电源板装配→接口板装配→显示屏加工→面板贴附→外壳装配→整机组装→支架底座装配。目录定义八工序、每工序2至3个并行车间。路线解析只选指定routeId下状态为空或1的工序，按目录顺序匹配；每个目录工序取stepNo最小的匹配项，未匹配的工序不自动补齐。名称含老化、调校、包装、质检、检验、终检、发货、售后的节点被排除出生产工序匹配。项目另有订单提交计划员、计划提交主管、报工送检、质检生成入库任务及仓储确认入库的操作，因此终检、入库和发货不能作为八工序之一。",
+    "source_files": [
+      {
+        "path": "backend/src/main/java/com/upc/computer/service/ProductionWorkshopCatalog.java",
+        "line_start": 13,
+        "line_end": 191,
+        "sha256": "f6471ae26e41460cc48ffa3dce9635fe6f3c50b0fe5823163873d6e3cf3871e3"
+      },
+      {
+        "path": "backend/src/main/java/com/upc/computer/service/MesWorkflowService.java",
+        "line_start": 118,
+        "line_end": 174,
+        "sha256": "f5da6777a00a100d07f1d97c20e54f2b570171720ffdcde0a106e21e7e20b7cf"
+      }
+    ],
+    "authority_type": "PROJECT_IMPLEMENTATION",
+    "review_status": "DRAFT",
+    "limitations": [
+      "项目目录说明，不是行业通用SOP。",
+      "实际工单路线、工序记录和当前状态必须从业务记录核对；未匹配路线不证明八工序已齐套。"
+    ]
+  },
+  {
+    "id": "MES-PROJECT-002",
+    "title": "项目角色工作台与职责边界",
+    "knowledge_domain": "mes_process",
+    "text": "前端路由设有订单管理、计划员、生产操作员、质检员、仓储、采购、设备维护、售后、财务成本、系统管理和客户工作台。生产工单、工单派工及生产调度大屏标记为manager角色；工序设置标记为planner角色。业务动作包含订单审核和提交计划员、计划发布和提交主管、工单派工、操作员接单开工领料报工送检、质检、仓储入库出库发货等。这里记录工作台和流程分工，不将菜单可见性等同于后端接口已经实施同等权限控制。",
+    "source_files": [
+      {
+        "path": "frontend/src/router/index.js",
+        "line_start": 10,
+        "line_end": 48,
+        "sha256": "12d118b1a7456519740ce16ce9adcd4b01f8d9342bec8d93cc5ed991c31aa856"
+      },
+      {
+        "path": "backend/src/main/java/com/upc/computer/service/MesWorkflowService.java",
+        "line_start": 118,
+        "line_end": 174,
+        "sha256": "f5da6777a00a100d07f1d97c20e54f2b570171720ffdcde0a106e21e7e20b7cf"
+      }
+    ],
+    "authority_type": "PROJECT_IMPLEMENTATION",
+    "review_status": "DRAFT",
+    "limitations": [
+      "未认证为组织正式岗位职责文件。",
+      "接口授权、数据范围及跨角色访问需要单独核验；不能凭roleKey描述推断安全保证。"
+    ]
+  },
+  {
+    "id": "MES-PROJECT-003",
+    "title": "第1工序：主板装配",
+    "knowledge_domain": "mes_process",
+    "text": "主板装配的目录键为motherboard，顺序1，设备类型为主板线；下设主板装配一、二、三车间，部门均为生产一部，operatorsPerMachine为1。当前任务文案是PCB贴装、主控焊接、电路通电测试；后续目录工序为电源板装配。",
+    "source_files": [
+      {
+        "path": "backend/src/main/java/com/upc/computer/service/ProductionWorkshopCatalog.java",
+        "line_start": 22,
+        "line_end": 37,
+        "sha256": "f6471ae26e41460cc48ffa3dce9635fe6f3c50b0fe5823163873d6e3cf3871e3"
+      }
+    ],
+    "authority_type": "PROJECT_IMPLEMENTATION",
+    "review_status": "DRAFT",
+    "limitations": [
+      "每机人数是代码配置，非当前实到人数。",
+      "没有焊接温度、焊点判定方法或真实工时依据，不能补写为操作规范。"
+    ]
+  },
+  {
+    "id": "MES-PROJECT-004",
+    "title": "第2工序：电源板装配",
+    "knowledge_domain": "mes_process",
+    "text": "电源板装配的目录键为powerboard，顺序2，设备类型为电源板线；下设电源板装配一、二车间，部门为生产一部，operatorsPerMachine为1。当前文案与主板装配共用PCB贴装、主控焊接、电路通电测试。前序为主板装配，后序为接口板装配。",
+    "source_files": [
+      {
+        "path": "backend/src/main/java/com/upc/computer/service/ProductionWorkshopCatalog.java",
+        "line_start": 23,
+        "line_end": 44,
+        "sha256": "f6471ae26e41460cc48ffa3dce9635fe6f3c50b0fe5823163873d6e3cf3871e3"
+      }
+    ],
+    "authority_type": "PROJECT_IMPLEMENTATION",
+    "review_status": "DRAFT",
+    "limitations": [
+      "共用文案需要业务确认是否充分表达电源板作业。",
+      "不据此推导电源调试电压、安全认证或厂家验收阈值。"
+    ]
+  },
+  {
+    "id": "MES-PROJECT-005",
+    "title": "第3工序：接口板装配",
+    "knowledge_domain": "mes_process",
+    "text": "接口板装配的目录键为interface，顺序3，设备类型为接口板线；下设接口板装配一、二车间，部门为生产一部，operatorsPerMachine为1。当前任务文案是PCB贴装、主控焊接、电路通电测试。前序为电源板装配，后序为显示屏加工。成品终检模板另列HDMI、DP及条件生成的Type-C接口检查，不能据此认为接口板工序已完成这些终检项。",
+    "source_files": [
+      {
+        "path": "backend/src/main/java/com/upc/computer/service/ProductionWorkshopCatalog.java",
+        "line_start": 31,
+        "line_end": 52,
+        "sha256": "f6471ae26e41460cc48ffa3dce9635fe6f3c50b0fe5823163873d6e3cf3871e3"
+      },
+      {
+        "path": "backend/src/main/java/com/upc/computer/service/impl/QualityServiceImpl.java",
+        "line_start": 769,
+        "line_end": 774,
+        "sha256": "92b08ce2f57427ff3d872f663991e0f508ccec01416c9f400eb9c722f758974e"
+      }
+    ],
+    "authority_type": "PROJECT_IMPLEMENTATION",
+    "review_status": "DRAFT",
+    "limitations": [
+      "接口功能模板不提供接口电气测试条件、仪器或完整验收标准。"
+    ]
+  },
+  {
+    "id": "MES-PROJECT-006",
+    "title": "第4工序：显示屏加工",
+    "knowledge_domain": "mes_process",
+    "text": "显示屏加工的目录键为display，顺序4，设备类型为显示屏线；下设显示屏加工一、二、三车间，部门为生产一部，operatorsPerMachine为1。任务文案为面板点亮、背光组装、显示功能初检。前序为接口板装配，后序为面板贴附。这里的显示功能初检是工序描述，不等于后台某张检验单的最终合格结论。",
+    "source_files": [
+      {
+        "path": "backend/src/main/java/com/upc/computer/service/ProductionWorkshopCatalog.java",
+        "line_start": 38,
+        "line_end": 59,
+        "sha256": "f6471ae26e41460cc48ffa3dce9635fe6f3c50b0fe5823163873d6e3cf3871e3"
+      }
+    ],
+    "authority_type": "PROJECT_IMPLEMENTATION",
+    "review_status": "DRAFT",
+    "limitations": [
+      "未提供面板型号、测量环境或工艺参数。",
+      "不能仅凭显示异常断言该工序是根因。"
+    ]
+  },
+  {
+    "id": "MES-PROJECT-007",
+    "title": "第5工序：面板贴附",
+    "knowledge_domain": "mes_process",
+    "text": "面板贴附的目录键为attach，顺序5，设备类型为贴附机；下设贴附一、二车间，部门为生产一部，operatorsPerMachine为1。任务文案为面板与背光贴合、边框压合、贴合精度校验。前序为显示屏加工，后序为外壳装配。",
+    "source_files": [
+      {
+        "path": "backend/src/main/java/com/upc/computer/service/ProductionWorkshopCatalog.java",
+        "line_start": 45,
+        "line_end": 66,
+        "sha256": "f6471ae26e41460cc48ffa3dce9635fe6f3c50b0fe5823163873d6e3cf3871e3"
+      }
+    ],
+    "authority_type": "PROJECT_IMPLEMENTATION",
+    "review_status": "DRAFT",
+    "limitations": [
+      "源码未给出贴附压力、温度、精度允许差或测量方法。",
+      "贴附与漏光、Mura等缺陷的因果关系须有批次证据，不能由工序名称生成。"
+    ]
+  },
+  {
+    "id": "MES-PROJECT-008",
+    "title": "第6工序：外壳装配",
+    "knowledge_domain": "mes_process",
+    "text": "外壳装配的目录键为shell，顺序6，设备类型为外壳线；下设外壳装配一、二车间，部门为生产一部，operatorsPerMachine为1。前序为面板贴附，后序为整机组装。当前后端及操作员前端目录均把外壳装配描述为面板与背光贴合、边框压合、贴合精度校验，与面板贴附共用文案，应如实保留这一实现现状并交人工确认。",
+    "source_files": [
+      {
+        "path": "backend/src/main/java/com/upc/computer/service/ProductionWorkshopCatalog.java",
+        "line_start": 53,
+        "line_end": 74,
+        "sha256": "f6471ae26e41460cc48ffa3dce9635fe6f3c50b0fe5823163873d6e3cf3871e3"
+      },
+      {
+        "path": "frontend/src/config/operatorProcessStations.js",
+        "line_start": 48,
+        "line_end": 74,
+        "sha256": "2eaee7d65b666d23b1ad11213af426480924998d8b9c9ab532ea39073dd76450"
+      }
+    ],
+    "authority_type": "PROJECT_IMPLEMENTATION",
+    "review_status": "DRAFT",
+    "limitations": [
+      "不擅自将共用文案改成未经来源支持的外壳装配SOP。",
+      "未提供螺钉扭矩、结构强度或装配间隙阈值。"
+    ]
+  },
+  {
+    "id": "MES-PROJECT-009",
+    "title": "第7工序：整机组装",
+    "knowledge_domain": "mes_process",
+    "text": "整机组装的目录键为assembly，顺序7，设备类型为组装线；下设组装一、二、三车间，部门为生产一部。其operatorsPerMachine为2，其余七道目录工序均为1。任务文案为整机总装、线缆连接、老化前整机联调。前序为外壳装配，后序为支架底座装配，因此整机组装不是此目录的末道生产工序。",
+    "source_files": [
+      {
+        "path": "backend/src/main/java/com/upc/computer/service/ProductionWorkshopCatalog.java",
+        "line_start": 22,
+        "line_end": 81,
+        "sha256": "f6471ae26e41460cc48ffa3dce9635fe6f3c50b0fe5823163873d6e3cf3871e3"
+      }
+    ],
+    "authority_type": "PROJECT_IMPLEMENTATION",
+    "review_status": "DRAFT",
+    "limitations": [
+      "每机人数只说明目录配置，不证明某派工已有两名操作员。",
+      "老化前联调文案不证明老化测试已通过。"
+    ]
+  },
+  {
+    "id": "MES-PROJECT-010",
+    "title": "第8工序：支架底座装配及终检入口",
+    "knowledge_domain": "mes_process",
+    "text": "支架底座装配的目录键为bracket，顺序8，设备类型为支架线；下设支架底座装配一、二车间，部门为生产一部，operatorsPerMachine为1。任务文案与整机组装共用整机总装、线缆连接、老化前整机联调。isFinalProductionStep按目录最大stepOrder判断，因此末道为支架底座装配。普通送检分支要求末道生产派工；返修分支有单独判定。报工达到派工数量仍不等于检验通过或成品已入库。",
+    "source_files": [
+      {
+        "path": "backend/src/main/java/com/upc/computer/service/ProductionWorkshopCatalog.java",
+        "line_start": 67,
+        "line_end": 81,
+        "sha256": "f6471ae26e41460cc48ffa3dce9635fe6f3c50b0fe5823163873d6e3cf3871e3"
+      },
+      {
+        "path": "backend/src/main/java/com/upc/computer/service/ProductionWorkshopCatalog.java",
+        "line_start": 164,
+        "line_end": 169,
+        "sha256": "f6471ae26e41460cc48ffa3dce9635fe6f3c50b0fe5823163873d6e3cf3871e3"
+      },
+      {
+        "path": "backend/src/main/java/com/upc/computer/service/MesWorkflowService.java",
+        "line_start": 1568,
+        "line_end": 1612,
+        "sha256": "f5da6777a00a100d07f1d97c20e54f2b570171720ffdcde0a106e21e7e20b7cf"
+      }
+    ],
+    "authority_type": "PROJECT_IMPLEMENTATION",
+    "review_status": "DRAFT",
+    "limitations": [
+      "共用作业文案及异常提示中的最后一道组装工序称谓需人工确认。",
+      "没有支架扭矩或强度验收依据。"
+    ]
+  },
+  {
+    "id": "MES-PROJECT-011",
+    "title": "采购缺料、可用库存与在途口径",
+    "knowledge_domain": "mes_process",
+    "text": "现有采购缺料计算展开销售订单或生产工单的产品BOM，汇总物料需求后先向上取整，再减可用库存和在途采购；净缺料小于零时取零，否则向上取整。可用库存按materialId累加quantity_available，字段为空时回落quantity_on_hand。未到货采购明细以quantity减received_quantity的正数汇总；已收货或已取消采购单排除。库存查询同时保留现有量、预留量、可用量三个字段，不能互换名称。calculateRequirements会删除开放工作台旧行并写入新需求，因此它不是只读查询，不应直接作为只读Agent工具。",
+    "source_files": [
+      {
+        "path": "backend/src/main/java/com/upc/computer/service/impl/PurchaseServiceImpl.java",
+        "line_start": 158,
+        "line_end": 170,
+        "sha256": "a50ec6f1ba1bb34c8c0e6b3c9be17b894d6c29581e79e519a1a9102e22ae3d9c"
+      },
+      {
+        "path": "backend/src/main/java/com/upc/computer/service/impl/PurchaseServiceImpl.java",
+        "line_start": 239,
+        "line_end": 261,
+        "sha256": "a50ec6f1ba1bb34c8c0e6b3c9be17b894d6c29581e79e519a1a9102e22ae3d9c"
+      },
+      {
+        "path": "backend/src/main/java/com/upc/computer/service/impl/PurchaseServiceImpl.java",
+        "line_start": 396,
+        "line_end": 437,
+        "sha256": "a50ec6f1ba1bb34c8c0e6b3c9be17b894d6c29581e79e519a1a9102e22ae3d9c"
+      },
+      {
+        "path": "backend/src/main/java/com/upc/computer/mapper/InventoryMapper.java",
+        "line_start": 14,
+        "line_end": 26,
+        "sha256": "eab1d8b2d47ee66609892c5a214ca53bbe46e0ee14a23b2fb1c3af35898e828f"
+      }
+    ],
+    "authority_type": "PROJECT_IMPLEMENTATION",
+    "review_status": "DRAFT",
+    "limitations": [
+      "描述当前算法，不提供任何实时库存、缺料或交期数值。",
+      "BOM需求不是实际领料事件；库存预留归属、仓库范围及空值回落适用性需人工确认。"
+    ]
+  },
+  {
+    "id": "MES-PROJECT-012",
+    "title": "订单、计划与主管派工的交接状态",
+    "knowledge_domain": "mes_process",
+    "text": "submitOrderToPlanner只接受审核状态APPROVED的订单，并将审核状态改为PLAN_PENDING。publishPlan只接受DRAFT计划并改为PUBLISHED；submitPlanToManager只接受PUBLISHED计划并改为SUBMITTED，同时写approvedAt。前端将生产工单与工单派工页面标记为manager，将工序设置标记为planner。智能派工确认会构造包含工单、工序、设备、计划数量、操作员的派工参数，调用createDispatch并记录smartDispatchConfirmed。计划发布、提交主管、生成工单和具体派工是不同动作。",
+    "source_files": [
+      {
+        "path": "backend/src/main/java/com/upc/computer/service/MesWorkflowService.java",
+        "line_start": 537,
+        "line_end": 549,
+        "sha256": "f5da6777a00a100d07f1d97c20e54f2b570171720ffdcde0a106e21e7e20b7cf"
+      },
+      {
+        "path": "backend/src/main/java/com/upc/computer/service/MesWorkflowService.java",
+        "line_start": 977,
+        "line_end": 1037,
+        "sha256": "f5da6777a00a100d07f1d97c20e54f2b570171720ffdcde0a106e21e7e20b7cf"
+      },
+      {
+        "path": "frontend/src/router/index.js",
+        "line_start": 39,
+        "line_end": 46,
+        "sha256": "12d118b1a7456519740ce16ce9adcd4b01f8d9342bec8d93cc5ed991c31aa856"
+      }
+    ],
+    "authority_type": "PROJECT_IMPLEMENTATION",
+    "review_status": "DRAFT",
+    "limitations": [
+      "approvedAt由提交主管动作写入，不应仅凭字段名断言主管已人工审批。",
+      "菜单角色不等同接口授权；不声称智能派工建议已经过人工批准。"
+    ]
+  },
+  {
+    "id": "MES-PROJECT-013",
+    "title": "质检通过、批次放行与成品入库交接",
+    "knowledge_domain": "mes_process",
+    "text": "QualityServiceImpl的通过操作保存PASSED/QUALIFIED并调用afterInspectionPassed。该流程对成品质检生成待入库任务，并按检验单号检查是否已有未取消任务。放行数量优先为max(0,submitQty-max(0,抽检不合格数))；无submitQty时优先取正的抽检合格数，否则取抽样数减不合格数。结果仍非正时，调用方还会回落到工单计划数减不合格数，再回落到max(抽样数,1)。这属于当前项目实现，不能将其推导为抽样验收标准。真正确认入库要求任务为待入库，解析到成品物料后要求选择库位，并调用inboundToSlot记录PRODUCT_IN。因此检验通过、待入库数量与实际库存入库事件是不同事实。",
+    "source_files": [
+      {
+        "path": "backend/src/main/java/com/upc/computer/service/impl/QualityServiceImpl.java",
+        "line_start": 275,
+        "line_end": 292,
+        "sha256": "92b08ce2f57427ff3d872f663991e0f508ccec01416c9f400eb9c722f758974e"
+      },
+      {
+        "path": "backend/src/main/java/com/upc/computer/service/MesWorkflowService.java",
+        "line_start": 199,
+        "line_end": 259,
+        "sha256": "f5da6777a00a100d07f1d97c20e54f2b570171720ffdcde0a106e21e7e20b7cf"
+      },
+      {
+        "path": "backend/src/main/java/com/upc/computer/service/MesWorkflowService.java",
+        "line_start": 325,
+        "line_end": 338,
+        "sha256": "f5da6777a00a100d07f1d97c20e54f2b570171720ffdcde0a106e21e7e20b7cf"
+      },
+      {
+        "path": "backend/src/main/java/com/upc/computer/service/MesWorkflowService.java",
+        "line_start": 2101,
+        "line_end": 2135,
+        "sha256": "f5da6777a00a100d07f1d97c20e54f2b570171720ffdcde0a106e21e7e20b7cf"
+      }
+    ],
+    "authority_type": "PROJECT_IMPLEMENTATION",
+    "review_status": "DRAFT",
+    "limitations": [
+      "必须人工确认抽检后整批放行及兜底数量是否符合实际业务。",
+      "submitQty依赖运行态附加信息；缺失时不能用知识卡还原真实送检量。",
+      "本卡不证明库位入库、通知或幂等行为已经通过运行测试。"
+    ]
+  },
+  {
+    "id": "MES-PROJECT-014",
+    "title": "五步检验界面、正式检验模板与默认阈值出处",
+    "knowledge_domain": "mes_quality_rules",
+    "text": "前端FP_STATIONS是坏点、色域、漏光、亮度均匀性、屏闪五个仿真工位；漏光按漏光/均匀名称匹配，屏闪按闪烁/响应名称匹配，不能当作八道生产工序或独立仪器数据。后端generateDefaultItems按检验类别与物料名称/规格生成并保存项目standardValue、unit及PENDING状态；重新生成前会删除该检验单旧项目。成品模板FP-01至FP-12包含老化、坏点、亮度、sRGB、DCI-P3、ΔE、刷新率、分辨率、均匀性、响应时间、HDMI和DP；4K或高刷增加Type-C，HDR增加HDR效果，外观编号由当前项目数决定。代码默认老化为4K或高刷12h、其余8h；坏点为4K亮点≤1且暗点≤1、2K亮点≤2且暗点≤1、其余亮点≤3且暗点≤2；亮度依次按4K且HDR≥600、4K≥450、高刷≥350、其余≥400 cd/m²。sRGB默认≥99%，DCI-P3为4K≥95%否则≥90%，ΔE为4K≤1.5否则≤2，均匀性默认≥80%。来料检另按原料名称分支，过程检另有PC项目。这些数值仅是项目源码默认规则，不是厂家、国家或行业标准。",
+    "source_files": [
+      {
+        "path": "frontend/src/config/fpInspectionStations.js",
+        "line_start": 7,
+        "line_end": 115,
+        "sha256": "c384caf96e137971682e5f51f0736bfc2be753c379c4b1f128249a0d368c6980"
+      },
+      {
+        "path": "backend/src/main/java/com/upc/computer/service/impl/QualityServiceImpl.java",
+        "line_start": 167,
+        "line_end": 249,
+        "sha256": "92b08ce2f57427ff3d872f663991e0f508ccec01416c9f400eb9c722f758974e"
+      },
+      {
+        "path": "backend/src/main/java/com/upc/computer/service/impl/QualityServiceImpl.java",
+        "line_start": 696,
+        "line_end": 779,
+        "sha256": "92b08ce2f57427ff3d872f663991e0f508ccec01416c9f400eb9c722f758974e"
+      }
+    ],
+    "authority_type": "PROJECT_IMPLEMENTATION",
+    "review_status": "DRAFT",
+    "limitations": [
+      "优先解释具体检验单保存的standardValue和unit；当前源码不能覆盖历史规则。",
+      "refreshStd的is165hz()固定false，高刷分支实际返回144Hz，不能按型号名称声称165Hz/240Hz规则已正确实现。",
+      "仅HDR且非4K非高刷时，FP-14 HDR项与按数量生成的外观FP-14可能重号；跨型号不得只按itemCode合并。",
+      "抽检样本编号由批次末8字符加序号生成，不是已证明全链路唯一的产品SN。",
+      "均匀性公式、仪器、环境、抽样方案及生效审批缺失，禁止用本卡自动判定放行。"
+    ]
+  },
+  {
+    "id": "MES-PROJECT-015",
+    "title": "YOLO视觉检测与报告的证据边界",
+    "knowledge_domain": "mes_quality_rules",
+    "text": "QualityVisionController的detect接收图片并调用YoloVisionClient，report接收context和images列表并调用VisionReportAiService。客户端真实模式通过HTTP向配置的推理路径提交图片，再归一化defect、count、maxConfidence、model、algorithmVersion、detections及标注图；当前归一化将defect映射为屏幕划痕/无缺陷，摘要为发现划痕或未检测到表面划痕。mock模式直接返回无缺陷、零数量、YOLOv8-Seg (Mock)与MOCK_V1。检测置信度不是整机合格率；未检测到划痕不证明坏点、色域、漏光、均匀性、屏闪或所有外观缺陷均合格。",
+    "source_files": [
+      {
+        "path": "backend/src/main/java/com/upc/computer/controller/QualityVisionController.java",
+        "line_start": 28,
+        "line_end": 45,
+        "sha256": "bdc1b49ae7883ed4d07f548e95e2cef0bc7b2d2f027e970b85a561dbe115a63f"
+      },
+      {
+        "path": "backend/src/main/java/com/upc/computer/service/YoloVisionClient.java",
+        "line_start": 41,
+        "line_end": 155,
+        "sha256": "b84b02c4cc6f9e9de50c5f870c07b1aa7b4ac61101fba3e5d78afe9fc49c6917"
+      }
+    ],
+    "authority_type": "PROJECT_IMPLEMENTATION",
+    "review_status": "DRAFT",
+    "limitations": [
+      "本次只核对接口实现，未运行模型或验证识别精度；默认模型名称不是实际加载权重的证明。",
+      "接口返回及浏览器提交的报告输入不自动成为已确认检验业务记录。",
+      "需补齐图片、检测运行、实际模型版本、检验对象绑定和持久化证据才能建立业务追溯事实。"
+    ]
+  },
+  {
+    "id": "MES-PROJECT-016",
+    "title": "复检、不合格品与判定建议流转",
+    "knowledge_domain": "mes_quality_rules",
+    "text": "evaluate依据已保存项目的result和defectLevel汇总建议，不解析测量值与阈值：有待检项建议PENDING；无失败无警告建议PASSED；存在CRITICAL或MAJOR失败建议FAILED；其他失败建议RECHECK_REQUIRED；只有警告时仍建议PASSED。requireRecheck允许PENDING、RECHECK_REQUIRED、FAILED转RECHECK_REQUIRED并将inspectionType置RECHECK。复检通过仅接受RECHECK_REQUIRED，设PASSED/QUALIFIED、清零不合格数，完成关联不合格记录并触发入库交接；复检不通过设FAILED/UNQUALIFIED，并处理、登记不合格记录。不合格品处置为RECHECK时必须关联检验单，状态变为PROCESSING；其他归一化处置方式将记录置COMPLETED。",
+    "source_files": [
+      {
+        "path": "backend/src/main/java/com/upc/computer/service/impl/QualityServiceImpl.java",
+        "line_start": 258,
+        "line_end": 272,
+        "sha256": "92b08ce2f57427ff3d872f663991e0f508ccec01416c9f400eb9c722f758974e"
+      },
+      {
+        "path": "backend/src/main/java/com/upc/computer/service/impl/QualityServiceImpl.java",
+        "line_start": 317,
+        "line_end": 392,
+        "sha256": "92b08ce2f57427ff3d872f663991e0f508ccec01416c9f400eb9c722f758974e"
+      }
+    ],
+    "authority_type": "PROJECT_IMPLEMENTATION",
+    "review_status": "DRAFT",
+    "limitations": [
+      "建议结果不是自动审核结论，也不证明仪器测量正确。",
+      "复检通过的合格数量回落、复检失败的SCRAP登记及仅警告可通过的规则需业务人工确认。",
+      "COMPLETED处置状态本身不能证明已发生实物报废、库存扣减或返修完成。"
+    ]
+  },
+  {
+    "id": "MES-PROJECT-017",
+    "title": "售后追溯中的可靠键与候选关联",
+    "knowledge_domain": "mes_process",
+    "text": "AfterSalesRcaMapper按caseNo读取售后案例，通过quality_inspection_id连接质检单，再连接工单；报工按workOrderId查询，检验项目包含保存的standardValue和measuredValue。物料追溯从工单MATERIAL_OUT事务出发，以materialId和batchNo匹配PURCHASE_IN，再关联采购单。供应商存在名称LIKE匹配；报警既可按工单匹配，也可按报工设备及起止时间前后一天匹配。发货优先案例deliveryId，未绑定则回落订单最近一张；成品入库查询按工单PRODUCT_IN且只取时间最早一条。来料检查询只按所领物料ID集合筛选，未限定领料批次。这些回落、窗口和名称匹配属于候选线索，不能描述成完整且唯一的因果追溯链。",
+    "source_files": [
+      {
+        "path": "backend/src/main/java/com/upc/computer/mapper/AfterSalesRcaMapper.java",
+        "line_start": 15,
+        "line_end": 146,
+        "sha256": "ea0a82e0d632e639245dd87749a0f832b58c83e0d7f1e8a0790ec58a1e56a859"
+      }
+    ],
+    "authority_type": "PROJECT_IMPLEMENTATION",
+    "review_status": "DRAFT",
+    "limitations": [
+      "多次采购入库、拆批或多次发货可能产生多候选；单条LIMIT结果不代表全部历史。",
+      "设备报警时间相近不证明导致缺陷；供应商名称相似不证明供应商身份。",
+      "未读取真实案例数据，本卡不作个案根因结论。"
+    ]
+  },
+  {
+    "id": "MES-PROJECT-018",
+    "title": "工序产量、末道送检与检验数量的不同口径",
+    "knowledge_domain": "mes_process",
+    "text": "finishedGoodsQty先将同工序并行派工completedQuantity相加，再取八工序最小值；缺失工序贡献0，最终intValue返回整数。finalStageCompletedQty只累加第8工序完成量。当前finalInspectionSubmitQty采用末道完成量：有正计划量且末道未达计划时返回0，否则以min(末道完成,计划量)或无正计划时的末道完成量为上限，再减已累计送检量，最小为0。累计送检排除返修标记、FAILED、CLOSED；PASSED及RECHECK_REQUIRED使用质检单合格数加不合格数，PENDING优先运行态submitQty，缺失时用sampleQuantity，且跳过明确关联非末道派工的待检单。updateSampling要求样本数大于0且合格数加不合格数不超过样本数；它没有要求两者之和必须等于样本数。工序产量之和、瓶颈完成量、末道完成量、送检批量、抽样数、抽检合格数、放行量和已入库量必须分别标注，不能统一称为产量或良率。",
+    "source_files": [
+      {
+        "path": "backend/src/main/java/com/upc/computer/service/ProductionWorkshopCatalog.java",
+        "line_start": 230,
+        "line_end": 276,
+        "sha256": "f6471ae26e41460cc48ffa3dce9635fe6f3c50b0fe5823163873d6e3cf3871e3"
+      },
+      {
+        "path": "backend/src/main/java/com/upc/computer/service/MesWorkflowService.java",
+        "line_start": 3414,
+        "line_end": 3475,
+        "sha256": "f5da6777a00a100d07f1d97c20e54f2b570171720ffdcde0a106e21e7e20b7cf"
+      },
+      {
+        "path": "backend/src/main/java/com/upc/computer/service/impl/QualityServiceImpl.java",
+        "line_start": 424,
+        "line_end": 443,
+        "sha256": "92b08ce2f57427ff3d872f663991e0f508ccec01416c9f400eb9c722f758974e"
+      }
+    ],
+    "authority_type": "PROJECT_IMPLEMENTATION",
+    "review_status": "DRAFT",
+    "limitations": [
+      "不同调用入口可能采用不同口径；本卡不是全系统所有指标公式的证明。",
+      "末道送检不要求前七工序报工齐套，是代码标注的演示规则。",
+      "抽检合格数/抽样数只能描述相应抽检范围，不能直接声称整批真实良率。",
+      "实时数量必须查询业务只读API；没有业务数据时不由文本知识库计算当前产量。"
+    ]
+  }
+]

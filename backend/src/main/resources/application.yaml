@@ -1,0 +1,129 @@
+deepseek:
+  api-key: ${DEEPSEEK_API_KEY:}
+  api-url: https://api.deepseek.com/v1/chat/completions
+  model: deepseek-chat
+  temperature: 0.2
+  max-tokens: 2048
+
+# 财务与管理员全局 AI 分析（与现有 DeepSeek 功能使用独立 Key）
+deepseek-finance:
+  enabled: true
+  api-key: ${DEEPSEEK_FINANCE_API_KEY:}
+  api-url: ${DEEPSEEK_FINANCE_API_URL:https://api.deepseek.com/v1/chat/completions}
+  model: ${DEEPSEEK_FINANCE_MODEL:deepseek-v4-flash}
+  temperature: 0.2
+  max-tokens: 4096
+
+ai:
+  api-key: ${AI_API_KEY:}
+  base-url: ${AI_BASE_URL:https://dashscope.aliyuncs.com/compatible-mode/v1}
+  model: ${AI_MODEL:qwen-vl-plus}
+  timeout-seconds: 120
+  mock: false
+
+# MES 全局助手：文本问答复用原有 deepseek.*，ASR 仍复用 ai.*
+assistant:
+  confidence-threshold: 0.55
+  nlu:
+    mock: false
+    enabled: true
+    api-key: ${ASSISTANT_DEEPSEEK_API_KEY}
+    base-url: ${ASSISTANT_DEEPSEEK_API_URL:https://api.deepseek.com/v1/chat/completions}
+    model: deepseek-chat
+    max-tokens: 8192
+    timeout-seconds: 0
+  asr:
+    mock: false
+    model: qwen3-asr-flash
+
+# 通义千问（DashScope）— 质检报告 AI 生成
+qwen:
+  enabled: true
+  api-key: ${QWEN_API_KEY:}# 填入你的 DashScope API Key（sk- 开头）
+  api-url: https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions
+  model: qwen-plus
+  temperature: 0.3
+  max-tokens: 1024
+  timeout-ms: 30000
+
+spring:
+  config:
+    import: optional:classpath:application-local.yaml
+  autoconfigure:
+    exclude:
+      - org.springframework.ai.model.openai.autoconfigure.OpenAiChatAutoConfiguration
+      - org.springframework.ai.model.chat.client.autoconfigure.ChatClientAutoConfiguration
+      - org.springframework.ai.model.tool.autoconfigure.ToolCallingAutoConfiguration
+      - org.springframework.ai.retry.autoconfigure.SpringAiRetryAutoConfiguration
+  # MES Agent 仅在 ai Profile 中启用，默认启动保持现有 AI 调用链不变。
+  ai:
+    model:
+      chat: none
+      embedding: none
+      image: none
+      moderation: none
+      audio:
+        speech: none
+        transcription: none
+  mvc:
+    async:
+      request-timeout: 0
+  datasource:
+    url: jdbc:mysql://localhost:3306/display_manufacturing?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    username: root
+    password: ${MYSQL_PASSWORD:}
+  data:
+    redis:
+      host: localhost
+      port: 6379
+      timeout: 10000ms
+      database: 0
+      lettuce:
+        pool:
+          max-active: 8
+          max-idle: 8
+          min-idle: 3
+          max-wait: -1ms
+  servlet:
+    multipart:
+      max-file-size: 10MB
+      max-request-size: 20MB
+
+file:
+  upload:
+    root-path: D:/upload/file/
+    temp-root-path: D:/upload/temp/
+    allow-types: jpg,png,jpeg,gif,pdf
+    first-level-length: 2
+    second-level-length: 3
+    max-size: 10485760
+
+mybatis:
+  type-aliases-package: com.upc.computer.entity
+  configuration:
+    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+    map-underscore-to-camel-case: true
+
+logging:
+  level:
+    com.upc.computer.mapper: debug
+    org.apache.ibatis: debug
+    org.mybatis: debug
+    java.sql: debug
+
+# YOLO 外观缺陷检测 — 对应项目目录 Mobile-Phone-Defect（运行 start-yolo.bat）
+yolo:
+  enabled: true
+  base-url: http://localhost:8000
+  predict-path: /predict/json
+  timeout-seconds: 90
+  mock: false
+  project-dir: D:/soft/idea/computer/Mobile-Phone-Defect
+
+server:
+  port: 8088
+
+auth:
+  jwt-secret: ${MES_JWT_SECRET}
+  jwt-expire-hours: 24

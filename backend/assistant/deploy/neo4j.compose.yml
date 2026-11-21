@@ -1,0 +1,26 @@
+# Independent public/maintenance graph. Normal operation rejects graph writes.
+services:
+  neo4j:
+    image: neo4j:5.26.32-community
+    restart: unless-stopped
+    mem_limit: 1536m
+    cpus: 2
+    ports:
+      - "127.0.0.1:17474:7474"
+      - "127.0.0.1:17687:7687"
+    environment:
+      NEO4J_AUTH: ${NEO4J_AUTH:?Set private Neo4j credential}
+      NEO4J_server_memory_heap_initial__size: 256m
+      NEO4J_server_memory_heap_max__size: 512m
+      NEO4J_server_memory_pagecache_size: 128m
+      NEO4J_server_bolt_advertised__address: localhost:17687
+      NEO4J_server_http_advertised__address: localhost:17474
+      NEO4J_server_databases_default__to__read__only: "true"
+      NEO4J_db_transaction_timeout: 10s
+      NEO4J_dbms_usage__report_enabled: "false"
+    volumes:
+      - mes_knowledge_neo4j:/data
+      - mes_knowledge_neo4j_logs:/logs
+volumes:
+  mes_knowledge_neo4j:
+  mes_knowledge_neo4j_logs:

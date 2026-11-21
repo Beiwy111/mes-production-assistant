@@ -1,0 +1,876 @@
+===== PDF PAGE 1 =====
+ 
+ 
+ 
+ 
+Sensors 2022, 22, 5426. https://doi.org/10.3390/s22145426 
+www.mdpi.com/journal/sensors 
+Article 
+Crosstalk Defect Detection Method Based on Salient Color 
+Channel Frequency Domain Filtering 
+Wenqiang Xie 1, Huaixin Chen 1,*, Zhixi Wang 1,2, Xing Liu 1, Biyuan Liu 1 and Lingyu Shuai 1 
+1  Department of Resources and Environment, University of Electronic Science and Technology of China, 
+Chengdu 611731, China; wqxie@std.uestc.edu.cn (W.X.); wangzx.rd@trulyopto.cn (Z.W.);   
+mrliuxing@std.uestc.edu.cn (X.L.); byliu@std.uestc.edu.cn (B.L.); lyshuai@std.uestc.edu.cn (L.S.) 
+2  Novel Product R & D Department, Truly Opto‐Electronics Co., Ltd., Shanwei 516600, China 
+*  Correspondence: huaixinchen@uestc.edu.cn 
+Abstract: Display crosstalk defect detection is an important link in the display quality inspection 
+process. We propose a crosstalk defect detection method based on salient color channel frequency 
+domain filtering. Firstly, the salient color channel in RGBY is selected by the maximum relative 
+entropy criterion, and the color quaternion matrix of the displayed image is formed with the Lab 
+color space. Secondly, the image color quaternion matrix is converted into the logarithmic spectrum 
+in the frequency domain through the hyper‐complex Fourier transform. Finally, Gaussian threshold 
+band‐pass filtering and hyper‐complex inverse Fourier transform are used to separate the low‐con‐
+trast defects and background of the display image. The experimental results show that the accuracy 
+of the proposed algorithm reaches 96% for a variety of crosstalk defect detection. Compared with 
+the current advanced defect detection algorithms, the effectiveness of the proposed method for low‐
+contrast crosstalk defect detection is confirmed. 
+Keywords: liquid crystal display; defect detection; crosstalk defect; salient color channel;   
+frequency‐domain saliency 
+ 
+1. Introduction 
+Display quality inspection plays a key role in the display production process. The 
+existing display quality detection process still relies on manual detection, which is af‐
+fected by the subjective feelings of the inspectors along with the problems of low effi‐
+ciency and unstable accuracy [1]. Particularly on small wearable devices, the defect is im‐
+perceptible to the human eye when it is close to the background. Therefore, the use of 
+machine vision and digital image processing technology for display defect detection has 
+become an urgent problem to be solved. 
+The existing display defect detection methods are mainly divided into three types: 
+methods based on image registration [2–4], background reconstruction [5–10], and deep 
+learning [11–17]. Shuai et al. [2] proposed the method of histogram equalization to adjust 
+the brightness of the registered image, which can effectively suppress the problem of edge 
+afterimages caused by the unaligned edges, and extract multiscale defects. However, this 
+method didn’t perform image registration on a solid‐color background. Yang et al. [6] 
+proposed a method based on abnormal region detection and level set segmentation for 
+Mura defects. They analyzed the shortcomings of polynomial fitting, used polynomial 
+fitting to obtain candidate abnormal regions, and then applied the level set method for 
+accurate defect segmentation. This method can detect weak contrast defects, but is unable 
+to obtain defect‐free areas due to the large defect area, and it fails to detect abnormal areas 
+or overcome edge problems. Zhu et al. [11] proposed a hierarchical multi‐frequency‐based 
+channel attention network, which utilizes the attention mechanism to weight scratch de‐
+fects with different aspect ratios, effectively realizing the detection of defects of different 
+Citation: Xie, W.; Chen, H.;   
+Wang, Z.; Liu, X.; Liu, B.; Shuai, L. 
+Crosstalk Defect Detection Method 
+Based on Salient Color Channel   
+Frequency Domain Filtering.   
+Sensors 2022, 22, 5426. 
+https://doi.org/10.3390/s22145426 
+Academic Editors: Bin Fan   
+and Wenqi Ren 
+Received: 14 June 2022 
+Accepted: 19 July 2022 
+Published: 20 July 2022 
+Publisher’s  Note:  MDPI  stays  neu‐
+tral  with  regard  to  jurisdictional 
+claims in published maps and institu‐
+tional affiliations. 
+ 
+Copyright: © 2022 by the authors. Li‐
+censee  MDPI,  Basel,  Switzerland. 
+This article is an open access article 
+distributed under the terms and con‐
+ditions of the Creative Commons At‐
+tribution (CC BY) license (https://cre‐
+ativecommons.org/licenses/by/4.0/). 
+
+
+===== PDF PAGE 2 =====
+Sensors 2022, 22, 5426 
+2  of  14 
+ 
+ 
+shapes. Zhu et al. [12] proposed to use the Yolov3 [18] for detecting point‐like and abnor‐
+mally displayed defects, which can effectively detect defects in multiple backgrounds sim‐
+ultaneously. Chang et al. [13] proposed a method combining image preprocessing and the 
+convolutional neural network (CNN), and designed a strategy to solve the problem of 
+sample imbalance due to small defect areas and large backgrounds in the image. The deep 
+learning method requires the construction of a large data set to guarantee the detection 
+capability, and thus fails to deal with small sample data effectively. Lo et al. [17] proposed 
+to use the Zernike moments to extract image features and elliptic basis function neural 
+networks for classification, which can effectively detect multiple defects. 
+The crosstalk picture is a specific display pattern during the display quality detection 
+process, which is designed for testing the crosstalk display capability. A crosstalk picture 
+that cannot be displayed properly by a defective display screen is called a crosstalk defect. 
+There are two main situations where the detection of crosstalk defects is especially diffi‐
+cult: (1) when the defect covers a large area of nearby half of the screen—it appears as 
+continuous color lines with variable colors; (2) when the contrast between the defect area 
+and the background is not fixed—low contrast makes it difficult to detect the defect area. 
+The existing methods present some difficulties in the detection of crosstalk defects, 
+so we propose a crosstalk defect detection method based on salient color channel and fre‐
+quency domain filtering. For the problem of a large crosstalk defect area, we adopted the 
+salient color feature extraction method [19], used relative entropy to adaptively select the 
+salient color channel, and combined it with the Lab color space [20] to form the image 
+color quaternion matrix [21]. For the problem of low contrast in defect areas, we adopted 
+the  frequency‐domain  Gaussian  threshold  screening  and  band‐pass  filtering  (GTB) 
+method, which significantly enhances the saliency of low‐contrast defects. 
+Our contributions are as follows: 
+(1) A new crosstalk defect detection method is proposed, which combines color feature 
+extraction and frequency‐domain GTB filtering to achieve efficient and accurate de‐
+tection of crosstalk defects under low contrast and strong background noise. 
+(2) An adaptive salient color channel selection method is proposed, which can retain sali‐
+ent color features for large defects and solve the problem of difficult feature extraction. 
+(3) The GTB frequency‐domain filtering method is proposed, which enhances the salient 
+regions of defects and suppresses the interference of background noise, and realizes 
+the effective separation of low‐contrast crosstalk defects and background noise. 
+This article is organized as follows: Section 2 presents related work, Section 3 de‐
+scribes the proposed color saliency channel selection method and frequency‐domain GTB 
+filtering method, Section 4 discusses the experimental results, and Section 5 summarizes 
+the content of this paper. 
+2. Related Works 
+In the past ten years, with the rapid development of display technology, a large num‐
+ber of methods for detecting weak contrast defects in display screens have appeared. Ngo 
+et al. [5] used low‐pass filtering on the input image, polynomial fitting, and discrete cosine 
+transform to reconstruct the background, obtained multiple defect shadow maps, and 
+used threshold segmentation for defect detection. Jin et al. [22] proposed a method for 
+Mura defect detection using discrete cosine transform (DCT) background reconstruction 
+and bi‐segment exponential transform. The bi‐segment exponential transform effectively 
+enhances the contrast of low‐contrast defects, and the Otsu’s method is used to achieve 
+accurate segmentation of defects. Fan et al. [23] used polynomial fitting for background 
+reconstruction  and  threshold  segmentation  to  obtain  defect  candidate  regions,  which 
+could efficiently detect low‐contrast defects. Cui et al. [24] adopted the Otsu’s method to 
+select defect candidate regions, then used variance and meshing to detect Mura and edge 
+defects. In addition to the above methods, there are defect detection methods based on 
+
+
+===== PDF PAGE 3 =====
+Sensors 2022, 22, 5426 
+3  of  14 
+ 
+ 
+defect features, such as color feature [25], similarity of histogram [26], and the dictionary 
+learning method [27]. 
+The saliency target detection method is mainly aimed at the target area that the hu‐
+man eye is most interested in natural scenes. Itti et al. [19] proposed to fuse objects by 
+color feature, brightness feature, and scale feature to obtain saliency object regions. Guo 
+et al. [28] proposed to use a combination of color features and motion features to highlight 
+salient regions using the phase spectrum in the frequency domain. Li et al. [29] proposed 
+to use of a Gaussian function to convolve the amplitude spectrum in the frequency do‐
+main, which can effectively highlight the salient target area, and the parameters of the 
+Gaussian function are determined by the scale of the salient target. The saliency method 
+can effectively obtain the human eye’s perceptual area, and some saliency‐based methods 
+have been used for defect detection [30–32]. Liu et al. [33] improved the hyper‐complex 
+Fourier transform (HFT) method by adding two‐dimensional entropy features to the input 
+features, which achieved effective extraction of fabric defects. 
+3. Methodology 
+3.1. Algorithm Architecture 
+Figure 1 shows the framework of the crosstalk defect detection method based on sig‐
+nificant color channel frequency domain filtering. 
+ 
+Figure 1. Algorithm Architecture. 
+Firstly, the original image is converted between the RGBY color space and the Lab 
+color space, and the relative entropy maximum criterion is used for the opposite color 
+channels in the RGBY space to evaluate the saliency of channel defects. Then the salient 
+color channel and Lab color space are selected to form the image color quaternion matrix. 
+Secondly, the quaternion color matrix is transformed into a hyper‐complex frequency do‐
+main space using the HFT, while the magnitude spectrum is processed using GTB filter‐
+ing. Finally, the inverse hyper‐complex Fourier transform (IHFT) is employed to obtain 
+the frequency domain saliency map, which then undergoes region segmentation to obtain 
+the defect detection result. 
+3.2. Salient Color Channel Selection 
+The RGBY color space [19] adopts the human visual competition mechanism, which 
+hinders the effective selection of the color channel with better defect protrusion and back‐
+ground suppression when detecting crosstalk defects. The background information and 
+target information contained in different channels are varied, so we design a competitive 
+mechanism between defective targets and backgrounds for feature extraction, which re‐
+tains as many targets as possible while suppressing the background. 
+The human visual competition color space RGBY proposed by [19] is generally used 
+in saliency detection. 
+It is calculated as: 
+
+
+===== PDF PAGE 4 =====
+Sensors 2022, 22, 5426 
+4  of  14 
+ 
+ 
+⎩
+⎪
+⎪
+⎨
+⎪
+⎪
+⎧
+𝑅ൌ𝑟െ𝑔൅𝑏
+2
+,
+𝐺ൌ𝑔െ𝑟൅𝑏
+2
+,
+𝐵ൌ𝑏െ𝑟൅𝑔
+2
+,
+𝑌ൌ𝑟൅𝑔
+2
+െ|𝑟െ𝑔|
+2
+െ𝑏,
+ 
+(1) 
+൞
+𝑅𝐺ൌ𝑅െ𝐺,
+𝐵𝑌ൌ𝐵െ𝑌,
+𝐼ൌ𝑟൅𝑔൅𝑏
+3
+,
+ 
+(2) 
+where r, g and b are the three channels of the original image. The RGBY color space de‐
+composes the RGB input image into two parts: the RGBY color feature and the luminance 
+(I). It is pointed out by [34] that human vision is used for the color competition mechanism, 
+and the RGBY competition color space is generated. The RGBY color feature implements 
+the aberration operation in this paper, which can roughly suppress the background and 
+highlight the abnormal part. 
+Based on the original RG and BY channels, the opposite space GR and YB channels 
+are added, which are expressed as: 
+ቄ𝐺𝑅ൌ𝐺െ𝑅,
+𝑌𝐵ൌ𝑌െ𝐵, 
+(3) 
+By comparing the area difference of RG, GR, and BY, YB between the defect and the 
+background, the opposite color channel is adaptively selected. Since it is difficult to di‐
+rectly calculate the area of the defect, we use the calculation of the area of the background 
+to achieve this. When the background area contained in the opposite space is large, we 
+should discard this channel. The comparison of the area part adopts the relative entropy 
+calculation, and the calculation formula of the relative entropy: 
+𝐻௞௟ሺ𝑃∥𝑄ሻൌ𝑃ሺ𝑥ሻ𝑙𝑜𝑔෍𝑃ሺ𝑥ሻ
+𝑄ሺ𝑥ሻ, 
+(4) 
+The  relative  entropy  represents  the  difference  between  the  grayscale  distribution 
+𝑃(x) of the input feature  𝑃  and the grayscale distribution  𝑄(x) of the input feature Q. 
+When the two are the same,  𝐻௞௟ = 0, it can effectively represent the feature’s distribution 
+distance. The brightness channel contains stable background information, so we calculate 
+the relative entropy between the RGBY color channel and the I brightness respectively, 
+and retain the opposite feature space with a large value. 
+The maximum entropy criterion is described as: 
+൜𝐻௞௟ሺ𝑅𝐺, 𝐼ሻ൐𝐻௞௟ሺ𝐺𝑅, 𝐼ሻ, 𝑓ଵൌ𝑅𝐺,
+𝐻௞௟ሺ𝑅𝐺, 𝐼ሻ൑𝐻௞௟ሺ𝐺𝑅, 𝐼ሻ, 𝑓ଵൌ𝐺𝑅, 
+(5) 
+൜𝐻௞௟ሺ𝐵𝑌, 𝐼ሻ൐𝐻௞௟ሺ𝑌𝐵, 𝐼ሻ, 𝑓ଶൌ𝐵𝑌,
+𝐻௞௟ሺ𝐵𝑌, 𝐼ሻ൑𝐻௞௟ሺ𝑌𝐵, 𝐼ሻ, 𝑓ଶൌ𝑌𝐵, 
+(6) 
+3.3. Frequency Domain GTB Filtering 
+3.3.1. Quaternion Representation and Hypercomplex Fourier Transform 
+The Lab color space conforms to the perceptual properties of the human eye [20], 
+which preserves sufficient colors within the corresponding color channels. The color chan‐
+nel represented by the ab color channel is relatively consistent with the description of the 
+RGBY opposite space, so the ab color channel and the RGBY color feature are used to form 
+the quaternion color feature matrix. 
+
+
+===== PDF PAGE 5 =====
+Sensors 2022, 22, 5426 
+5  of  14 
+ 
+ 
+The image quaternion color matrix is represented as follows: 
+𝑓ሺ𝑛, 𝑚ሻൌ𝑓ଵ൅𝑓ଶ𝑖൅𝑓ଷ𝑗൅𝑓ସ𝑘, 
+(7) 
+where  𝑖,  𝑗  and  𝑘  represent the imaginary axes that satisfy  𝑖ଶൌ𝑗ଶൌ𝑘ଶൌ 𝑖𝑗𝑘ൌെ1.  𝑓ଷ 
+is the a channel of the Lab color space and  𝑓ସ  is the b channel of the Lab space. 
+The image quaternion matrix is transformed to the frequency domain space using the 
+hyper‐complex Fourier transform, calculated as follows: 
+𝐹ுሾ𝑢, 𝑣ሿൌ
+1
+√𝑀𝑁෍ 
+ெିଵ
+௠ୀ଴
+෍ 
+ேିଵ
+௡ୀ଴
+𝑒
+ఓଶగ൬ቀ௠௩
+ெቁାቀ௠௨
+ேቁ൰𝑓ሺ𝑛, 𝑚ሻ, 
+(8) 
+where  𝜇  is a quaternion unit,  𝜇ଶൌെ1. 
+Inverse transform of the hyper‐complex Fourier transform is calculated as follows: 
+𝑓௛ሺ𝑛, 𝑚ሻൌ
+1
+√𝑀𝑁෍ 
+ெିଵ
+௩ୀ଴
+෍ 
+ேିଵ
+௨ୀ଴
+𝑒
+ఓଶగ൬ቀ௠௩
+ெቁାቀ௠௨
+ேቁ൰𝐹ுሺ𝑢, 𝑣ሻ. 
+(9) 
+The amplitude spectrum, phase spectrum, and Eigen‐axis spectrum are calculated as 
+follows: 
+𝐴𝑚ሺ𝑢, 𝑣ሻൌ|𝐹ுሾ𝑢, 𝑣ሿ|, 
+(10) 
+𝑃ሺ𝑢, 𝑣ሻൌ𝑡𝑎𝑛ିଵ𝐼𝑚𝑔ሺ𝐹ுሾ𝑢, 𝑣ሿሻ
+𝑅𝑒𝑎𝑙ሺ𝐹ுሾ𝑢, 𝑣ሿሻ, 
+(11) 
+𝜒ሺ𝑢, 𝑣ሻൌ𝐼𝑚𝑔ሺ𝐹ுሾ𝑢, 𝑣ሿሻ
+|𝐼𝑚𝑔ሺ𝐹ுሾ𝑢, 𝑣ሿሻ| , 
+(12) 
+where  | ∙|  is the modulo operation;  𝐼𝑚𝑔  is imaginary part computation;  𝑅𝑒𝑎𝑙  is real 
+part computation;  𝐴𝑚ሺ𝑢, 𝑣ሻ  is the magnitude spectrum;  𝑃ሺ𝑢, 𝑣ሻ  is the phase spectrum; 
+χሺ𝑢, 𝑣ሻ  is a pure quaternion matrix. 
+To compute the magnitude spectrum of an image quaternion matrix, it can be con‐
+verted to a log spectrum as follows: 
+𝐴ሺ𝑢, 𝑣ሻൌlogሺ𝐴𝑚ሺ𝑢, 𝑣ሻ൅1ሻ, 
+(13) 
+3.3.2. Gaussian Filter Parameter Optimization 
+To enhance the saliency of the defect region, the magnitude spectrum is convolved 
+with a Gaussian template. The existing way to obtain saliency results is to perform an 
+information entropy calculation on the obtained saliency map, and the goal of maximum 
+entropy is the required saliency map. Through experimental analysis, the best saliency 
+map of crosstalk defects can be obtained by calculating the minimum entropy of the mag‐
+nitude spectrum. 
+Define the size of the input image as (𝑀,𝑁). Set the range of template dimensions  𝑘 
+and  𝜎  to: 
+𝑘௡ൌ𝑚𝑖𝑛ሼ𝑀, 𝑁ሽൈ0.01 ൈ𝑛, ሺ𝑛ൌ1,2,3, … ,8ሻ, 
+(14) 
+𝜎௡ൌ3௡ିଶ, ሺ𝑛ൌ1,2,3, … ,8ሻ. 
+(15) 
+The high‐contrast crosstalk defect image is selected for the optimal Gaussian tem‐
+plate parameter selection, to illustrate that the extraction of information entropy from the 
+frequency domain amplitude spectrum can replace the information entropy extraction of 
+the saliency map. The saliency map obtained by different Gaussian templates, for exam‐
+ple, is evaluated using the saliency indicator NSS (Normalized Scanpath Saliency, NSS) 
+[35] to determine the effectiveness of the optimal parameters. 
+
+
+===== PDF PAGE 6 =====
+Sensors 2022, 22, 5426 
+6  of  14 
+ 
+ 
+NSSሺ𝑃, 𝑄஻ሻൌ1
+𝑁෍ 
+௜
+𝑃௜
+—
+ൈ𝑄௜
+஻, 
+(16) 
+𝑁ൌ෍ 
+௜
+𝑄௜
+஻, 
+(17) 
+𝑃തൌ𝑃െ𝜇ሺ𝑃ሻ
+𝜎ሺ𝑃ሻ
+, 
+(18) 
+where  𝑃  denotes the saliency map of the input.  𝑄௜
+஻  is the binary map of the target area 
+of the input saliency map. The one‐dimensional entropy is calculated as follow: 
+𝐻ൌെ෍ሺ𝑝ൈሻ, 
+(19) 
+where  𝐻  represents the information entropy of the amplitude spectrum and  𝑝  repre‐
+sents the statistics of the gray histogram of the amplitude spectrum. 
+We use different Gaussian functions to perform Gaussian convolution on the original 
+amplitude spectrum, use one‐dimensional entropy to calculate the entropy value of the 
+original image, and use NSS to evaluate all the saliency maps obtained after convolution, 
+as shown in Figure 2. 
+ 
+ 
+(a) 
+(b) 
+Figure 2. (a) Entropy value obtained by Gaussian parameter template, (b) saliency evaluation result. 
+The horizontal axes in Figure 2 represent the parameters of the standard deviation of 
+different Gaussian templates. The vertical axis in Figure 2a is the one‐dimensional entropy 
+value of the amplitude spectrum, and the vertical axis in Figure 2b is the NSS value of the 
+saliency map. The results of data analysis show that the minimum entropy value can ob‐
+tain the best saliency map of crosstalk defects. Figure 2 also shows that the size of the 
+Gaussian window has little effect on the saliency map, and only affects the generation of 
+the saliency map when the standard deviation is large. 
+3.3.3. Frequency Domain Threshold Screening and Bandpass Filtering 
+To enhance the saliency of the defect area and suppress the background noise, thresh‐
+old screening and band‐pass filtering are performed on the magnitude spectrum after 
+Gaussian convolution. 
+Threshold screening is needed to calculate the mean and standard deviation of the 
+original amplitude spectrum. The calculation formula is as follows: 
+𝑡ℎൌ𝜇𝑠௠௔௫൅K𝛿𝑠௠௜௡, 
+(20) 
+3,5
+4
+4,5
+5
+5,5
+1
+2
+3
+4
+5
+6
+7
+8
+one‐dimensional entropy
+standard deviation 𝜎
+k1
+k2
+k3
+k4
+k5
+k6
+k7
+k8
+0
+0,5
+1
+1,5
+1
+2
+3
+4
+5
+6
+7
+8
+NSS
+standard deviation 𝜎
+k1
+k2
+k3
+k4
+k5
+k6
+k7
+k8
+
+
+===== PDF PAGE 7 =====
+Sensors 2022, 22, 5426 
+7  of  14 
+ 
+ 
+𝜇𝑠ൌ
+1
+𝑀ൈ𝑁෍෍Aሺ𝑢, 𝑣ሻ௜,௝
+ே
+௝ୀଵ
+ெ
+௜ୀଵ
+, 
+(21) 
+𝛿𝑠ൌඩ
+1
+𝑀ൈ𝑁෍෍ሺAሺ𝑢, 𝑣ሻെ𝜇ሻଶ
+ே
+௝ୀଵ
+ெ
+௜ୀଵ
+. 
+(22) 
+where  𝑡ℎ  is the amplitude spectrum segmentation threshold;  Aሺ𝑢, 𝑣ሻ  is the original log‐
+arithmic amplitude spectrum;  𝜇𝑠  is the mean value of the original logarithmic amplitude 
+spectrum;  𝛿𝑠  is the standard deviation of the original logarithmic amplitude spectrum. K 
+is selected according to the actual image. Following Gaussian convolution, threshold fil‐
+tering is performed on the amplitude spectrum, amplitude values in the amplitude spec‐
+trum that are greater than the threshold value are retained, and the amplitude spectrum 
+after threshold filtering can be obtained. 
+The filtering conditions are as follows: 
+൜𝐹ሺ𝑤ሻ, 𝐹ሺ𝑤ሻ൒𝑡ℎ,
+0,
+else,
+ 
+(23) 
+where  𝐹ሺ𝑤ሻ  is the amplitude value after Gaussian convolution. 
+The selection of the band‐pass requires a comparison of the amplitude spectrum of 
+the defect‐free area and the threshold‐screened amplitude spectrum of the defect. 
+A suitable band‐pass filter needs to be designed to filter the amplitude spectrum fil‐
+tered by the threshold. The filter is described as: 
+𝐻ሺ𝑢, 𝑣ሻൌ ൝1, 𝐷଴൅𝑊
+2 ൒𝐷ሺ𝑢, 𝑣ሻ൒𝐷଴െ𝑊
+2
+0,        else.
+, 
+(24) 
+where  𝐻ሺ𝑢, 𝑣ሻ  is a band‐pass filter, and the pass‐band range is  ሺ𝐷଴൅
+ௐ
+ଶ, 𝐷଴െ
+ௐ
+ଶሻ  and its 
+range is determined by the actual situation. The defect amplitude spectral information is 
+obtained after using band‐pass filtering. An inverse hyper‐complex Fourier transform is 
+performed on the defect magnitude spectrum: 
+S ൌ𝐹ு
+ିଵ൛exp ሺFሺ𝑤ሻᇱ
+ െ1ሻ𝑃ሺ𝑢, 𝑣ሻ𝜒ሺ𝑢, 𝑣ሻൟ, 
+(25) 
+where  Fሺ𝑤ሻᇱ  represents the amplitude spectrum retained after bandpass filtering,  S  rep‐
+resents the obtained defect saliency map,  𝑃ሺ𝑢 , 𝑣ሻ  is the original phase, and  𝜒ሺ𝑢 , 𝑣ሻ  is the 
+characteristic axis spectrum. 
+4. Experimental Results 
+4.1. Crosstalk Defect Data and Image Quality Evaluation 
+The three main types of crosstalk defect are shown in Figure 3. In Type 1, the defected 
+part has high contrast and there is low speckle noise in the background; Type 2 has low 
+contrast between the gray level of the defect and the background, and there is less speckle 
+noise in the background; in Type 3, the defected part has high contrast, and the back‐
+ground contains a lot of noise. In the following discussion, we use Type 1 for high‐con‐
+trast, low‐noise defect maps, Type 2 for low‐contrast, low‐noise defect maps, and Type 3 
+for high‐contrast, high‐noise defect maps. All compared display defect detection methods 
+were programmed using MATLABR2018b and all experiments were performed on the 
+same computer with Intel Core i7‐7700 CPU@3.60 GHz, 16 GB RAM, and Windows 7 64‐
+bit operation system. 
+
+
+===== PDF PAGE 8 =====
+Sensors 2022, 22, 5426 
+8  of  14 
+ 
+ 
+ 
+Figure 3. Different types of input images. 
+To quantitatively evaluate the relationship between defects and background in the 
+original image, PSNR (Peak Signal to Noise Ratio) [36] and MSE (Mean Square Error, 
+MSE) [37] metrics are used. 
+PSNR ൌ10 𝑙𝑜𝑔ଵ଴
+ሺ2௡െ1ሻ
+𝑀𝑆𝐸
+, 
+(26) 
+MSE ൌ|𝑠𝑡𝑑௕െ𝑠𝑡𝑑௧|, 
+(27) 
+where  𝑠𝑡𝑑௕  is the standard deviation of the background, and  𝑠𝑡𝑑௧  is the standard devi‐
+ation of the defect. 
+The image quality evaluation results are shown in Table 1: 
+Table 1. Signal‐to‐noise ratio and contrast of input images. 
+ 
+Type 1 
+Type 2 
+Type 3 
+MSE 
+37.40 
+32.56 
+50.73 
+PSNR (dB) 
+32.40 
+33.00 
+31.07 
+The value of MSE in Table 1 changes more in the three types of images, and the value 
+of PSNR changes less. Among them, Type 3 has the largest background noise, so its MSE 
+value is also the largest. In Type 2, the contrast and noise of background and defects are 
+both low, so its MSE value is small but the PSNR value is the largest. The MSE and PSNR 
+values in Type 1 are in an intermediate state compared to the other two types. 
+4.2. Color Channel Significance Analysis 
+In HFT [27] and PQFT [26], the input image is transformed into a quaternion space 
+composed  of  various  features,  and  then  the  frequency  domain  saliency  analysis  is  per‐
+formed using the hyper‐complex Fourier transform. We analyzed the effect of several com‐
+monly used features on crosstalk defects and finally concluded that only color features can 
+effectively represent the features of crosstalk defects; using other types of defect information 
+results in defects remaining unextractable. The features analyzed in this paper are color fea‐
+ture space, two‐dimensional information entropy feature, and brightness feature. Color fea‐
+ture spaces include RGBY color space, Lab color space, and HSV color space. 
+As shown in Figure 4, after the feature decomposition of the original image, the average 
+brightness feature in RGB space and the V channel in HSV space are consistent with the 
+original image, without suppressing the background or enhancing the defects. However, 
+the two‐dimensional information entropy feature does not describe the defect feature well, 
+which over‐enhances the edge information and drowns the defect information. It can be 
+seen that the more effective defect feature descriptions are mainly in the RGBY space and 
+the ab channel of the Lab color channel, as well as the H and S channels of the HSV space. 
+
+
+===== PDF PAGE 9 =====
+Sensors 2022, 22, 5426 
+9  of  14 
+ 
+ 
+ 
+Figure 4. Decomposed feature map of various features of the original image. (a) Original image, (b) 
+RGB space R channel, (c) RGBY space R channel, (d) Lab space a channel, (e) Two‐dimensional 
+information entropy H feature, (f) Average luminance feature I, (g) HSV spatial H channel, (h) HSV 
+spatial S channel, (i) HSV space V channel. 
+We use both SCRG (Signal‐to‐clutter Ratio Gain) and BSF (Background Suppression 
+Factor) [38] to calculate the performance of the feature space. 
+SCRG ൌSCR௢௨௧
+SCR௜௡
+, 
+(28) 
+SCR ൌ|𝜇்െ𝜇஻|
+𝜎஻
+, 
+(29) 
+BSF ൌ𝜎஻௜௡
+𝜎஻௢௨௧
+, 
+(30) 
+SCR௜௡ and SCR௢௨௧  represent the image signal‐to‐clutter ratios (SCRs) of the input 
+image and the modulo image.  𝜇்  is the gray mean of the defect area, and the mean and 
+standard deviation of the target neighborhood of  𝜇஻  and  𝜎஻. The signal‐to‐noise ratio 
+gain represents the signal‐to‐noise ratio of the output feature map in the feature space, 
+and the background suppression factor represents the degree of difference between the 
+defect and the background. 
+We use SCRG and BSF in RGB space as benchmarks for comparison. When the above 
+two parameters are close to the effect of RGB space, this type of feature can’t effectively 
+separate background and defect information. 
+As shown in Table 2, the BSF parameter value of HSV space is the largest, but its 
+SCRG parameter is close to the value of RGB space, so it cannot effectively separate defect 
+information. The Lab color space and the RGBY color feature can deviate effectively from 
+
+
+===== PDF PAGE 10 =====
+Sensors 2022, 22, 5426 
+10  of  14 
+ 
+ 
+the RGB space in terms of the two parameters of SCRG and BSF, so we choose these two 
+color spaces as the input features to construct the color quaternion matrix. 
+Table 2. Background suppression and noise immunity comparison. 
+ 
+1 
+2 
+3 
+ 
+SCRG 
+BSF 
+SCRG 
+BSF 
+SCRG 
+BSF 
+RGB 
+2.84 
+3.02 
+2.81 
+3.01 
+2.90 
+3.01 
+Lab 
+0.73 
+224.49 
+0.50 
+221.27 
+0.73 
+9200.90 
+Entropy H 
+1.45 
+40.86 
+1.58 
+35.83 
+1.55 
+20.00 
+HSV 
+2.89 
+548.11 
+3.10 
+568.41 
+1.89 
+639.49 
+RGBY 
+0.99 
+70.57 
+0.62 
+36.71 
+1.02 
+25.43 
+4.3. GTB Experiment Comparison and Result Analysis 
+To illustrate the effectiveness of using the GTB approach, we compare the saliency 
+maps obtained using GTB with only Gaussian template convolution. 
+As shown in Figures 5 and 6, only the Gaussian convolution method can significantly 
+enhance the crosstalk defect with strong contrast, while the saliency calculation method 
+of the Gaussian convolution cannot suppress the point‐like noise, and thus cannot effec‐
+tively separate the defect and the background. After using the GTB method, the defect 
+information is further enhanced, and weak contrast defects can be effectively detected. 
+The NSS indicator of the saliency map shows that the saliency for Type 1 is improved by 
+45%, the saliency of Type 2 is increased by 162%, and the saliency of Type 3 is increased 
+by 327%, thus demonstrating that our method can detect faults more effectively. 
+ 
+Figure 5. Comparison of GTB methods. 
+
+
+===== PDF PAGE 11 =====
+Sensors 2022, 22, 5426 
+11  of  14 
+ 
+ 
+ 
+Figure 6. NSS value results for GTB method and Gaussian method. 
+We evaluated the detection performance of our algorithm. Two evaluation metrics 
+are used: TDR and FDR. TDR is defined as the sum of correctly detected pixels in the test 
+image divided by the sum of true crosstalk defect pixels, and FDR is defined as the ratio 
+of falsely detected pixels to total detected pixels [6], as shown in Table 3. 
+Table 3. Defect detection capabilities of our method. 
+ 
+Type 1 
+Type 2 
+Type 3 
+TDR (%) 
+96.7 
+100 
+92.3 
+FDR (%) 
+7.6 
+11.8 
+4.5 
+The TDR of the three types of defect detection results achieved by the method in this 
+paper is more than 90 percent, and the FDR can be controlled within an acceptable range. 
+This shows that our method can detect crosstalk defects effectively and stably, and can 
+achieve accurate detection of low‐contrast defects. 
+4.4. Comparison of Different Methods 
+4.4.1. Channel Selection Comparison 
+We compare the detection effects of the commonly used input feature combinations 
+including Lab [20], RGBYI [29] and HRGBYI [33], which constitute the image quaternion 
+matrix, with our proposed method, as shown in Figure 7. 
+ 
+0
+0,2
+0,4
+0,6
+0,8
+1
+1,2
+1,4
+1,6
+1,8
+1
+2
+3
+NSS
+GTB filter
+Gaussian convolution
+
+
+===== PDF PAGE 12 =====
+Sensors 2022, 22, 5426 
+12  of  14 
+ 
+ 
+Figure 7. Combined feature saliency result graph: the first row is the quaternion modulo image, and 
+the second row is the result saliency graph. 
+It can be seen that the combination of Lab and RGBY cannot detect crosstalk defects, 
+while the saliency map focuses on the edge parts. The detection results of HRGBYI, which is 
+proposed to detect fabric defects, is also concentrated on the edge parts, keeping only a small 
+amount of actual defect information. Compared with the above input feature combinations, 
+which cannot effectively obtain the saliency map of defects, the combination of input features 
+we proposed can effectively achieve the separation of defects and backgrounds. 
+4.4.2. Algorithm Detection Effect Comparison 
+Our proposed method is compared with the current state‐of‐the‐art defect detection 
+methods to analyze crosstalk defect detection capabilities, including polynomial fitting 
+[23] and discrete cosine fitting [22] based methods. 
+As shown in Figure 8, the polynomial fitting method has a poor fitting ability for the 
+cross‐test picture, with the detection results concentrated in the edge part, which is seri‐
+ously inconsistent with the actual defect position. The DCT method also has poor perfor‐
+mance on the edge parts, and fails to overcome the special shape of the crosstalk pictures. 
+It can be seen that the background reconstruction method has high requirements on the 
+image and cannot have edge information. Our method can detect the defect areas more 
+effectively, regardless of how strong or weak the contrast is, and succeed in overcoming 
+the pollution caused by background noise. 
+ 
+Figure 8. Crosstalk defect detection results from different methods. 
+5. Conclusions 
+We propose a crosstalk defect detection method based on salient color channel fre‐
+quency‐domain filtering. Firstly, the feature extraction and combination of images are an‐
+alyzed and verified, and an effective feature extraction method for crosstalk defects is re‐
+alized. For frequency domain filtering, we propose the GTB filtering method, which real‐
+izes the detection of low‐contrast defects. We demonstrate the effectiveness of our method 
+
+
+===== PDF PAGE 13 =====
+Sensors 2022, 22, 5426 
+13  of  14 
+ 
+ 
+with detailed experiments and comparisons, and finally, show that our method can detect 
+display crosstalk defects more accurately than the mainstream detection methods. 
+Author Contributions: formal analysis, W.X., H.C., Z.W., B.L. and L.S.; investigation, W.X. and 
+H.C.; methodology, W.X. and H.C.; software, W.X.; validation, W.X., H.C. and X.L.; resources, Z.W.; 
+writing—original draft preparation, W.X.; writing—review and editing, W.X., H.C., X.L. and B.L.; 
+visualization, W.X.; supervision, H.C.; project administration, H.C. and Z.W. All authors have read 
+and agreed to the published version of the manuscript. 
+Funding: This paper is supported by the “Yang Fan” major project (No. [2020]05) in Guangdong 
+Province, China. 
+Institutional Review Board Statement: Not applicable. 
+Informed Consent Statement: Not applicable. 
+Data Availability Statement: Not applicable. 
+Conflicts of Interest: The authors declare no conflict of interest. 
+References 
+1. 
+Ming, W.; Shen, F.; Li, X.; Zhang, Z.; Du, J.; Chen, Z.; Cao, Y. A comprehensive review of defect detection in 3C glass compo‐
+nents. Measurement 2020, 158, 107722. 
+2. 
+Lingyu, S.; Huaixin, C.; Zhixi, W. Defect Detection Method of LCD Complex Display Screen Combining Feature Matching and 
+Color Correction. In Proceedings of the 2021 18th International Computer Conference on Wavelet Active Media Technology 
+and Information Processing (ICCWAMTIP), Chengdu, China, 17–19 December 2021. 
+3. 
+Li, C.; Zhang, X.; Huang, Y.; Tang, C.; Fatikow, S. A novel algorithm for defect extraction and classification of mobile phone 
+screen based on machine vision. Comput. Ind. Eng. 2020, 146, 106530. 
+4. 
+Zhang, J.; Li, Y.; Zuo, C.; Xing, M. Defect detection of mobile phone screen based on improved difference image method. In 
+Proceedings  of  the  2019 International  Conference  on  Intelligent  Informatics  and  Biomedical  Sciences  (ICIIBMS),  Shanghai, 
+China, 21–24 November 2019. 
+5. 
+Ngo, C.; Park, Y.J.; Jung, J.; Hassan, R.U.; Seok, J. A new algorithm on the automatic TFT‐LCD mura defects inspection based 
+on an effective background reconstruction. J. Soc. Inf. Disp. 2017, 25, 737–752. 
+6. 
+Yang, H.; Song, K.; Mei, S.; Yin, Z. An accurate mura defect vision inspection method using outlier‐prejudging‐based image 
+background construction and region‐gradient‐based level set. IEEE Trans. Autom. Sci. Eng. 2018, 15, 1704–1721. 
+7. 
+Ma, Z.; Gong, J. An automatic detection method of Mura defects for liquid crystal display. In Proceedings of the 2019 Chinese 
+Control Conference (CCC), Guangzhou, China, 27–30 July 2019. 
+8. 
+Chen, L.‐C.; Kuo, C.‐C. Automatic TFT‐LCD mura defect inspection using discrete cosine transform‐based background filtering 
+and ‘just noticeable difference’quantification strategies. Meas. Sci. Technol. 2007, 19, 015507. 
+9. 
+Sun, Y.; Li, X.; Xiao, J. A cascaded Mura defect detection method based on mean shift and level set algorithm for active‐matrix 
+OLED display panel. J. Soc. Inf. Disp. 2019, 27, 13–20. 
+10. Sun, Y.; Xiao, J. A Region‐Scalable Fitting Model Algorithm Combining Gray Level Difference of Sub‐image for AMOLED De‐
+fect Detection. In Proceedings of the 2018 IEEE International Conference on Computer and Communication Engineering Tech‐
+nology (CCET), Beijing, China, 18–20 August 2018. 
+11. Zhu, Y.; Ding, R.; Huang, W.; Wei, P.; Yang, G.; Wang, Y. HMFCA‐Net: Hierarchical multi‐frequency based Channel attention 
+net for mobile phone surface defect detection. Pattern Recognit. Lett. 2022, 153, 118–125. 
+12. Zhu, H.; Huang, J.; Liu, H.; Zhou, Q.; Zhu, J.; Li, B. Deep‐Learning‐Enabled Automatic Optical Inspection for Module‐Level 
+Defects in LCD. IEEE Internet Things J. 2021, 9, 1122–1135. 
+13. Chang, Y.‐C.; Chang, K.‐H.; Meng, H.‐M.; Chiu, H.‐C. A Novel Multicategory Defect Detection Method Based on the Convolu‐
+tional Neural Network Method for TFT‐LCD Panels. Math. Probl. Eng. 2022, 2022, 6505372. 
+14. Ming, W.; Cao, C.; Zhang, G.; Zhang, H.; Zhang, F.; Jiang, Z.; Yuan, J. Application of Convolutional Neural Network in Defect 
+Detection of 3C Products. IEEE Access 2021, 9, 135657–135674. 
+15. Li, Z.; Li, J.; Dai, W. A two‐stage multiscale residual attention network for light guide plate defect detection. IEEE Access 2020, 
+9, 2780–2792. 
+16. Pan, J.; Zeng, D.; Tan, Q.; Wu, Z.; Ren, Z. EU‐Net: A novel semantic segmentation architecture for surface defect detection of 
+mobile phone screens. IET Image Process 2022, 16, 2568–2576. 
+17. Lo Sciuto, G.; Capizzi, G.; Shikler, R.; Napoli, C. Organic solar cells defects classification by using a new feature extraction 
+algorithm and an EBNN with an innovative pruning algorithm. Int. J. Intell. Syst. 2021, 36, 2443–2464. 
+18. Redmon, J.; Farhadi, A. Yolov3: An incremental improvement. arXiv 2018, arXiv:1804.02767. 
+
+
+===== PDF PAGE 14 =====
+Sensors 2022, 22, 5426 
+14  of  14 
+ 
+ 
+19. Itti, L.; Koch, C.; Niebur, E. A model of saliency‐based visual attention for rapid scene analysis. IEEE Trans. Pattern Anal. Mach. 
+Intell. 1998, 20, 1254–1259. 
+20. Shangwang, L.; Ming, L.; Wentao, M.; Guoqi, L. Improved HFT model for saliency detection. Comput. Eng. Des. 2015, 36, 2167–
+2173. 
+21. Ell, T.A.; Sangwine, S.J. Hypercomplex Fourier transforms of color images. IEEE Trans. Image Processing 2006, 16, 22–35. 
+22. Jin, S.; Ji, C.; Yan, C.; Xing, J. TFT‐LCD mura defect detection using DCT and the dual‐γ piecewise exponential transform. Precis. 
+Eng. 2018, 54, 371–378. 
+23. Fan, S.‐K.S.; Chuang, Y.‐C. Automatic detection of Mura defect in TFT‐LCD based on regression diagnostics. Pattern Recognit. 
+Lett. 2010, 31, 2397–2404. 
+24. Cui, Y.; Wang, S.; Wu, H.; Xiong, B.; Pan, Y. Liquid crystal display defects in multiple backgrounds with visual real‐time detec‐
+tion. J. Soc. Inf. Disp. 2021, 29, 547–560. 
+25. Wenqiang, X.; Huaixin, C.; Zhixi, W. Method for Detecting Gypsophila Defect of Display Screen Based on Human Visual Per‐
+ception. In Proceedings of the 2021 18th International Computer Conference on Wavelet Active Media Technology and Infor‐
+mation Processing (ICCWAMTIP), Chengdu, China, 17–19 December 2021. 
+26. Torres, G.M.; Souza, A.S.; Ferreira, D.A.; Júnior, L.C.; Ouchi, K.Y.; Valadão, M.D.; Silva, M.O.; Cavalcante, V.L.; Mattos EV, U.; 
+Pereira, A.M. Automated Mura Defect Detection System on LCD Displays using Random Forest Classifier, In Proceedings of 
+the 2021 IEEE International Conference on Consumer Electronics (ICCE), Las Vegas, NV, USA, 10–12 January 2021. 
+27. Liang, L.‐Q.; Li, D.; Fu, X.; Zhang, W.‐J. Touch screen defect inspection based on sparse representation in low resolution images. 
+Multimed. Tools Appl. 2016, 75, 2655–2666. 
+28. Guo, C.; Ma, Q.; Zhang, L. Spatio‐temporal saliency detection using phase spectrum of quaternion fourier transform. In Pro‐
+ceedings of the 2008 IEEE Conference on Computer Vision and Pattern Recognition, Anchorage, AK, USA, 23–28 June 2008. 
+29. Li, J.; Levine, M.D.; An, X.; Xu, X.; He, H. Visual saliency based on scale‐space analysis in the frequency domain. IEEE Trans. 
+Pattern Anal. Mach. Intell. 2012, 35, 996–1010. 
+30. Guan, S.; Shi, H. Fabric defect detection based on the saliency map construction of target‐driven feature. J. Text. Inst. 2018, 109, 
+1133–1142. 
+31. Zhou, X.; Wang, Y.; Xiao, C.; Zhu, Q.; Lu, X.; Zhang, H.; Ge, J.; Zhao, H. Automated visual inspection of glass bottle bottom 
+with saliency detection and template matching. IEEE Trans. Instrum. Meas. 2019, 68, 4253–4267. 
+32. Guan, S. Fabric defect delaminating detection based on visual saliency in HSV color space. J. Text. Inst. 2018, 109, 1560–1573. 
+33. Liu, G.; Zheng, X. Fabric defect detection based on information entropy and frequency domain saliency. Vis. Comput. 2021, 37, 
+515–528. 
+34. Engel, S.; Zhang, X.; Wandell, B. Colour tuning in human visual cortex measured with functional magnetic resonance imaging. 
+Nature 1997, 388, 68–71. 
+35. Bylinskii, Z.; Judd, T.; Oliva, A.; Torralba, A.; Durand, F. What do different evaluation metrics tell us about saliency models? 
+IEEE Trans. Pattern Anal. Mach. Intell. 2018, 41, 740–757. 
+36. Turaga, D.S.; Chen, Y.; Caviedes, J. No reference PSNR estimation for compressed pictures. Signal Processing Image Commun. 
+2004, 19, 173–184. 
+37. Marmolin, H. Subjective MSE measures. IEEE Trans. Syst. Man Cybern. 1986, 16, 486–489. 
+38. Zhang, H.; Zhang, L.; Yuan, D.; Chen, H. Infrared small target detection based on local intensity and gradient properties. Infrared 
+Phys. Technol. 2018, 89, 88–96. 

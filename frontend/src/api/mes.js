@@ -1,0 +1,73 @@
+import request from '@/utils/request'
+
+export function fetchMesSnapshot() {
+  return request.get('/mes/snapshot')
+}
+
+/** 操作员通知收件箱（派工等，按 username 过滤） */
+export function fetchOperatorNotifications(username) {
+  return request.get('/mes/notifications/inbox', {
+    params: { username },
+    silent: true
+  })
+}
+
+export function postMesAction(body, opts = {}) {
+  return request.post('/mes/action', body, { silent: !!opts.silent })
+}
+
+/** 智能生成生产计划 - 批量预览 */
+export function fetchSmartPlanPreview() {
+  return request.get('/mes/planner/smart-plans/preview')
+}
+
+/** 智能生成生产计划 - 批量创建 */
+export function postGenerateSmartPlans(body) {
+  return request.post('/mes/planner/smart-plans/generate', body)
+}
+
+/** 智能派工推荐 - 预览 */
+export function fetchSmartDispatchPreview(planId) {
+  return request.get('/mes/manager/smart-dispatch/preview', {
+    params: planId ? { planId } : {}
+  })
+}
+
+/** 智能派工推荐 - 确认 */
+export function postConfirmSmartDispatch(body) {
+  return request.post('/mes/manager/smart-dispatch/confirm', body)
+}
+
+/** 订单附件 OCR 识别（模拟） */
+export function postOrderOcrRecognize(body) {
+  return request.post('/mes/order/ocr/recognize', body)
+}
+
+/** 质检报告 - 刷新/重新生成（千问 AI） */
+export function postRefreshQualityReport(body) {
+  return request.post('/mes/quality/reports/refresh', body)
+}
+
+/** 智能派工 - 冲突校验（静默，避免编辑时重复弹错） */
+export function postValidateSmartDispatch(body) {
+  return request.post('/mes/manager/smart-dispatch/validate', body, { silent: true })
+}
+
+/** 主管计划上下文（订单/工艺/交期） */
+export function fetchManagerPlanContext(planNo) {
+  return request.get(`/mes/manager/plan/${planNo}/context`)
+}
+
+/** 生产主管大屏完整快照（数据量大，单独延长超时） */
+export function fetchDashboardSnapshot() {
+  return request.get('/mes/dashboard/snapshot', { timeout: 60000 })
+}
+
+export function fetchDashboardKpi() {
+  return request.get('/mes/dashboard/kpi')
+}
+
+/** 释放设备与操作员占用（结束在途派工，设备恢复空闲） */
+export function postReleaseOccupancy() {
+  return request.post('/mes/admin/release-occupancy')
+}

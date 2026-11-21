@@ -1,0 +1,98 @@
+# Local preview inventory; MES entry remains disabled.
+schemaVersion: '1.0'
+status: live_business_evidence_eight_profiles_verified
+agents:
+- id: SUP
+  name: 总协调
+  workflowName: mes_supervisor_v1
+  enabled: false
+  responsibility: 规划任务、调用专家、处理补查、汇总证据
+  tools:
+  - order_planning_v1
+  - supply_inventory_v1
+  - production_dispatch_v1
+  - quality_inspection_v1
+  - equipment_support_v1
+  - aftersales_trace_v1
+  difyPreviewDeployed: true
+  fixedBusinessEvidence:
+  - E0_CONTEXT
+  - E5
+  coverage: DELIVERY_PARTIAL
+- id: SUPPLY
+  name: 采购库存
+  workflowName: supply_inventory_v1
+  enabled: false
+  responsibility: 采购到货、物料齐套、库存、入库与可发货资源
+  tools:
+  - public_display_knowledge
+  difyPreviewDeployed: true
+  fixedBusinessEvidence:
+  - E2
+  coverage: DELIVERY_PARTIAL
+- id: ORDER
+  name: 订单计划
+  workflowName: order_planning_v1
+  enabled: false
+  responsibility: 订单需求、交期、剩余交付与计划覆盖
+  tools:
+  - public_display_knowledge
+  difyPreviewDeployed: true
+  fixedBusinessEvidence:
+  - E1
+  - E4
+  coverage: DELIVERY_PARTIAL
+- id: PRODUCTION
+  name: 生产调度
+  workflowName: production_dispatch_v1
+  enabled: false
+  responsibility: 工单、工序、派工报工、进度与生产约束
+  tools:
+  - public_display_knowledge
+  difyPreviewDeployed: true
+  fixedBusinessEvidence:
+  - E3
+  coverage: DELIVERY_PARTIAL
+- id: QUALITY
+  name: 质量检测
+  workflowName: quality_inspection_v1
+  enabled: false
+  responsibility: 检验结果、适用规则、可信视觉检测与质量风险
+  tools:
+  - public_display_knowledge
+  difyPreviewDeployed: true
+  fixedBusinessEvidence:
+  - Q1
+  coverage: LIVE_ORDER_SCOPED_BUSINESS_EVIDENCE
+- id: EQUIPMENT
+  name: 设备保障
+  workflowName: equipment_support_v1
+  enabled: false
+  responsibility: 设备状态、报警、维护与生产影响候选
+  tools:
+  - public_display_knowledge
+  difyPreviewDeployed: true
+  fixedBusinessEvidence:
+  - D1
+  coverage: LIVE_ORDER_SCOPED_BUSINESS_EVIDENCE
+- id: AFTERSALES
+  name: 售后追溯
+  workflowName: aftersales_trace_v1
+  enabled: false
+  responsibility: 案件、交付、批次、生产与检验路径
+  tools:
+  - public_display_knowledge
+  difyPreviewDeployed: true
+  fixedBusinessEvidence:
+  - A1
+  coverage: LIVE_ORDER_SCOPED_BUSINESS_EVIDENCE
+mesEntryEnabled: false
+workflowProfiles:
+- DELIVERY
+- ORDER
+- SUPPLY
+- PRODUCTION
+- QUALITY
+- EQUIPMENT
+- AFTERSALES
+- FULL_ASSESSMENT
