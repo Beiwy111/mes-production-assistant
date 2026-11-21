@@ -77,9 +77,10 @@
               </template>
             </el-table-column>
             <el-table-column prop="createdAt" label="创建时间" min-width="160" show-overflow-tooltip />
-            <el-table-column label="操作" width="150" align="center" fixed="right">
+            <el-table-column label="操作" width="210" align="center" fixed="right">
               <template #default="{ row }">
                 <div class="user-view__row-actions">
+                  <el-button v-if="userStore.roleKey === 'admin'" link type="primary" @click="openFace(row)">人脸</el-button>
                   <el-button link type="primary" :icon="Edit" @click="openDialog(row)">修改</el-button>
                   <el-button link type="danger" :icon="Delete" @click="removeOne(row)">删除</el-button>
                 </div>
@@ -141,6 +142,7 @@
         <el-button type="primary" @click="submitForm">确定</el-button>
       </template>
     </el-dialog>
+    <FaceManagementDialog v-model="faceVisible" :target-user-id="faceTarget?.id" :target-name="faceTarget?.realName" />
   </div>
 </template>
 
@@ -153,9 +155,13 @@ import { useUserStore } from '@/stores/user'
 import { useRuoyiTable } from '@/composables/useRuoyiTable'
 import { fetchUserList, fetchRoleList, deleteUser } from '@/api/system'
 import { mapUserFromApi, mapRoleFromApi } from '@/utils/systemMappers'
+import FaceManagementDialog from '@/components/face/FaceManagementDialog.vue'
 
 const mes = useMesStore()
 const userStore = useUserStore()
+const faceVisible = ref(false)
+const faceTarget = ref(null)
+function openFace(row) { faceTarget.value = row; faceVisible.value = true }
 const loading = ref(false)
 const dialogVisible = ref(false)
 const formRef = ref()

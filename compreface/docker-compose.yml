@@ -1,0 +1,50 @@
+# MES CPU deployment based on the upstream CompreFace 1.2.0 release.
+name: compreface_120
+
+x-cpu-template: &cpu-template ${MES_COMPREFACE_TEMPLATE:-./upstream/docker-compose.yml}
+x-database-password: &database-password "${postgres_password:?Set postgres_password in the local .env file}"
+
+volumes:
+  postgres-data:
+    external: true
+    name: compreface_120_postgres-data
+
+services:
+  compreface-postgres-db:
+    extends:
+      file: *cpu-template
+      service: compreface-postgres-db
+    environment:
+      POSTGRES_PASSWORD: *database-password
+
+  compreface-api:
+    extends:
+      file: *cpu-template
+      service: compreface-api
+    environment:
+      POSTGRES_PASSWORD: *database-password
+      SAVE_IMAGES_TO_DB: "false"
+
+  compreface-admin:
+    extends:
+      file: *cpu-template
+      service: compreface-admin
+    environment:
+      POSTGRES_PASSWORD: *database-password
+
+  compreface-core:
+    extends:
+      file: *cpu-template
+      service: compreface-core
+    # Allow the CPU model to warm up after a Docker Desktop cold start.
+    healthcheck:
+      start_period: 90s
+      timeout: 5s
+      retries: 3
+
+  compreface-fe:
+    extends:
+      file: *cpu-template
+      service: compreface-fe
+    ports: !override
+      - "${MES_COMPREFACE_BIND:-8000}:80"

@@ -1,0 +1,14 @@
+# Copy to face-env.local.ps1 (git-ignored), or set these process environment variables in your terminal/IDE.
+# Use two service keys from YOUR local CompreFace application. Never commit real keys.
+$env:COMPREFACE_BASE_URL = 'http://127.0.0.1:8000'
+$env:COMPREFACE_RECOGNITION_API_KEY = ''
+$env:COMPREFACE_DETECTION_API_KEY = ''
+$env:FACE_AUTH_ENABLED = 'true'
+# Explicit opt-in: no reliable liveness / PAD, demo only.
+$env:FACE_AUTH_ALLOW_DEMO_LOGIN = 'true'
+$env:FACE_SIMILARITY_THRESHOLD = '0.85'
+$env:FACE_DETECTION_THRESHOLD = '0.95'
+# Optional schema tool settings, ONLY when manually applying the additive migration:
+# $env:FACE_DB_URL = 'jdbc:mysql://127.0.0.1:3306/display_manufacturing?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai'
+# $env:FACE_DB_USER = ''
+# $env:FACE_DB_PASSWORD = ''

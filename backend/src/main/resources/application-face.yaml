@@ -1,0 +1,10 @@
+# Opt-in profile; existing application.yaml and local database configuration are untouched.
+mes:
+  face:
+    enabled: ${FACE_AUTH_ENABLED:true}
+    allow-demo-login: ${FACE_AUTH_ALLOW_DEMO_LOGIN:false}
+    base-url: ${COMPREFACE_BASE_URL:http://127.0.0.1:8000}
+    recognition-api-key: ${COMPREFACE_RECOGNITION_API_KEY:}
+    detection-api-key: ${COMPREFACE_DETECTION_API_KEY:}
+    similarity-threshold: ${FACE_SIMILARITY_THRESHOLD:0.85}
+    detection-threshold: ${FACE_DETECTION_THRESHOLD:0.95}

@@ -1,0 +1,20 @@
+# Explicit opt-in test stack. Each service gets a project-scoped container name.
+name: mes-compreface-face-isolated
+
+volumes:
+  postgres-data: !override
+    name: mes-compreface-face-isolated_postgres-data
+
+services:
+  compreface-postgres-db:
+    container_name: !reset null
+  compreface-api:
+    container_name: !reset null
+  compreface-admin:
+    container_name: !reset null
+  compreface-core:
+    container_name: !reset null
+  compreface-fe:
+    container_name: !reset null
+    ports: !override
+      - "${MES_COMPREFACE_BIND:-8001}:80"

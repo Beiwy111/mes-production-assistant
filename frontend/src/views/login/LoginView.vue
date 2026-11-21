@@ -59,6 +59,8 @@
           </button>
         </form>
 
+        <button type="button" class="auth-face-entry" @click="faceVisible = true">人脸登录 · 演示</button>
+
         <p class="auth-panel__welcome">欢迎使用 {{ APP_TITLE }}</p>
         <div class="auth-panel__links">
           <a @click.prevent="$router.push('/')">返回首页</a>
@@ -69,6 +71,7 @@
         </div>
       </div>
     </div>
+    <FaceLoginDialog v-model="faceVisible" :username="form.username" @success="faceLoggedIn" />
   </div>
 </template>
 
@@ -82,6 +85,7 @@ import { getHomePath } from '@/utils/menuRoutes'
 import { homeImages } from '@/config/homeImages'
 import BrandLogo from '@/components/brand/BrandLogo.vue'
 import { APP_TITLE, BRAND_NAME } from '@/constants/brand'
+import FaceLoginDialog from '@/components/face/FaceLoginDialog.vue'
 
 const heroVideo = homeImages.loginVideo
 const heroBg = homeImages.heroBg
@@ -91,6 +95,7 @@ const router = useRouter()
 const route = useRoute()
 const userStore = useUserStore()
 const loading = ref(false)
+const faceVisible = ref(false)
 const form = reactive({
   username: '',
   password: ''
@@ -100,6 +105,12 @@ function fillDemo() {
   form.username = 'li_manager'
   form.password = '123456'
   ElMessage.info('已填入演示账号 li_manager，点击登录即可')
+}
+
+function faceLoggedIn() {
+  ElMessage.success('人脸演示登录成功')
+  const redirect = typeof route.query.redirect === 'string' ? route.query.redirect : ''
+  router.push(redirect || userStore.dashboardPath || getHomePath(userStore.roleKey))
 }
 
 async function handleLogin() {
@@ -127,6 +138,7 @@ async function handleLogin() {
 </script>
 
 <style scoped>
+.auth-face-entry { width: 100%; margin-top: 14px; padding: 10px; color: #3b5b92; background: #f1f5fb; border: 1px solid #d7e0ed; border-radius: 8px; cursor: pointer; }
 .auth-page {
   position: relative;
   min-height: 100vh;

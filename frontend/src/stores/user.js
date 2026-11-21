@@ -107,7 +107,10 @@ export const useUserStore = defineStore('user', {
       }
 
       const data = await loginApi(form)
-      this.token = data.token
+      return this.acceptLoginToken(data.token)
+    },
+    async acceptLoginToken(token) {
+      this.token = token
       if (!this.token) {
         throw new Error('登录失败：未返回 token')
       }

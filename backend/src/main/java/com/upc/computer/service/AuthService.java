@@ -17,6 +17,9 @@ public interface AuthService {
     /** 校验账号密码，返回用户信息（不含 token） */
     LoginResponse authenticate(LoginRequest request);
 
+    /** Internal only: called after a separate credential has already been verified. */
+    LoginResponse sessionForVerifiedUser(Long userId);
+
     /** 用户自助注册，待管理员分配角色后启用 */
     Map<String, Object> register(RegisterRequest request);
 

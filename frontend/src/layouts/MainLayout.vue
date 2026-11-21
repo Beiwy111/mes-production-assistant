@@ -68,6 +68,7 @@
             <template #dropdown>
               <el-dropdown-menu>
                 <el-dropdown-item command="portal">返回门户</el-dropdown-item>
+                <el-dropdown-item command="face">我的人脸信息</el-dropdown-item>
                 <el-dropdown-item divided command="logout">退出登录</el-dropdown-item>
               </el-dropdown-menu>
             </template>
@@ -77,12 +78,13 @@
       <el-main class="layout-main" :class="{ 'ruoyi-app-main': route.path !== '/assistant', 'layout-main--screen': isScreenPage, 'layout-main--assistant': route.path === '/assistant' }">
         <router-view />
       </el-main>
+      <FaceManagementDialog v-model="faceVisible" />
     </el-container>
   </el-container>
 </template>
 
 <script setup>
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
   Monitor, Setting, Box, ShoppingCart, OfficeBuilding, CircleCheck,
@@ -90,6 +92,7 @@ import {
 } from '@element-plus/icons-vue'
 import { useUserStore } from '@/stores/user'
 import NotificationCenter from '@/components/notification/NotificationCenter.vue'
+import FaceManagementDialog from '@/components/face/FaceManagementDialog.vue'
 import BrandLogo from '@/components/brand/BrandLogo.vue'
 import { APP_TITLE, BRAND_NAME } from '@/constants/brand'
 import { useGlobalBusinessMonitor } from '@/composables/useGlobalBusinessMonitor'
@@ -97,6 +100,7 @@ import { useGlobalBusinessMonitor } from '@/composables/useGlobalBusinessMonitor
 const route = useRoute()
 const router = useRouter()
 const userStore = useUserStore()
+const faceVisible = ref(false)
 useGlobalBusinessMonitor()
 
 
@@ -148,6 +152,7 @@ function handleLogout() {
 }
 
 function onUserCommand(cmd) {
+  if (cmd === 'face') faceVisible.value = true
   if (cmd === 'portal') router.push('/')
   if (cmd === 'logout') handleLogout()
 }
