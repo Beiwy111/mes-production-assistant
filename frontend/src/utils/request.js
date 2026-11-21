@@ -3,7 +3,7 @@ import { ElMessage } from 'element-plus'
 import { useUserStore } from '@/stores/user'
 import { notifySessionExpired } from './sessionExpiry.js'
 
-const isAuthAction = (config) => /\/auth\/(login|register|logout)(?:\?|$)/.test(config?.url || '')
+const isAuthAction = (config) => /\/auth\/(login|register|logout|face\/(?:challenge|login))(?:\?|$)/.test(config?.url || '')
 
 const request = axios.create({
   baseURL: '/api',

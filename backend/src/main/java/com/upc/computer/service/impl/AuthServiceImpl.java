@@ -71,7 +71,24 @@ public class AuthServiceImpl implements AuthService {
         if (!matchPassword(request.getPassword(), user.getPasswordHash())) {
             throw new BusinessException(401, "用户名或密码错误");
         }
-        Role role = user.getRoleId() != null ? roleMapper.getRoleById(user.getRoleId()) : null;
+        Role role = roleMapper.getRoleById(user.getRoleId());
+        return buildSession(user, role);
+    }
+
+    @Override
+    public LoginResponse sessionForVerifiedUser(Long userId) {
+        User user = userMapper.getUserById(userId);
+        if (user == null || !Integer.valueOf(1).equals(user.getStatus()) || user.getRoleId() == null) {
+            throw new BusinessException(401, "账号不可用");
+        }
+        Role role = roleMapper.getRoleById(user.getRoleId());
+        if (role == null || !Integer.valueOf(1).equals(role.getStatus())) {
+            throw new BusinessException(401, "账号角色不可用");
+        }
+        return buildSession(user, role);
+    }
+
+    private LoginResponse buildSession(User user, Role role) {
         LoginResponse session = new LoginResponse();
         session.setUserId(user.getUserId());
         session.setUsername(user.getUsername());

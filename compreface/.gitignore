@@ -1,0 +1,7 @@
+# Local database / email settings and operator overrides.
+.env
+.env.*
+!.env.example
+*.local.ps1
+*.local.yaml
+.runtime/

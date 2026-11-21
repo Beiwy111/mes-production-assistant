@@ -63,3 +63,17 @@ project.private.config.json
 /docs/ai-planning-2026-11-07/*
 !/docs/ai-planning-2026-11-07/papers/
 !/docs/ai-planning-2026-11-07/paper-text/
+
+# CompreFace local credentials, database exports and face test inputs
+/backend/deploy/compreface/face-env.ps1
+/backend/src/main/resources/application-face-local.y*ml
+/compreface/postgres-data/
+/compreface/backups/
+**/compreface/test-data/
+/frontend/tests/face/test-data/
+**/compreface/**/*.[jJ][pP][gG]
+**/compreface/**/*.[jJ][pP][eE][gG]
+**/compreface/**/*.[pP][nN][gG]
+/frontend/tests/face/**/*.[jJ][pP][gG]
+/frontend/tests/face/**/*.[jJ][pP][eE][gG]
+/frontend/tests/face/**/*.[pP][nN][gG]
