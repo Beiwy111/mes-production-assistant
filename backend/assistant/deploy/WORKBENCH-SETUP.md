@@ -2,7 +2,7 @@
 
 ## 在生产协作助手选择回答方式
 
-在 `/assistant` 输入框上方选择“API 模型”或“本地模型”，再决定是否开启“RAG 知识检索”。两种模型均由现有 MES 后端（8088）使用当前用户的登录会话调用。原有 Dify 多 Agent 的入口为“业务工作流”，仍使用独立网关及工作流内的检索策略。
+在 `/assistant` 输入框上方选择“API 模型”或“本地模型”，再决定是否开启“RAG 知识检索”。两种模型均由现有 MES 后端（8088）使用当前用户的登录会话调用。原有 Dify 多 Agent 的入口为“业务工作流”，仍使用独立网关及工作流内的检索策略。 模型运行在另一台电脑时，参见 [Windows 通过 Tailscale 连接 Ubuntu 模型](TAILSCALE-MODEL.md)。
 
 在**启动 MES 后端的同一个 PowerShell 窗口**配置所需的模型。后端读取环境变量或 Spring 私有配置。示例中的地址和模型名请替换成已部署服务的实际值。
 
@@ -13,7 +13,7 @@ $env:MES_CHAT_API_MODEL = '你的 API 模型名'
 $env:MES_CHAT_API_KEY = [Net.NetworkCredential]::new('', (Read-Host 'API 模型密钥' -AsSecureString)).Password
 
 # 本地：支持 Ollama、llama.cpp 等提供 OpenAI 兼容 chat/completions 的服务。
-# 同机可使用 http://127.0.0.1:11434/v1；Ubuntu 台式机上的服务请填写局域网地址。
+# 同机可使用 http://127.0.0.1:11434/v1；远程服务请填写 Windows 能访问的局域网地址或 Tailscale 转发地址。
 $env:MES_CHAT_LOCAL_BASE_URL = 'http://192.168.1.100:11434/v1'
 $env:MES_CHAT_LOCAL_MODEL = '你的本地模型名'
 # 本地推理服务启用认证时，设置 MES_CHAT_LOCAL_API_KEY。
