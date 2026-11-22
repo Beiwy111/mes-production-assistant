@@ -55,6 +55,11 @@ public final class Stage5RuntimeMain {
         properties.setProperty("connectTimeout","5000");
         properties.setProperty("socketTimeout","20000");
         datasource.setDriverProperties(properties);
+        return readOnlyFactory(datasource);
+    }
+
+    /** Share the same fixed, SELECT-only mappers with the authenticated MES model endpoint. */
+    public static SqlSessionFactory readOnlyFactory(javax.sql.DataSource datasource) {
         Configuration configuration=new Configuration(new Environment("stage5-local-readonly-preview",new JdbcTransactionFactory(),datasource));
         configuration.setLogImpl(NoLoggingImpl.class);
         configuration.setCacheEnabled(false);

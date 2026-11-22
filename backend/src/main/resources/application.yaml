@@ -127,3 +127,15 @@ server:
 auth:
   jwt-secret: ${MES_JWT_SECRET}
   jwt-expire-hours: 24
+
+mes:
+  workbench-chat:
+    api:
+      base-url: ${MES_CHAT_API_BASE_URL:${deepseek.api-url}}
+      model: ${MES_CHAT_API_MODEL:${deepseek.model}}
+      api-key: ${MES_CHAT_API_KEY:${deepseek.api-key:}}
+    local:
+      base-url: ${MES_CHAT_LOCAL_BASE_URL:http://127.0.0.1:11434/v1}
+      model: ${MES_CHAT_LOCAL_MODEL:}
+      api-key: ${MES_CHAT_LOCAL_API_KEY:}
+    knowledge-key: ${MES_KNOWLEDGE_API_KEY:}

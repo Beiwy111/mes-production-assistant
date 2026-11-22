@@ -227,7 +227,7 @@ export const canSubmitNaturalQuestion = ({ admin, connection, busy, text }) =>
 // This is only a continuation reference. The server validates its owner and session.
 export function buildNaturalRequest(session, text, requestId) {
   const previous = [...(session.messages || [])].reverse().find((message) =>
-    message.role === 'assistant' && !message.orderFlow && message.status === 'COMPLETED' &&
+    message.role === 'assistant' && !message.modelSource && !message.orderFlow && message.status === 'COMPLETED' &&
     typeof message.result?.reply === 'string',
   )
   const canContinue = previous &&
@@ -382,6 +382,8 @@ export function restoreSessions(raw) {
       .map((s) => ({
         id: clip(s.id, 160),
         title: clip(s.title, 80),
+        modelSource: ['API', 'LOCAL'].includes(s.modelSource) ? s.modelSource : 'WORKFLOW',
+        ragEnabled: s.ragEnabled === true,
         updatedAt: Number(s.updatedAt) || 0,
         orderPk: clip(s.orderPk, 20),
         profile: s.profile === 'AUTO' || PROFILES.some((p) => p.id === s.profile)
@@ -433,6 +435,10 @@ export function restoreSessions(raw) {
                   : null,
             }
             if (m.orderMessage === true) item.orderMessage = true
+            if (['API', 'LOCAL'].includes(m.modelSource)) {
+              item.modelSource = m.modelSource
+              item.ragEnabled = m.ragEnabled === true
+            }
             if (m.orderFlow && typeof m.orderFlow === 'object') {
               item.orderFlow = { needsRecovery: true, steps: [],
                 ...(m.orderFlow.orderDraft?.id ? { orderDraft: { id: clip(String(m.orderFlow.orderDraft.id), 160) } } : {}) }
@@ -476,6 +482,7 @@ export function serializeWorkbenchSessions(sessions) {
     title: session.messages.some((m) => m.orderMessage || m.orderFlow) ? '订单会话' : session.title,
     messages: session.messages.slice(-40).map((message) => message.orderMessage || message.orderFlow ? {
       id: message.id, role: message.role, status: message.status, profile: 'AUTO',
+      ...(message.modelSource ? { modelSource: message.modelSource, ragEnabled: message.ragEnabled === true } : {}),
       text: message.role === 'user' ? '订单信息（仅在当前页面显示）' : '订单会话已保存，请恢复草稿查看当前状态。',
       orderMessage: true,
       ...(message.orderFlow ? { orderFlow: { needsRecovery: true,

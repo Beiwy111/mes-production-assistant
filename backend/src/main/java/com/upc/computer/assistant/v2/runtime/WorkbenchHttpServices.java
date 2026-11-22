@@ -81,7 +81,7 @@ public final class WorkbenchHttpServices implements WorkbenchGatewayServer.Servi
     }
     private static final Map<String,Integer> INTAKE_FIELDS=Map.of("quantity",0,"productQuery",200,"requiredDeliveryDate",10,
             "receiverName",100,"receiverPhone",50,"receiverAddress",500,"customerName",100,"remark",1000);
-    static JsonNode validateIntake(JsonNode value) {
+    public static JsonNode validateIntake(JsonNode value) {
         requireIntake(value!=null&&value.isObject()&&value.size()==4);
         value.fieldNames().forEachRemaining(f->requireIntake(Set.of("action","fields","clearFields","question").contains(f)));
         requireIntake(value.path("action").isTextual()&&Set.of("ORDER","QUERY","CANCEL").contains(value.path("action").asText()));

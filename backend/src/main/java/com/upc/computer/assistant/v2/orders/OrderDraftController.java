@@ -1,6 +1,7 @@
 package com.upc.computer.assistant.v2.orders;
 
 import com.upc.computer.common.*;
+import com.upc.computer.assistant.v2.chat.ChatMode;
 import org.springframework.web.bind.annotation.*;
 import java.util.*;
 
@@ -16,7 +17,20 @@ public class OrderDraftController {
     }
     @GetMapping("/status") public Result<?> status(@RequestHeader(value="Authorization",required=false) String auth){return Result.success(service.status(sessions.require(auth)));}
     @PostMapping("/turn") public Result<?> turn(@RequestHeader(value="Authorization",required=false) String auth,@RequestBody Map<String,Object> body){
-        fields(body,Set.of("sessionId","requestId","text"));return Result.success(service.turn(sessions.require(auth),auth,text(body,"sessionId"),text(body,"requestId"),text(body,"text")));
+        var user = sessions.require(auth);
+        ChatMode mode = null;
+        if (body != null && (body.containsKey("modelSource") || body.containsKey("ragEnabled"))) {
+            fields(body, Set.of("sessionId", "requestId", "text", "modelSource", "ragEnabled"));
+            mode = ChatMode.parse(body.get("modelSource"), body.get("ragEnabled"));
+        } else {
+            fields(body, Set.of("sessionId", "requestId", "text"));
+        }
+        var result = service.turn(user, auth, text(body,"sessionId"), text(body,"requestId"), text(body,"text"), mode);
+        if (mode == null) return Result.success(result);
+        var selected = new LinkedHashMap<>(result);
+        selected.put("modelSource", mode.modelSource());
+        selected.put("ragEnabled", mode.ragEnabled());
+        return Result.success(selected);
     }
     @GetMapping("/drafts/{id}") public Result<?> get(@RequestHeader(value="Authorization",required=false) String auth,@PathVariable String id){return Result.success(service.get(sessions.require(auth),id));}
     @PostMapping("/drafts/{id}/revise") public Result<?> revise(@RequestHeader(value="Authorization",required=false) String auth,@PathVariable String id,@RequestBody Map<String,Object> body){

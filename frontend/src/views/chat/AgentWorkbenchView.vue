@@ -26,6 +26,7 @@ import {
   workbenchRun,
 } from '@/api/agentWorkbench'
 import {
+  AGENTS,
   buildNaturalRequest,
   legacyMessageContext,
   uniqueId,
@@ -41,6 +42,9 @@ import { orderStatus, orderTurn, getOrderDraft, reviseOrderDraft, confirmOrderDr
 import OrderFlowCard from '@/components/assistant/OrderFlowCard.vue'
 import AgentWorkflowCard from '@/components/assistant/AgentWorkflowCard.vue'
 import WorkbenchComposer from '@/components/assistant/WorkbenchComposer.vue'
+import WorkbenchModeSelector from '@/components/assistant/WorkbenchModeSelector.vue'
+import { modelChatStatus, modelChatTurn } from '@/api/workbenchModels'
+import { isDirectSource, modelHistory, needsModelOrderTurn } from '@/utils/workbenchModes'
 import InventoryAnswer from '@/components/assistant/InventoryAnswer.vue'
 import { isInventoryOnly, inventorySnapshot } from '@/utils/inventoryPresentation'
 import { prefersReadOnlyQuery } from '@/utils/workbenchRouting'
@@ -79,9 +83,17 @@ let controller = null,
 let pendingHistory = null
 let lastAuthorizationStamp = null
 const orderConnection = ref(null)
+const modelConnection = ref(null)
+const modelError = ref('')
+const source = ref('WORKFLOW')
+const rag = ref(false)
+const direct = computed(() => isDirectSource(source.value))
+let explicitlySelected = false
+let statusRequest = 0
 const followTail = ref(true)
 const orderAllowed = computed(() => ['ADMIN', 'ORDER', 'CUSTOMER'].includes(user.userInfo?.roleCode))
 const orderReady = computed(() => orderAllowed.value && orderConnection.value?.available === true)
+const readDomains = computed(() => (direct.value ? modelConnection.value : connection.value)?.capabilities?.domains)
 const admin = computed(() => user.userInfo?.roleCode === 'ADMIN')
 const active = computed(() =>
   sessions.value.find((s) => s.id === activeId.value),
@@ -114,24 +126,33 @@ const visibleSessions = computed(() =>
   sessions.value.filter((s) => s.title.includes(search.value.trim())),
 )
 const queryReady = computed(() => (admin.value || Array.isArray(connection.value?.capabilities?.domains)) && connection.value?.configured === true && connection.value?.naturalLanguage === true)
-const ready = computed(() => orderReady.value || queryReady.value)
+const modelConfigured = computed(() => Boolean(source.value === 'LOCAL' ? modelConnection.value?.localConfigured : modelConnection.value?.apiConfigured))
+const ready = computed(() => direct.value
+  ? modelConfigured.value && (!rag.value || modelConnection.value?.ragConfigured === true)
+  : orderReady.value || queryReady.value)
 const needsUpgrade = computed(() => connection.value != null && connection.value.naturalLanguage !== true)
 const BusinessActions = defineAsyncComponent(() => import('./ChatHomeView.vue'))
 const businessToolsOpen = ref(false)
 const canSend = computed(() => ready.value && !busy.value && input.value.trim().length > 0)
-const statusText = computed(() => checking.value ? '正在连接' : ready.value ? '已连接' : needsUpgrade.value ? '服务待升级' : '服务未连接')
+const statusText = computed(() => checking.value ? '正在连接' : direct.value ? (ready.value ? '已配置' : '未就绪') :
+  ready.value ? '已连接' : needsUpgrade.value ? '服务待升级' : '服务未连接')
 const statusHint = computed(() => {
   if (ready.value) return ''
+  if (direct.value) {
+    if (modelError.value) return modelError.value
+    if (!modelConfigured.value) return source.value === 'LOCAL' ? '请在 MES 后端配置本地模型地址和模型名称。' : '请在 MES 后端配置 API 模型和密钥。'
+    if (rag.value) return 'RAG 已开启，请配置知识服务或关闭 RAG 后发送。'
+  }
   if (needsUpgrade.value) return '当前协作服务尚未升级为自然语言查询，请联系维护人员升级后重新连接。'
   return connectionError.value || '订单服务尚未连接，请稍后重新连接。'
 })
 const introductory = computed(() => [
   ...(orderAllowed.value ? [{ title: '创建订单', icon: ClipboardPlus, description: '产品选型与订单草稿', prompt: '我想下单，请帮我选择产品并填写订单信息。' }] : []),
-  ...((admin.value || queryReady.value) ? [
+  ...((admin.value || queryReady.value || (direct.value && Array.isArray(readDomains.value))) ? [
     { title: '查库存', icon: PackageSearch, description: '物料、仓库与可用数量', prompt: '帮我查一下当前库存，列出需要关注的物料。' },
     { title: '看生产进度', icon: Factory, description: '工单进展与生产状态', prompt: '帮我看看当前生产进度，哪些工单需要关注？' },
     { title: '分析质量问题', icon: ScanLine, description: '检验结果与缺陷依据', prompt: '分析最近七天的质量问题，列出检验和缺陷证据。' },
-  ].filter(item => { const domain = ({ 查库存: 'INVENTORY', 看生产进度: 'PRODUCTION', 分析质量问题: 'QUALITY' })[item.title]; return connection.value?.capabilities?.domains?.includes(domain) ?? admin.value }) : []),
+  ].filter(item => { const domain = ({ 查库存: 'INVENTORY', 看生产进度: 'PRODUCTION', 分析质量问题: 'QUALITY' })[item.title]; return readDomains.value?.includes(domain) ?? admin.value }) : []),
 ])
 
 function persist() {
@@ -144,12 +165,30 @@ function persist() {
     /* Quota limits do not interrupt a running answer. */
   }
 }
+function setMode(nextSource, nextRag = rag.value) {
+  if (busy.value || !(nextSource === 'WORKFLOW' || isDirectSource(nextSource))) return
+  if (nextSource !== source.value && active.value?.messages.some(m => m.orderFlow?.orderDraft?.id)) {
+    const unsent = input.value
+    newSession()
+    input.value = unsent
+  }
+  source.value = nextSource
+  rag.value = nextRag === true
+  explicitlySelected = true
+  if (active.value) {
+    active.value.modelSource = nextSource
+    active.value.ragEnabled = rag.value
+    persist()
+  }
+}
 function stop() {
   controller?.abort()
   if (activeMessage?.orderFlow) {
     activeMessage.orderFlow.pending = ''
     activeMessage.orderFlow.needsRecovery = true
     interruptMessage(activeMessage, 'INTERRUPTED', '已停止等待；请刷新草稿状态，未自动重新提交。')
+  } else if (activeMessage?.modelSource && isDirectSource(activeMessage.modelSource)) {
+    interruptMessage(activeMessage, 'CANCELLED', '已停止等待本轮模型回复。')
   } else if (activeMessage)
     interruptMessage(
       activeMessage,
@@ -160,20 +199,28 @@ function stop() {
 }
 async function checkConnection() {
   const token = user.token
+  const sequence = ++statusRequest
   checking.value = true
   connectionError.value = ''
-  const [orderResult, queryResult] = await Promise.allSettled([
+  const [orderResult, queryResult, modelResult] = await Promise.allSettled([
     orderAllowed.value ? orderStatus(token) : Promise.resolve(null),
     workbenchStatus(token),
+    modelChatStatus(token),
   ])
-  if (disposed || token !== user.token) return
+  if (disposed || token !== user.token || sequence !== statusRequest) return
   orderConnection.value = orderResult.status === 'fulfilled' ? orderResult.value : null
   connection.value = queryResult.status === 'fulfilled' ? queryResult.value : null
-  if (queryResult.status === 'rejected' && [401, 403].includes(queryResult.reason?.code)) {
+  modelConnection.value = modelResult.status === 'fulfilled' ? modelResult.value : null
+  modelError.value = modelResult.status === 'rejected' ? '无法获取模型配置，请确认 MES 后端已更新并启动。' : ''
+  if (!explicitlySelected && !active.value && !queryReady.value && modelConnection.value &&
+      (!orderReady.value || modelConnection.value.apiConfigured || modelConnection.value.localConfigured)) {
+    source.value = !modelConnection.value.apiConfigured && modelConnection.value.localConfigured ? 'LOCAL' : 'API'
+  }
+  if ([queryResult, modelResult].some(result => result.status === 'rejected' && [401, 403].includes(result.reason?.code))) {
     stop(); sessions.value = []; activeId.value = null; pendingHistory = null
     try { localStorage.removeItem(historyKey(user.userInfo?.userId)) } catch { /* In-memory history is already cleared. */ }
   }
-  const stamp = connection.value?.authorizationStamp
+  const stamp = connection.value?.authorizationStamp || modelConnection.value?.authorizationStamp
   if (typeof stamp === 'string') {
     const cacheKey = historyKey(user.userInfo?.userId), stampKey = `${cacheKey}:authorization`
     let stored = lastAuthorizationStamp
@@ -197,6 +244,13 @@ watch(
   ([id]) => {
     stop()
     owner = id
+    statusRequest++
+    explicitlySelected = false
+    source.value = 'WORKFLOW'
+    rag.value = false
+    modelConnection.value = null
+    modelError.value = ''
+    orderConnection.value = null
     activeId.value = null
     input.value = ''
     connection.value = null
@@ -232,6 +286,9 @@ function selectSession(session) {
   if (busy.value) stop()
   followTail.value = true
   activeId.value = session.id
+  source.value = isDirectSource(session.modelSource) ? session.modelSource : 'WORKFLOW'
+  rag.value = session.ragEnabled === true
+  explicitlySelected = true
   input.value = ''
   recoverSessionOrders(session)
   showHistory.value = false
@@ -268,12 +325,18 @@ async function send() {
     token = user.token,
     capturedOwner = owner
   let session = active.value
+  const mode = direct.value ? { modelSource: source.value, ragEnabled: rag.value } : null
+  const history = mode ? modelHistory(session?.messages || [], mode) : []
+  const directOrder = mode && orderAllowed.value && needsModelOrderTurn(text, session?.messages || []) &&
+    !prefersReadOnlyQuery(text, { canQuery: true })
   if (!session) {
     const id = uniqueId()
     sessions.value.unshift({
       id,
       title: text.slice(0, 25),
       profile: 'AUTO',
+      modelSource: source.value,
+      ragEnabled: rag.value,
       updatedAt: Date.now(),
       messages: [],
     })
@@ -287,13 +350,15 @@ async function send() {
     role: 'user',
     text,
     profile: 'AUTO',
-    orderMessage: orderReady.value,
+    orderMessage: mode ? Boolean(directOrder) : orderReady.value,
+    ...mode,
   })
   session.messages.push(createAssistantMessage())
   const message = session.messages.at(-1)
   message.conversationId = session.id
-  const needsOrderIntake = orderReady.value && !prefersReadOnlyQuery(text, { canQuery: queryReady.value })
-  if (!needsOrderIntake) session.messages.at(-2).orderMessage = false
+  if (mode) Object.assign(message, mode)
+  const needsOrderIntake = orderReady.value && (mode ? directOrder : !prefersReadOnlyQuery(text, { canQuery: queryReady.value }))
+  if (!needsOrderIntake && !directOrder) session.messages.at(-2).orderMessage = false
   if (needsOrderIntake) message.orderFlow = { steps: [], pending: '总协调正在理解订单需求' }
   activeMessage = message
   input.value = ''
@@ -302,30 +367,47 @@ async function send() {
   persist()
   followScroll(true)
   try {
+    if (directOrder && !orderReady.value) throw new Error('订单草稿服务尚未就绪，请先完成下单模块初始化。')
     if (needsOrderIntake) {
       let envelope
       try {
-        envelope = await orderTurn(token, { sessionId: session.id, requestId: message.id, text }, { signal: controller.signal })
+        envelope = await orderTurn(token, { sessionId: session.id, requestId: message.id, text, ...mode }, { signal: controller.signal })
+        if (mode && (envelope?.modelSource !== mode.modelSource || envelope.ragEnabled !== mode.ragEnabled)) {
+          throw new Error('订单服务没有确认本次所选模型和 RAG 状态。')
+        }
       } catch (error) {
         const unavailable = error.name === 'TypeError' || error.code === 503
-        if (!unavailable || error.name === 'AbortError' || controller.signal.aborted || !queryReady.value) throw error
+        if (mode || !unavailable || error.name === 'AbortError' || controller.signal.aborted || !queryReady.value) throw error
         // Intake never confirms an order. Continue the existing read-only path once,
         // retaining privacy markers because the unclassified text may contain PII.
         message.orderIntakeNotice = '订单信息识别暂不可用，当前仅执行只读查询。订单草稿状态请稍后核对。'
         message.orderMessage = true
         envelope = { handled: false }
       }
-      if (capturedOwner !== owner || token !== user.token || disposed) return
+      if (capturedOwner !== owner || token !== user.token || disposed || controller?.signal.aborted) return
       if (envelope.handled) {
         applyOrderEnvelope(message, envelope)
         return
       }
-      if (!queryReady.value) {
+      if (!mode && !queryReady.value) {
         applyOrderEnvelope(message, { handled: true, reply: '当前账号可办理订单，请说明需要购买的产品和数量。', steps: envelope.steps || [] })
         return
       }
       delete message.orderFlow
       if (!message.orderIntakeNotice) session.messages.at(-2).orderMessage = false
+    }
+    if (mode) {
+      const signal = controller.signal
+      const result = await modelChatTurn(token, { ...mode, text, history }, signal)
+      if (signal.aborted || disposed || capturedOwner !== owner || token !== user.token) return
+      if (result?.modelSource !== mode.modelSource || result.ragEnabled !== mode.ragEnabled || !result.reply?.trim()) {
+        throw new Error('后端没有确认本次所选模型和 RAG 状态。')
+      }
+      message.result = result
+      message.text = result.reply
+      message.status = 'COMPLETED'
+      followScroll()
+      return
     }
     if (!queryReady.value) throw new Error('查询服务暂不可用，请稍后重新连接。')
     await streamWorkbench(
@@ -488,7 +570,7 @@ async function copy(text) {
   }
 }
 const displayAnswer = (message) =>
-  message.result?.presentation === 'compact_stream' ? message.text :
+  message.result?.queryMode === 'MODEL_CHAT' || message.result?.presentation === 'compact_stream' ? message.text :
   compactBusinessAnswer(message) || (
   isInventoryOnly(message) ? '已查询到以下库存信息：' :
   isProductionOnly(message) ? '已查询到以下生产工单：' :
@@ -511,7 +593,7 @@ const answerParts = (message) => {
 </script>
 
 <template>
-  <div class="agent-workbench" :class="{ 'has-messages': messages.length, 'inspector-open': inspectorOpen, 'history-collapsed': historyCollapsed }">
+  <div class="agent-workbench" :class="{ 'has-messages': messages.length, 'inspector-open': !direct && inspectorOpen, 'history-collapsed': historyCollapsed }">
     <button v-if="showHistory" class="history-overlay" aria-label="关闭会话列表" @click="showHistory = false" />
     <aside class="workbench-history" :class="{ 'is-open': showHistory }" aria-label="新助手会话">
       <div class="history-heading"><span class="brand-mark" aria-hidden="true"><Monitor /></span><strong>生产协作助手</strong><button class="icon-button history-collapse" aria-label="收起会话栏" @click="historyCollapsed = true"><PanelLeft /></button><button class="icon-button mobile-close" aria-label="关闭会话列表" @click="showHistory = false"><Close /></button></div>
@@ -542,13 +624,13 @@ const answerParts = (message) => {
         <div class="workspace-breadcrumb"><span>生产协作</span><ChevronRight /><strong class="assistant-header-title">{{ active?.title || '新对话' }}</strong></div>
         <button class="icon-button" title="业务指令与语音" aria-label="业务指令与语音" @click="businessToolsOpen = true"><MessageSquare /></button>
         <button class="connection-status" :class="{ online: ready }" :disabled="checking" aria-label="刷新连接状态" @click="checkConnection"><i />{{ statusText }}<Loading v-if="checking" class="spin" /></button>
-        <button class="icon-button inspector-toggle" :aria-pressed="inspectorOpen" :aria-label="inspectorOpen ? '收起 Agent 面板' : '展开 Agent 面板'" @click="inspectorOpen = !inspectorOpen"><PanelRight /></button>
+        <button v-if="!direct" class="icon-button inspector-toggle" :aria-pressed="inspectorOpen" :aria-label="inspectorOpen ? '收起 Agent 面板' : '展开 Agent 面板'" @click="inspectorOpen = !inspectorOpen"><PanelRight /></button>
       </header>
       <div class="chat-stage" :class="{ 'is-empty': !messages.length }">
         <section v-if="!messages.length" class="workbench-welcome">
             <div class="welcome-eyebrow"><Layers /> MES WORKSPACE</div>
             <h1>从一个生产问题开始</h1>
-            <p>{{ admin ? '从查询、分析到下单，让每一步都有依据。' : '描述订购需求，核对信息后提交订单审核。' }}</p>
+            <p>{{ direct ? '输入生产问题，或选择快捷业务查询。' : admin ? '从查询、分析到下单，让每一步都有依据。' : '描述订购需求，核对信息后提交订单审核。' }}</p>
         </section>
         <div v-show="messages.length" ref="list" class="conversation-scroll" @scroll.passive="trackScroll">
           <div class="conversation-content">
@@ -556,14 +638,22 @@ const answerParts = (message) => {
               <template v-if="message.role === 'user'"><div class="user-bubble">{{ message.text }}</div><div v-if="legacyMessageContext(message)" class="user-context">{{ legacyMessageContext(message) }}</div></template>
               <template v-else>
                 <OrderFlowCard v-if="message.orderFlow" :flow="message.orderFlow" :busy="busy || !orderReady" :customer="user.userInfo?.roleCode === 'CUSTOMER'" :historical="historicalOrder(message)" @action="orderAction(message, $event)" />
-                <AgentWorkflowCard v-else :message="message" />
+                <AgentWorkflowCard v-else-if="!message.modelSource" :message="message" />
+                <small v-if="isDirectSource(message.modelSource)" class="model-caption">{{ message.modelSource === 'API' ? 'API 模型' : '本地模型' }}{{ message.result?.model ? ' · ' + message.result.model : '' }} · {{ message.ragEnabled ? (message.result?.ragStatus === 'NO_MATCHES' ? 'RAG 未检索到匹配资料' : 'RAG 开启') : 'RAG 关闭' }}</small>
                 <p v-if="message.orderIntakeNotice" class="message-error" role="status">{{ message.orderIntakeNotice }}</p>
-                <div v-if="!message.orderFlow && message.status === 'RUNNING' && !message.agents.length && !message.workflow" class="waiting-line"><Loading class="spin" />{{ message.runId ? '任务已接收，等待协调执行…' : '正在连接协调服务…' }}</div>
+                <div v-if="!message.orderFlow && message.status === 'RUNNING' && !message.agents.length && !message.workflow" class="waiting-line"><Loading class="spin" />{{ isDirectSource(message.modelSource) ? '正在等待模型回复…' : message.runId ? '任务已接收，等待协调执行…' : '正在连接协调服务…' }}</div>
                 <div v-if="message.text" :id="`answer-${message.id}`" class="answer-content"><WorkbenchMarkdown :content="answerParts(message).intro" :smooth="message.result?.presentation === 'compact_stream'" :streaming="message.status === 'RUNNING'" :stopped="['FAILED','CANCELLED','INTERRUPTED'].includes(message.status)" :cursor="!answerParts(message).analysis" @progress="followScroll()" /></div>
                 <InventoryAnswer :message="message" />
                 <BusinessQueryAnswer :message="message" />
                 <div v-if="answerParts(message).analysis" class="answer-analysis"><WorkbenchMarkdown :content="answerParts(message).analysis" :smooth="message.result?.presentation === 'compact_stream'" :streaming="message.status === 'RUNNING'" :stopped="['FAILED','CANCELLED','INTERRUPTED'].includes(message.status)" @progress="followScroll()" /></div>
                 <KnowledgeSources :message="message" />
+                <details v-if="isDirectSource(message.modelSource) && message.result?.expertExplanations?.length" class="model-analysis">
+                  <summary>查看模型对业务记录的分析</summary>
+                  <section v-for="entry in message.result.expertExplanations" :key="entry.resultRef">
+                    <strong>{{ AGENTS[entry.agentId]?.name || entry.agentId }}</strong>
+                    <WorkbenchMarkdown :content="entry.text" />
+                  </section>
+                </details>
                 <div v-if="message.error" class="message-error"><span>{{ message.error }}</span><button v-if="message.runId && message.status !== 'CANCELLED'" @click="refreshRun(message)">查询运行结果</button></div>
                 <div v-if="message.text" class="message-actions"><button @click="copy(message.text)"><CopyDocument />复制</button><button v-if="canExportResult(message)" aria-label="导出完整查询 CSV" @click="exportResult(message)"><Download />CSV</button></div>
               </template>
@@ -571,6 +661,7 @@ const answerParts = (message) => {
           </div>
         </div>
         <footer class="composer-area">
+          <WorkbenchModeSelector :source="source" :rag="rag" :busy="busy" @source="setMode($event)" @rag="setMode(source, $event)" />
           <div v-if="statusHint" class="connection-notice" role="status"><span>{{ statusHint }}</span><button v-if="!busy" @click="checkConnection">重新连接</button></div>
           <input ref="attachmentInput" class="attachment-input" type="file" accept=".txt,.md,.csv,.json" aria-label="选择文本资料" @change="attachTextFile" />
           <WorkbenchComposer ref="composer" v-model="input" :welcome="!messages.length" :busy="busy" :can-send="canSend" @send="send" @stop="stop" @attach="attachmentInput?.click()" />
@@ -580,8 +671,12 @@ const answerParts = (message) => {
         </nav>
       </div>
     </main>
-    <aside v-if="inspectorOpen" class="workbench-inspector" aria-label="Agent 执行检查面板"><AgentInspector :message="inspectedMessage" @close="inspectorOpen = false" /></aside>
+    <aside v-if="!direct && inspectorOpen" class="workbench-inspector" aria-label="Agent 执行检查面板"><AgentInspector :message="inspectedMessage" @close="inspectorOpen = false" /></aside>
   </div>
 </template>
 
 <style scoped src="./workbench-theme.css"></style>
+<style scoped>
+.model-caption { display: block; margin: 0 0 6px; font-size: 12px; color: var(--aw-muted); }
+.model-analysis { margin-block: 10px; } .model-analysis summary { cursor: pointer; }
+</style>
