@@ -1,10 +1,27 @@
 # 新助手工作台独立网关
 
+## 从聊天页查看工作流和知识图
+
+「Dify 工作流」读取仓库内九个 DSL 定义，可从 Agent 总览进入具体工作流。节点配置来自 DSL，Agent 执行记录来自当前回答。修改 Dify Studio 后，导出并更新对应的仓库 DSL，重新构建前端即可同步定义。
+
+「联合知识图」可浏览公开资料或当前回答所引用的知识。管理员还能在「资料入库」批量导入资料，每文件上限为 10 MiB。点击文件可查看逐阶段耗时、失败原因及切片预览，成功后点「查看图谱」，或在图谱侧栏的「入库资料」中跨文件检索。图片和扫描 PDF 使用本地文字识别。规则提取的关系与同句共现均保留原文，供复核。
+
+已配置本项目公开知识库和助手启动器的新电脑，在项目根目录执行一次以下命令，安装解析器并初始化私有资料库。
+
+```powershell
+& .\backend\assistant\rag\.venv\Scripts\python.exe -m pip install -r .\backend\assistant\rag\requirements.lock.txt
+& .\backend\assistant\deploy\Initialize-IngestionLocal.ps1
+```
+
+初始化会在部署目录生成 Git 忽略的 `.env.ingestion.local`。私有图使用本机 Bolt 端口 17688 和独立 Docker 卷，Qdrant 使用独立集合，原件与处理记录存放在知识服务的数据目录。初始化后需让已运行的 18081 知识服务重新启动一次，以加载本机凭据。此后沿用前后端的日常启动方式即可。私库的上传、原件下载和检索都通过 MES 管理员会话鉴权。
+
 自然语言下单已接入：详见 [CONVERSATIONAL-ORDER-SETUP.md](CONVERSATIONAL-ORDER-SETUP.md)。管理员和订单员可代录订单，客户可按自身绑定身份下单；旧有全域查询仍限管理员。新增下单分支与下述只读查询分支分别鉴权。
 
-## 日常一键启动（2026-11-14）
+## 日常启动
 
-在项目根目录双击 `Start-Assistant.cmd`。它会打开启动结果窗口，启动 Docker Desktop，恢复本项目已安装的 Dify、Qdrant、Neo4j 容器，再依次启动 Python 知识服务（18081）、Agent 运行时（18082）、聊天网关（18083）。已运行服务跳过；重复点击有启动锁保护。完成后打开 `http://localhost:5173/assistant`，或在现有页面点击“重新连接”。
+在已配置本机服务的 Windows 电脑上，平时只需在 `backend` 运行 `mvn spring-boot:run`，在 `frontend` 运行 `npm run dev`。前端开始监听后，会在后台调用下面的启动器，进度输出到前端终端。
+
+在项目根目录双击 `Start-Assistant.cmd`。它会启动 Docker Desktop，恢复本项目已安装的 Dify、Qdrant、Neo4j 容器，再依次启动 Python 知识服务（18081）、Agent 运行时（18082）、聊天网关（18083）。助手就绪后，已安装的本机 CompreFace（8001）也会从原数据卷恢复。已运行服务跳过，重复点击有启动锁保护。完成后打开 `http://localhost:5173/assistant`，或在现有页面点击“重新连接”。
 
 原后端仍在 `backend` 执行 `mvn spring-boot:run`，原前端仍在 `frontend` 执行 `npm run dev`；脚本不启动、停止或重新编译它们，不覆盖配置或密钥，不拉取镜像、不重建容器、不执行初始化容器、不修改业务数据。此入口用于当前已部署的本机环境，不是首次安装工具。关闭结果窗口不会关闭后台服务。
 
@@ -14,7 +31,7 @@
 
 现有 MES 继续监听 `8088`；维护运行时监听 `18082`；新增网关只绑定 `127.0.0.1:18083`。启动网关不会重启 MES，也不会修改原助手或 Dify 应用。前端通过 Vite 同源 `/api/assistant-workbench` 代理访问网关 `/assistant-workbench`。
 
-1. 保留现有 `.env.agents.local` 与订单白名单。网关复用其中 BOOTSTRAP 和只读 JDBC 配置；管理员授权通过新固定 SELECT 同时验证当前用户、角色均启用且角色为 ADMIN。
+1. 保留现有 `.env.agents.local` 中的 BOOTSTRAP 和订单白名单。新机先按第五阶段步骤运行 `Prepare-AssistantReadersLocal.py`。网关从 `.env.workbench-read.local` 加载身份核验专用账号，权限限于用户、角色、菜单及角色菜单映射的指定列。[只读账号初始化](STAGE5-AGENTS-SETUP.md)
 2. 将 `.env.workbench.local.example` 复制为 `.env.workbench.local`，填入第五阶段 SUP 应用（`82cda4ca-f087-48c6-9f1b-f8004e55fd4d`）的**应用 API 密钥**。此文件已被 `backend/assistant/.gitignore` 忽略，不得提交。默认 Dify API 地址为 `http://127.0.0.1:18080/v1`。不要放入浏览器环境或聊天。
 3. 运行 `Build-AssistantRuntime.ps1`，构建输出位于 `assistant/rag/data/runtime-build/classes`，不覆盖正在运行的 MES 的 `target/classes`。仅在确认 PID 属于 `stage5-java.args` 对应的独立 JVM 后重启该 JVM，运行 `Start-AgentRuntimeLocal.ps1`；不要停止原 MES。
 4. 运行 `powershell -File backend/assistant/deploy/Start-WorkbenchLocal.ps1 -Build`。脚本隐藏启动窗口，拒绝占用端口，不会停止已有进程。密钥为空时网关可启动，已认证管理员访问 status 返回 `configured:false`。
@@ -94,3 +111,8 @@ QUALITY/AFTERSALES 的固定 research 节点调用 Java 运行时，运行时以
 完整的单库存请求显示短总结，完整文字保留在折叠区。混合查询、截断或证据不足时保留原有解释。失效、取消或缺失证据不显示过期的临时结果。库存原值只做小数/千分位格式化，不重新计算或跨单位相加。
 
 本轮参考Element Plus X的执行链与内容区交互，在现有Vue组件内自行实现，无新UI依赖。刷新前端即可，无需新增API或重启Dify、MES与独立助手。实施及验证详见docs/ai-planning-2026-11-07/planning/26-conversational-results-ui.md。
+### 日常问答与业务分流
+
+独立工作台网关启动时从进程环境读取 `DASHSCOPE_API_KEY`。已配置时，聊天页先使用千问 API 识别请求；日常对话由模型流式回答，业务查询进入原有 Dify 和授权工具，下单进入订单草稿流程。仅上一轮日常问答的文本会随日常追问传入，业务表格和订单草稿不会作为日常历史传入。缺少此变量时沿用原有业务入口。
+
+天气查询使用 Open-Meteo 的地名和预报接口，先确认城市，按当地日期返回未来七天以内的单日预报。网关需要能够访问 DashScope、`geocoding-api.open-meteo.com` 与 `api.open-meteo.com`，可读取 HTTP 类型的 `HTTPS_PROXY`。天气数据未返回时会说明原因。修改环境变量后重新启动独立工作台网关。

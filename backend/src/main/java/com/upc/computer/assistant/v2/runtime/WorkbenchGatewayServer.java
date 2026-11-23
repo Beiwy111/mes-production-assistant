@@ -25,6 +25,9 @@ public final class WorkbenchGatewayServer implements AutoCloseable {
         String create(long owner,String order,String profile) throws Exception;
         default boolean naturalLanguage(){return false;}
         default String createNatural(long owner,String text,String previousRun)throws Exception {throw new Failure(503,"NATURAL_LANGUAGE_UNAVAILABLE");}
+        default String createNatural(long owner,String text,String previousRun,String previousGeneralAnswer)throws Exception {
+            return createNatural(owner,text,previousRun);
+        }
         JsonNode observe(String run) throws Exception;
         JsonNode workflow(String run,String text,long owner,Consumer<String> taskId) throws Exception;
         default JsonNode workflow(String run,String text,long owner,Consumer<String> taskId,Consumer<JsonNode> progress) throws Exception {
@@ -35,6 +38,8 @@ public final class WorkbenchGatewayServer implements AutoCloseable {
     }
     private final ObjectMapper json=new ObjectMapper().enable(JsonParser.Feature.STRICT_DUPLICATE_DETECTION).enable(DeserializationFeature.FAIL_ON_TRAILING_TOKENS);
     private final Services services;
+    private final EverydayChat everyday = new EverydayChat();
+    private final Semaphore chatSlots = new Semaphore(2);
     private final ConversationScopeStore contextStore;
     private final RunAuditStore audit;
     private final Set<String> orders;
@@ -75,6 +80,30 @@ public final class WorkbenchGatewayServer implements AutoCloseable {
             boolean intake=path.equals("/assistant-workbench/order-intake");
             long owner=intake?services.authenticateOrderIntake(auth.get(0)):services.authenticate(auth.get(0));
             if(owner<=0)throw new Failure(401,"UNAUTHORIZED");
+            if(path.equals("/assistant-workbench/chat-entry")) {
+                method(exchange,"POST");
+                var input=body(exchange,Set.of("text","history","context"));
+                field(input,"text",2000);
+                if(!Set.of("NEW","GENERAL","BUSINESS","ORDER").contains(field(input,"context",16)))throw new Failure(400,"INVALID_REQUEST");
+                if(input.has("history")){
+                    var history=input.get("history");
+                    if(!"GENERAL".equals(input.path("context").asText()) || !history.isObject() || history.size()!=2)
+                        throw new Failure(400,"INVALID_REQUEST");
+                    field(history,"user",2000);field(history,"assistant",4000);
+                }
+                if(!everyday.available())throw new Failure(503,"CHAT_ENTRY_UNAVAILABLE");
+                if(!chatSlots.tryAcquire())throw new Failure(429,"CAPACITY_REACHED");
+                try {
+                    exchange.getResponseHeaders().set("Content-Type","application/x-ndjson; charset=utf-8");
+                    exchange.getResponseHeaders().set("Cache-Control","no-store");
+                    exchange.getResponseHeaders().set("X-Accel-Buffering","no");
+                    exchange.sendResponseHeaders(200,0);
+                    var out=exchange.getResponseBody();
+                    try { everyday.event(out,"result",Map.of("route",everyday.route(input,out))); }
+                    catch(Exception e) { everyday.event(out,"error","对话模型连接中断，请重试。"); }
+                } finally {chatSlots.release();}
+                return;
+            }
             if(intake) {
                 method(exchange,"POST");JsonNode input=body(exchange,Set.of("text","context"),131072);
                 String text=field(input,"text",2000),context=field(input,"context",16000);
@@ -89,11 +118,11 @@ public final class WorkbenchGatewayServer implements AutoCloseable {
             if(path.equals("/assistant-workbench/status")) {
                 method(exchange,"GET");boolean configured=services.configured();
                 respond(exchange,200,Map.of("configured",configured,"available",configured,"message",configured?"READY":"请配置新工作台的 Dify SUP 应用 API 密钥。",
-                        "capabilities",services.capabilities(owner),"authorizationStamp",services.authorizationStamp(owner),"naturalLanguage",services.naturalLanguage(),"allowedOrderIds",services.legacyAllowed(owner)?orders.stream().sorted().toList():List.of(),"profiles",services.legacyAllowed(owner)?PROFILES.stream().sorted().toList():List.of()));return;
+                        "directChat",everyday.available(),"capabilities",services.capabilities(owner),"authorizationStamp",services.authorizationStamp(owner),"naturalLanguage",services.naturalLanguage(),"allowedOrderIds",services.legacyAllowed(owner)?orders.stream().sorted().toList():List.of(),"profiles",services.legacyAllowed(owner)?PROFILES.stream().sorted().toList():List.of()));return;
             }
             if(path.equals("/assistant-workbench/runs/stream")) {
                 method(exchange,"POST");JsonNode input=body(exchange,Set.of("text","orderPk","profile","sessionId","requestId","previousRunId"));
-                String text=field(input,"text",2000),order=null,profile=null,previous=null;
+                String text=field(input,"text",2000),order=null,profile=null,previous=null,generalAnswer=null;
                 String session=identifier(input,"sessionId"),request=identifier(input,"requestId");
                 boolean legacy=input.has("orderPk")||input.has("profile");
                 if(legacy){
@@ -108,16 +137,19 @@ public final class WorkbenchGatewayServer implements AutoCloseable {
                     try {
                         Run parent=owned(previous,owner);
                         if(!parent.session.equals(session)||!parent.status.equals("COMPLETED"))throw new Failure(409,"INVALID_PREVIOUS_RUN");
+                        synchronized(parent){generalAnswer=generalAnswer(parent);}
                     } catch(Failure absent) {
                         if(absent.status!=404)throw absent;
                         Map<String,Object> saved=contextStore.load(previous,owner);
                         if(saved==null)throw new Failure(404,"PREVIOUS_RUN_UNAVAILABLE");
                         if(!session.equals(saved.get("sessionId")))throw new Failure(409,"INVALID_PREVIOUS_RUN");
+                        if(Objects.equals(services.authorizationStamp(owner),saved.get("authorizationStamp"))
+                                && saved.get("generalAnswer") instanceof String answer)generalAnswer=answer;
                     }
                 }
                 if(!services.configured())throw new Failure(503,"WORKBENCH_NOT_CONFIGURED");
                 if(!slots.tryAcquire())throw new Failure(429,"CAPACITY_REACHED");
-                try { Run run=create(owner,order,profile,session,request,text,previous);stream(exchange,run,text); } finally {slots.release();}
+                try { Run run=create(owner,order,profile,session,request,text,previous,generalAnswer);stream(exchange,run,text); } finally {slots.release();}
                 return;
             }
             String[] parts=path.split("/",-1);
@@ -142,7 +174,7 @@ public final class WorkbenchGatewayServer implements AutoCloseable {
         catch(Exception failure){respond(exchange,503,Map.of("message","WORKBENCH_UNAVAILABLE"));}
         finally{exchange.close();}
     }
-    private synchronized Run create(long owner,String order,String profile,String session,String request,String text,String previous)throws Exception {
+    private synchronized Run create(long owner,String order,String profile,String session,String request,String text,String previous,String generalAnswer)throws Exception {
         runs.values().removeIf(run->!run.expires.isAfter(clock.instant())&&!run.status.equals("RUNNING"));
         requestsById.values().removeIf(expires->!expires.isAfter(clock.instant()));
         String key=owner+":"+session+":"+request;
@@ -150,7 +182,7 @@ public final class WorkbenchGatewayServer implements AutoCloseable {
         if(runs.size()>=64||requestsById.size()>=64)throw new Failure(429,"CAPACITY_REACHED");
         // Reserve before any remote call: a timeout may still have created an upstream run.
         requestsById.put(key,clock.instant().plusSeconds(600));
-        String id=order==null?services.createNatural(owner,text,previous):services.create(owner,order,profile);
+        String id=order==null?services.createNatural(owner,text,previous,generalAnswer):services.create(owner,order,profile);
         if(!id.matches("[a-f0-9-]{36}"))throw new Failure(503,"RUNTIME_UNAVAILABLE");
         Run run=new Run(id,owner,session,clock.instant().plusSeconds(600));run.authorizationStamp=services.authorizationStamp(owner);runs.put(id,run);return run;
     }
@@ -212,9 +244,13 @@ public final class WorkbenchGatewayServer implements AutoCloseable {
                 }
                 if(future.isDone()) {
                     JsonNode data=future.get();
-                    if(observation!=null){observation.get();publishChanges(exchange,run);}
+                    if(observation!=null){awaitObservation(observation,end);publishChanges(exchange,run);}
                     // The workflow may finish after the preceding snapshot was captured.
-                    publishTasks(exchange,run);
+                    observation=observations.submit(()->{observe(run);return null;});
+                    awaitObservation(observation,end);
+                    publishChanges(exchange,run);
+                    if(run.evidenceInvalidated&&!"DATA_CHANGED".equals(data.path("verdict").asText()))
+                        throw new Failure(409,"RUN_EVIDENCE_INVALIDATED");
                     while((update=progress.poll())!=null) {
                         if(run.evidenceInvalidated)continue;
                         ObjectNode outgoing=update.deepCopy();outgoing.put("runId",run.id);outgoing.put("seq",++streamSequence);rememberText(run,outgoing);emit(exchange,outgoing);
@@ -232,22 +268,27 @@ public final class WorkbenchGatewayServer implements AutoCloseable {
             }
         }catch(Exception failure){
             if(run.status.equals("COMPLETED"))return;
+            if(failure instanceof Failure f&&f.code.equals("RUN_TIMED_OUT"))invalidateEvidence(run,true);
             cancel(run,"FAILED");
             boolean cancelled=run.status.equals("CANCELLED");
             try {publishChanges(exchange,run);}catch(IOException ignored){}
-            try {publishTasks(exchange,run);}catch(Exception ignored){}
             Throwable cause=failure instanceof ExecutionException?failure.getCause():failure;
             try {emit(exchange,Map.of("type","error","message",cancelled?"RUN_CANCELLED":cause instanceof Failure f?f.code:"WORKFLOW_FAILED"));emit(exchange,Map.of("type","done"));}catch(IOException disconnected){}
         }finally{audit.finish(run.id,run.owner,run.status);eventStreams.remove(exchange);if(future!=null&&!future.isDone())future.cancel(true);if(observation!=null&&!observation.isDone())observation.cancel(true);}
     }
-    private void publishTasks(HttpExchange exchange,Run run)throws Exception {
-        observe(run);
-        publishChanges(exchange,run);
+    private void awaitObservation(Future<?> poll,long deadlineNanos)throws Exception {
+        try{
+            poll.get(Math.max(0,deadlineNanos-System.nanoTime()),TimeUnit.NANOSECONDS);
+        }catch(TimeoutException timeout){
+            throw new Failure(504,"RUN_TIMED_OUT");
+        }
     }
     private void observe(Run run)throws Exception {
         long poll;
         synchronized(run){poll=++run.observationStarted;}
-        JsonNode observation=services.observe(run.id);
+        JsonNode observation;
+        try {observation=services.observe(run.id);}
+        catch(Exception failure){invalidateEvidence(run,true);throw failure;}
         synchronized(run){
             JsonNode workflow=observation.path("workflow");
             if("DATA_CHANGED".equals(observation.path("result").path("verdict").asText())
@@ -408,11 +449,27 @@ public final class WorkbenchGatewayServer implements AutoCloseable {
             run.result=data;
             if(status.equals("COMPLETED")) {
                 run.supervisorCompleted=clock.instant().toString();
-                contextStore.save(run.id,run.owner,Map.of("sessionId",run.session));
+                var retained=new LinkedHashMap<String,Object>();
+                retained.put("sessionId",run.session);
+                String answer=generalAnswer(run);
+                if(answer!=null){retained.put("generalAnswer",answer);retained.put("authorizationStamp",run.authorizationStamp);}
+                contextStore.save(run.id,run.owner,retained);
             }
             cacheSupervisor(run);
             return true;
         }
+    }
+    private static String generalAnswer(Run run) {
+        var result=run.result;
+        if(run.evidenceInvalidated||result==null||!"EVIDENCE_READY".equals(result.path("verdict").asText())
+            ||!"NATURAL".equals(result.path("queryMode").asText())||result.path("intents").size()!=1
+            ||!"GENERAL".equals(result.path("intents").path(0).asText())||!result.path("facts").isObject()
+            ||!result.path("facts").isEmpty()||!result.path("reply").isTextual())return null;
+        String answer=result.path("reply").asText();
+        if(answer.isBlank())return null;
+        if(answer.length()<=4000)return answer;
+        int end=Character.isHighSurrogate(answer.charAt(3969))?3969:3970;
+        return answer.substring(0,end)+"…（上轮回答过长，仅保留前段）";
     }
     private void cancel(Run run,String status){
         if(!finish(run,status,null))return;
@@ -450,7 +507,7 @@ public final class WorkbenchGatewayServer implements AutoCloseable {
         String authorizationStamp,supervisorStarted,supervisorCompleted;
         JsonNode result,workflow,sentWorkflow;final StringBuilder partialText=new StringBuilder();
         long observationStarted,observationAccepted;
-        boolean evidenceInvalidated;
+        volatile boolean evidenceInvalidated;
         Run(String id,long owner,String session,Instant expires){this.id=id;this.owner=owner;this.session=session;this.expires=expires;}
     }
 }

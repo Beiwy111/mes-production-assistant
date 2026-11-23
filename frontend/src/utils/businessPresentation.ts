@@ -16,6 +16,12 @@ export interface BusinessMessage {
 }
 const rowsOf = (value: unknown): BusinessRow[] => Array.isArray(value)
   ? value.filter((row) => row && typeof row === 'object' && !Array.isArray(row)) : []
+// MySQL DATETIME fields in trace snapshots share the same local clock, including saved responses.
+function traceTimestamp(value: unknown): string {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?$/.test(value)) return ''
+  const [seconds, fraction = ''] = value.replace('T', ' ').split('.')
+  return seconds + '.' + fraction.padEnd(6, '0')
+}
 const strings = (value: unknown): string[] => Array.isArray(value) ? value.filter((s) => typeof s === 'string') : []
 const productionColumns: BusinessColumn[] = [
   { key: 'work_order_no', label: '工单编号' }, { key: 'material_name', label: '产品名称' },
@@ -23,10 +29,26 @@ const productionColumns: BusinessColumn[] = [
   { key: 'status', label: '运行状态' },
 ]
 const extraLabels: Record<string, string> = {
+  route_code: '路线编号', route_name: '工艺路线', version_no: '路线版本', step_code: '工序编码',
+  quality_required: '需要检验', standard_equipment_type: '建议设备类型', standard_work_hours: '标准工时',
+  inspection_item_id: '检验项 ID', item_code: '项目编号', item_name: '检验项目', standard_value: '检验标准',
+  measured_value: '实测值', result: '检验结果', defect_level: '缺陷等级', defect_description: '缺陷描述',
+  inspection_type: '检验类型', nonconforming_id: '不合格品 ID', nonconforming_no: '不合格品编号',
+  before: '前期抽检', after: '后期抽检', difference_percentage_points: '差值（百分点）',
+  step_key: '工序标识',
+  link_basis: '关联依据', remark: '原记录备注', report_status: '报工状态',
+  round_id: '检验版本 ID', event_type: '保存或判定动作', source_updated_at: '原记录更新时间',
+  recorded_at: '留存时间', operator_source: '操作人来源', binding_id: '样机关联 ID',
+  unit_code: '样机标识', sample_label: '样机', sample_origin: '样机标识来源', source_ref: '原始依据',
+  measurement_id: '实测记录 ID', prior_measurement_id: '对应前测记录 ID', metric_name: '测量指标',
+  before_value: '工序前读数', after_value: '工序后读数', before_measured_at: '前测时间', after_measured_at: '后测时间',
+  inspector_id: '质检员 ID', inspector_name: '登记质检员', operator_name: '操作员',
+  record_no: '原始单号', record_kind: '记录类别', source_file: '实训数据来源',
   mapping_status: '关联校验状态', plan_item_id: '计划行 ID', route_id: '工艺路线 ID', order_item_id: '订单行 ID',
   quantityBasis: '数量口径', scheduleSource: '计划来源', estimatedShipmentAt: '预计发货时间',
   orderItemPk: '订单行 ID', remainingDeliveryQty: '剩余交付数量', shippableQty: '确认可发货数量', candidateReadyQty: '库存分配情景数量',
   materialId: '物料 ID', materialName: '物料名称', scenarioGapQty: '当前 BOM 情景缺口', confirmedShortageNow: '已确认精确缺口',
+  step_origin: '工序来源', trace_status: '核对结论', dispatch_count: '派工条数', inspection_id: '检验单 ID', order_item_id: '订单行 ID', plan_id: '生产计划 ID',
   step_no: '工序序号', step_name: '工序名称', completedQtyRecorded: '记录完成数量', dispatchIds: '派工 ID', reportIds: '报工 ID',
   schedule_id: '排程 ID', planned_start: '计划开始时间', planned_end: '计划结束时间', standard_hours: '标准工时',
   competing_order_nos: '竞争订单', scenario_demand_qty: '计划供料情景需求', scoped_total_demand_qty: '范围内总需求',
@@ -62,6 +84,40 @@ export function businessSnapshot(message: BusinessMessage | null | undefined): B
   }
   if (!result) return snapshot
   const facts = result.facts || {}
+  const traceTables = [
+    ['inspection','检验单'], ['items','检验项目与实测值'], ['defects','已登记不合格品'],
+    ['batchRecords','匹配的物料批次'], ['sameBatchInspections','同物料、批号与检验类别的记录'],
+    ['workOrder','来源工单'], ['routeSteps','工单所属路线'], ['reportRows','关联生产报工'],
+    ['trainingHistory','同工单实训历史（按原始单据补录）'],
+    ['sampleBindings','缺陷与样机的关联依据'], ['sampleMeasurements','样机工序前后实测记录'],
+    ['dispatchRows','工单派工'], ['equipmentRows','关联设备'], ['graphPaths','已核验图谱路径'],
+  ]
+  const appendRows = (key: string, domain: string, label: string, records: unknown) => {
+    const rows = rowsOf(records)
+    if (!rows.length) return
+    const columns = columnsFor(rows)
+    for (const field of new Set(rows.flatMap(row => Object.keys(row)))) {
+      if (!columns.some(c => c.key === field)) columns.push({ key: field, label: extraLabels[field] || field })
+    }
+    snapshot.tables.push({ key, domain, label, rows, columns, total: null, returned: null, partial: false, notes: [] })
+  }
+  appendRows('workshop-stages', 'production', '车间标准派工工序', facts.process_route?.productionStages)
+  appendRows('process-route', 'production', '各产品的启用路线与工序', facts.process_route?.rows)
+  appendRows('batch-comparison', 'quality', '同批分时段抽检比较', facts.quality?.batchComparison)
+  for (const [key,label] of traceTables) appendRows('inspection-'+key, 'quality', label, facts.inspection_trace?.[key])
+  const trace = facts.inspection_trace
+  const rounds = rowsOf(trace?.inspectionEvents)
+  appendRows('inspection-rounds', 'quality', '检验保存与判定历史', rounds.map(({ items, ...event }) => event))
+  appendRows('inspection-round-items', 'quality', '各次保存的检验项快照', rounds.flatMap(event =>
+    rowsOf(event.items).map(item => ({ ...item, round_id: event.round_id, event_type: event.event_type }))))
+  const inspectedAt = traceTimestamp(trace?.inspection?.[0]?.inspected_at)
+  if (inspectedAt) {
+    const alarms = rowsOf(trace?.alarmRows).filter(row => {
+      const reportedAt = traceTimestamp(row.reported_at)
+      return reportedAt && reportedAt <= inspectedAt
+    })
+    appendRows('inspection-alarmRows', 'quality', '截至检验时的工单报警', alarms)
+  }
   if (Array.isArray(facts.alarms?.alarmTrend)) {
     const rows = rowsOf(facts.alarms.alarmTrend)
     snapshot.tables.push({ key: 'alarm-daily-trend', domain: 'alarms', label: '按日报警记录趋势', rows,
@@ -92,6 +148,16 @@ export function businessSnapshot(message: BusinessMessage | null | undefined): B
       }), total: null, returned: null, partial: false, notes: [] })
   }
   snapshot.notices = strings(result.missing).map(warningLabel)
+  for (const [key, domain, label, source] of [
+    ['work-materials','supply','所选工单物料需求与账面缺口',facts.inventory?.materialRows],
+    ['work-steps','production','工序完成情况',facts.production?.stepCoverage],
+    ['work-graph','quality','已回源核对的订单追溯路径',facts.quality?.businessGraph?.paths],
+  ] as const) {
+    const rows = rowsOf(source)
+    if (rows.length) snapshot.tables.push({key,domain,label,rows,columns:columnsFor(rows),total:null,returned:null,partial:false,notes:[]})
+  }
+  for (const conclusion of [facts.quality?.traceConclusion, facts.production?.traceConclusion, facts.inventory?.traceConclusion])
+    if (typeof conclusion === 'string') snapshot.notices.push(conclusion)
   if (Array.isArray(facts.production?.dispatchRows)) {
     const rows = rowsOf(facts.production.dispatchRows)
     snapshot.tables.push({ key: 'work-order-dispatch', domain: 'production', label: '派工明细', rows,
@@ -181,6 +247,7 @@ export function compactBusinessAnswer(message: BusinessMessage | null | undefine
   const snapshot = businessSnapshot(message)
   const result = message?.result
   if (!result || !snapshot.tables.length || snapshot.unavailable || !['EVIDENCE_READY', 'INSUFFICIENT_EVIDENCE'].includes(result.verdict)) return ''
+  if (result.facts?.inspection_trace || result.facts?.process_route || result.facts?.quality?.traceConclusion) return ''
   const labels = [...new Set(snapshot.tables.map((table) => ({ production: '生产工单', order: '订单', quality: '质量', equipment: '设备', aftersales: '售后', delivery: '交付', supply: '物料' })[table.domain] || table.label))]
   if (result.facts?.inventory?.overview) labels.unshift('库存')
   const sections = [`已查询到以下${labels.join('、')}信息：`]

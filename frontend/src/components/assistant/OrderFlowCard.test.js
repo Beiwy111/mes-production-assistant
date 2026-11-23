@@ -9,8 +9,9 @@ const { descriptor } = parse(readFileSync(new URL('./OrderFlowCard.vue', import.
 function component(inlineTemplate) {
   const code = compileScript(descriptor, { id: 'order-flow-test', inlineTemplate }).content
     .replace(/^import\s*\{([^}]+)\}\s*from\s*['"]vue['"];?\s*$/gm, (_, bindings) => `const { ${bindings.replace(/\bas\b/g, ':')} } = vue;`)
+    .replace("import AgentAvatar from './AgentAvatar.vue'", '')
     .replace('export default', 'return')
-  return new Function('vue', code)(vue)
+  return new Function('vue', 'AgentAvatar', code)(vue, { props: ['agentId'], setup: props => () => vue.h('span', { 'data-role': props.agentId }) })
 }
 const flow = { steps: [{ label: '查找产品', status: 'COMPLETED', detail: '找到产品 <script>' }], orderDraft: {
   id: 'd', version: 1, status: 'READY', fields: { customerName: '客户甲', materialId: 3, quantity: 5 },

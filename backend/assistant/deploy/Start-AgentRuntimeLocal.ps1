@@ -3,11 +3,21 @@ param([switch]$Build)
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'AgentRuntime.Common.ps1')
 $config = Read-AgentRuntimeConfig
+$config += Read-AssistantReaderConfig -Reader agent
+. (Join-Path $PSScriptRoot 'ExperienceCredential.ps1')
+$config['MES_KNOWLEDGE_EXPERIENCE_API_KEY'] = Read-ExperienceCredential
 # Reuse the existing private Python knowledge-service credential; never expose it to the browser/model.
 $knowledgeConfig = Join-Path $PSScriptRoot '.env.knowledge.local'
 if (Test-Path -LiteralPath $knowledgeConfig -PathType Leaf) {
     foreach ($line in [IO.File]::ReadAllLines($knowledgeConfig)) {
         if ($line.StartsWith('MES_KNOWLEDGE_API_KEY=')) { $config['MES_KNOWLEDGE_API_KEY'] = $line.Substring('MES_KNOWLEDGE_API_KEY='.Length) }
+    }
+}
+# Scope the local Neo4j credentials to this sidecar process only.
+$graphConfig = Join-Path $PSScriptRoot '.env.neo4j.local'
+if (Test-Path -LiteralPath $graphConfig) {
+    foreach ($line in [IO.File]::ReadAllLines($graphConfig)) {
+        if ($line -match '^(MES_GRAPH_USER|MES_GRAPH_PASSWORD)=(.+)$') { $config[$matches[1]]=$matches[2] }
     }
 }
 $projectRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..\..'))

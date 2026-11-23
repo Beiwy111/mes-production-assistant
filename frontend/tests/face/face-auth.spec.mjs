@@ -77,7 +77,7 @@ async function syntheticCamera(page, denied = false, permissionDelay = 0) {
 }
 
 async function openLoginCamera(page) {
-  await page.getByRole('button', { name: '人脸登录 · 演示', exact: true }).click()
+  await page.getByRole('button', { name: '人脸登录', exact: true }).click()
   await page.getByPlaceholder('先输入已录入人脸的账号').fill(session.username)
   await page.getByText(loginConsent, { exact: true }).click()
   await page.getByRole('button', { name: '开始人脸登录', exact: true }).click()
@@ -86,8 +86,8 @@ async function openLoginCamera(page) {
 test('unconfigured face feature keeps password login usable', async ({ page }) => {
   const calls = await mockApi(page, { capabilities: { configured: false, loginAllowed: false } })
   await page.goto('/login?redirect=%2Fassistant', { waitUntil: 'domcontentloaded' })
-  await page.getByRole('button', { name: '人脸登录 · 演示', exact: true }).click()
-  await expect(page.getByText('当前尚未开放人脸演示登录', { exact: false })).toBeVisible()
+  await page.getByRole('button', { name: '人脸登录', exact: true }).click()
+  await expect(page.getByText('当前尚未开放人脸登录', { exact: false })).toBeVisible()
   await expect(page.getByRole('button', { name: '开始人脸登录' })).toBeDisabled()
   await page.getByRole('button', { name: '返回密码登录' }).click()
   await page.getByPlaceholder('用户名', { exact: true }).fill(session.username)
@@ -99,7 +99,7 @@ test('unconfigured face feature keeps password login usable', async ({ page }) =
 
 test('camera permission failure is explained without breaking password login', async ({ page }) => {
   await mockApi(page); await syntheticCamera(page, true); await page.goto('/login', { waitUntil: 'domcontentloaded' })
-  await page.getByRole('button', { name: '人脸登录 · 演示', exact: true }).click()
+  await page.getByRole('button', { name: '人脸登录', exact: true }).click()
   await page.getByPlaceholder('先输入已录入人脸的账号').fill(session.username)
   await page.getByText(loginConsent, { exact: true }).click()
   await page.getByRole('button', { name: '开始人脸登录' }).click()
@@ -109,7 +109,7 @@ test('camera permission failure is explained without breaking password login', a
 
 test('two stable frames automatically log in once and release the camera', async ({ page }) => {
   const calls = await mockApi(page); await syntheticCamera(page); await page.goto('/login?redirect=%2Fassistant', { waitUntil: 'domcontentloaded' })
-  await page.getByRole('button', { name: '人脸登录 · 演示', exact: true }).click()
+  await page.getByRole('button', { name: '人脸登录', exact: true }).click()
   await page.getByPlaceholder('先输入已录入人脸的账号').fill(session.username)
   await expect(page.getByRole('button', { name: '开始人脸登录' })).toBeDisabled()
   await page.getByText(loginConsent, { exact: true }).click(); await page.getByRole('button', { name: '开始人脸登录' }).click()
@@ -169,7 +169,7 @@ test('self update requires confirmation of the exact captured frame and target a
   await expect(page.getByRole('button', { name: '确认绑定到此账号' })).toBeDisabled()
   await page.getByText(confirmBinding, { exact: true }).click()
   await page.getByRole('button', { name: '确认绑定到此账号' }).click()
-  await expect(page.getByText('本人人脸已绑定，可在登录页使用演示人脸验证。', { exact: true })).toBeVisible()
+  await expect(page.getByText('本人人脸已绑定，可在登录页使用人脸验证。', { exact: true })).toBeVisible()
   await expect(page.getByPlaceholder('不会保存该密码')).toHaveValue('')
   const request = calls.find(call => call.path === '/auth/face/me' && call.method === 'PUT')
   expect(request.body.consent).toBe(true); expect(request.body.password).toBe('fictional-password')
@@ -265,7 +265,7 @@ test('first enrollment captures automatically but waits for explicit binding con
   expect(calls.filter(call => call.path === '/auth/face/me' && call.method === 'PUT')).toHaveLength(0)
   await page.getByText(confirmBinding, { exact: true }).click()
   await page.getByRole('button', { name: '确认绑定到此账号' }).click()
-  await expect(page.getByText('本人人脸已绑定，可在登录页使用演示人脸验证。', { exact: true })).toBeVisible()
+  await expect(page.getByText('本人人脸已绑定，可在登录页使用人脸验证。', { exact: true })).toBeVisible()
   expect(calls.filter(call => call.path === '/auth/face/me' && call.method === 'PUT')).toHaveLength(1)
   await expect(page.getByPlaceholder('不会保存该密码')).toHaveValue('')
 })

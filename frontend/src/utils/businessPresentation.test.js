@@ -7,6 +7,17 @@ const message = (facts, extra = {}) => ({ result: { verdict: 'EVIDENCE_READY', p
 const overview = (rows, extra = {}) => ({ overview: { rows, totalRecords: rows.length, returnedRecords: rows.length,
   domain: 'PRODUCTION', period: 'CURRENT', truncated: false, ...extra } })
 
+test('trace tables keep the source IDs, distinct evidence and original streamed conclusion', () => {
+  const input = message({ inspection_trace: { inspection: [{ inspection_id: 63, work_order_id: 2 }],
+    items: [{ inspection_item_id: 27, measured_value: '原始值' }], reportRows: [] } })
+  const tables = businessSnapshot(input).tables
+  assert.deepEqual(tables.map(t=>t.key), ['inspection-inspection','inspection-items'])
+  assert.equal(tables[0].rows[0].inspection_id,63)
+  assert.ok(tables[1].columns.some(c=>c.key==='measured_value'))
+  assert.equal(compactBusinessAnswer(input),'')
+  assert.ok(businessSnapshot(message({ process_route:{rows:[{route_code:'R1',step_no:10,step_name:'组装'}]} })).tables[0].columns.some(c=>c.key==='step_name'))
+})
+
 test('quality trends keep server sample scope, unknown rates and every inspection detail', () => {
   const trend = [{ inspection_day: '2026-11-01', material_name: '显示器', unit: '台', inspection_record_count: 2,
     valid_sample_quantity: '100', valid_qualified_quantity: '98', sample_pass_percent: '98.00',
@@ -156,4 +167,13 @@ test('shared-resource tables keep server gaps, missing coverage, and scope limit
   assert.deepEqual(snapshot.tables.find(t => t.key === 'resource-coverage').rows, coverage)
   assert.ok(snapshot.notices.includes('供料情景'))
   assert.ok(snapshot.notices.includes('没有额外资源权限'))
+})
+
+test('batch comparison keeps non-comparable sample rates and the server conclusion', () => {
+  const groups = [{ inspection_type:'RECHECK', before:'无样本', after:'1/3', difference_percentage_points:null }]
+  const input = message({ quality:{ batchComparison:groups, traceConclusion:'检验类型不同，无法比较。' } })
+  const table = businessSnapshot(input).tables.find(t => t.key === 'batch-comparison')
+  assert.deepEqual(table.rows, groups)
+  assert.ok(table.columns.some(c => c.label === '差值（百分点）'))
+  assert.equal(compactBusinessAnswer(input), '')
 })

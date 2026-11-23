@@ -14,15 +14,21 @@ import {
   Workflow, Download, ClipboardPlus, PackageSearch, Factory, ScanLine, Layers, Monitor,
 } from 'lucide-vue-next'
 import { useUserStore } from '@/stores/user'
+import ChatDetectionFrame from '@/components/assistant/ChatDetectionFrame.vue'
+import DisplayMark from '@/components/assistant/DisplayMark.vue'
+import { PencilLine, RotateCcw, GitBranch, Share2 } from 'lucide-vue-next'
 import AgentInspector from '@/components/assistant/AgentInspector.vue'
 import BusinessQueryAnswer from '@/components/assistant/BusinessQueryAnswer.vue'
 import KnowledgeSources from '@/components/assistant/KnowledgeSources.vue'
+import ExperienceEvidence from '@/components/assistant/ExperienceEvidence.vue'
+import VisionImageEvidence from '@/components/assistant/VisionImageEvidence.vue'
+import { inspectionImageRecords } from '@/utils/workbenchEvidence'
 import { canExportResult, resultCsv } from '@/utils/knowledgeSources'
 import WorkbenchMarkdown from '@/components/assistant/WorkbenchMarkdown.vue'
 import { isProductionOnly, compactBusinessAnswer, hasBusinessTables } from '@/utils/businessPresentation'
 import {
   workbenchStatus,
-  streamWorkbench,
+  streamWorkbench, continueImage, chatEntry,
   workbenchRun,
 } from '@/api/agentWorkbench'
 import {
@@ -43,7 +49,8 @@ import AgentWorkflowCard from '@/components/assistant/AgentWorkflowCard.vue'
 import WorkbenchComposer from '@/components/assistant/WorkbenchComposer.vue'
 import InventoryAnswer from '@/components/assistant/InventoryAnswer.vue'
 import { isInventoryOnly, inventorySnapshot } from '@/utils/inventoryPresentation'
-import { prefersReadOnlyQuery } from '@/utils/workbenchRouting'
+import { precedingWorkRun, imageFollowup, comparePhoto } from '@/utils/imageConversation'
+import { prefersReadOnlyQuery, entryContext } from '@/utils/workbenchRouting'
 
 function exportResult(message) {
   const csv = resultCsv(message)
@@ -61,6 +68,19 @@ function toggleHistory() {
 }
 const attachmentInput = ref(null)
 const attachmentNotice = ref('')
+// Annotated photos are session-memory only; chat history stores text.
+const imagePreviews = new WeakMap()
+const pendingImage = ref(null)
+const pendingThumbnail = ref('')
+watch(pendingImage, (file, _, cleanup) => {
+  pendingThumbnail.value = ''
+  if (!file) return
+  const url = URL.createObjectURL(file)
+  pendingThumbnail.value = url
+  cleanup(() => URL.revokeObjectURL(url))
+})
+const imageMode = ref('auto')
+function clearImage() { pendingImage.value = null; imageMode.value = 'auto' }
 const sessions = ref([]),
   activeId = ref(null),
   search = ref(''),
@@ -87,13 +107,39 @@ const active = computed(() =>
   sessions.value.find((s) => s.id === activeId.value),
 )
 const messages = computed(() => active.value?.messages || [])
+const composerArea = ref(null)
+watch(() => messages.value.length > 0, async (hasMessages, hadMessages) => {
+  const element = composerArea.value
+  if (!hasMessages || hadMessages || !busy.value || !element?.animate || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
+  const top = element.getBoundingClientRect().top
+  await nextTick()
+  if (element.isConnected) element.animate([
+    { transform: 'translateY(' + (top - element.getBoundingClientRect().top) + 'px)' },
+    { transform: 'translateY(0)' },
+  ], { duration: 220, easing: 'cubic-bezier(.2,.7,.2,1)' })
+})
 const inspectedMessage = computed(() => messages.value.findLast((message) => message.role === 'assistant') || null)
-async function attachTextFile(event) {
+function attachTextFile(event) {
   const file = event.target.files?.[0]
   event.target.value = ''
-  if (!file || busy.value) return
+  if (file) return attachFile(file)
+}
+function pasteFiles(files) {
+  if (busy.value) { ElMessage.warning('请等当前回答结束后再粘贴附件。'); return }
+  if (files.length > 1) { ElMessage.warning('请一次粘贴一个附件。'); return }
+  if (files.length) return attachFile(files[0])
+}
+async function attachFile(file) {
+  if (busy.value) return
+  if (/^image\/(png|jpeg)$/i.test(file.type) || /\.(png|jpe?g)$/i.test(file.name)) {
+    if (file.size > 6 * 1024 * 1024) { ElMessage.warning('请选择 6 MB 内的图片。'); return }
+    pendingImage.value = file
+    imageMode.value = 'auto'
+    composer.value?.focus()
+    return
+  }
   if (!/\.(txt|md|csv|json)$/i.test(file.name) || file.size > 8000) {
-    ElMessage.warning('支持 8 KB 内的 TXT、Markdown、CSV 或 JSON 文本，内容会加入输入框。')
+    ElMessage.warning('支持 JPG、PNG 图片，以及 8 KB 内的 TXT、Markdown、CSV 或 JSON 文本。')
     return
   }
   const sessionId = activeId.value, previous = input.value, token = user.token
@@ -114,11 +160,14 @@ const visibleSessions = computed(() =>
   sessions.value.filter((s) => s.title.includes(search.value.trim())),
 )
 const queryReady = computed(() => (admin.value || Array.isArray(connection.value?.capabilities?.domains)) && connection.value?.configured === true && connection.value?.naturalLanguage === true)
-const ready = computed(() => orderReady.value || queryReady.value)
+const ready = computed(() => orderReady.value || queryReady.value || connection.value?.directChat === true)
 const needsUpgrade = computed(() => connection.value != null && connection.value.naturalLanguage !== true)
 const BusinessActions = defineAsyncComponent(() => import('./ChatHomeView.vue'))
 const businessToolsOpen = ref(false)
-const canSend = computed(() => ready.value && !busy.value && input.value.trim().length > 0)
+const graphWindow = ref('')
+const WorkbenchGraphWindow = defineAsyncComponent(() => import('@/components/assistant/WorkbenchGraphWindow.vue'))
+watch([activeId, () => user.token], () => { graphWindow.value = '' })
+const canSend = computed(() => ready.value && !busy.value && (input.value.trim().length > 0 || Boolean(pendingImage.value)))
 const statusText = computed(() => checking.value ? '正在连接' : ready.value ? '已连接' : needsUpgrade.value ? '服务待升级' : '服务未连接')
 const statusHint = computed(() => {
   if (ready.value) return ''
@@ -130,7 +179,7 @@ const introductory = computed(() => [
   ...((admin.value || queryReady.value) ? [
     { title: '查库存', icon: PackageSearch, description: '物料、仓库与可用数量', prompt: '帮我查一下当前库存，列出需要关注的物料。' },
     { title: '看生产进度', icon: Factory, description: '工单进展与生产状态', prompt: '帮我看看当前生产进度，哪些工单需要关注？' },
-    { title: '分析质量问题', icon: ScanLine, description: '检验结果与缺陷依据', prompt: '分析最近七天的质量问题，列出检验和缺陷证据。' },
+    { title: '分析质量问题', icon: ScanLine, description: '检验结果与缺陷依据', prompt: '查询质检情况，列出检验记录并概括主要质量问题。' },
   ].filter(item => { const domain = ({ 查库存: 'INVENTORY', 看生产进度: 'PRODUCTION', 分析质量问题: 'QUALITY' })[item.title]; return connection.value?.capabilities?.domains?.includes(domain) ?? admin.value }) : []),
 ])
 
@@ -196,6 +245,7 @@ watch(
   () => [user.userInfo?.userId, user.token, user.userInfo?.roleCode],
   ([id]) => {
     stop()
+    clearImage()
     owner = id
     activeId.value = null
     input.value = ''
@@ -219,6 +269,7 @@ onBeforeUnmount(() => {
 })
 
 function newSession() {
+  clearImage()
   if (busy.value) stop()
   followTail.value = true
   activeId.value = null
@@ -229,6 +280,7 @@ function newSession() {
 }
 function selectSession(session) {
   if (session.id === activeId.value) return
+  clearImage()
   if (busy.value) stop()
   followTail.value = true
   activeId.value = session.id
@@ -238,6 +290,24 @@ function selectSession(session) {
   nextTick(() => {
     if (list.value) list.value.scrollTop = list.value.scrollHeight
   })
+}
+const editingTitle = ref(null)
+const titleDraft = ref('')
+function editTitle(session, event) {
+  editingTitle.value = session.id
+  titleDraft.value = session.title
+  const row = event.currentTarget.closest('.session-item')
+  nextTick(() => row?.querySelector('input')?.select())
+}
+function finishTitle(session) {
+  if (editingTitle.value !== session.id) return
+  const title = titleDraft.value.trim()
+  if (title) {
+    session.title = title
+    session.renamed = true
+    persist()
+  }
+  editingTitle.value = null
 }
 function removeSession(id) {
   if (busy.value) return
@@ -262,9 +332,18 @@ function trackScroll() {
   const el = list.value
   if (el) followTail.value = el.scrollHeight - el.scrollTop - el.clientHeight < 100
 }
-async function send() {
-  if (!canSend.value) return
-  const text = input.value.trim(),
+function canRegenerate(message) {
+  return message === messages.value.at(-1) && message.status === 'COMPLETED' &&
+    !busy.value && !input.value && !pendingImage.value && !message.imageQuestion &&
+    !message.orderMessage && !message.orderFlow && !message.evidenceInvalidated &&
+    messages.value.at(-2)?.role === 'user' && !messages.value.at(-2)?.orderMessage &&
+    (message.directChat ? connection.value?.directChat : queryReady.value && message.runId)
+}
+async function send(replay = null) {
+  if (replay ? !canRegenerate(replay) : !canSend.value) return
+  const imageFile = pendingImage.value, mode = imageMode.value
+  const typed = replay ? messages.value.at(-2).text : input.value.trim()
+  const text = typed || (mode === 'screen' ? '检测这张屏幕照片上的划痕' : '这张图片里有什么？'),
     token = user.token,
     capturedOwner = owner
   let session = active.value
@@ -281,6 +360,11 @@ async function send() {
     activeId.value = id
     session = active.value
   }
+  const previousMessages = replay ? session.messages.slice(0, -2) : session.messages
+  const photoTurn = imageFile || replay ? null : imageFollowup(previousMessages, text)
+  const classify = !imageFile && !photoTurn && (!replay || replay.directChat) && connection.value?.directChat === true
+  const context = classify ? entryContext(previousMessages) : null
+  const workAnchor = imageFile ? precedingWorkRun(session.messages) : null
   session.updatedAt = Date.now()
   session.messages.push({
     id: uniqueId(),
@@ -292,16 +376,89 @@ async function send() {
   session.messages.push(createAssistantMessage())
   const message = session.messages.at(-1)
   message.conversationId = session.id
-  const needsOrderIntake = orderReady.value && !prefersReadOnlyQuery(text, { canQuery: queryReady.value })
-  if (!needsOrderIntake) session.messages.at(-2).orderMessage = false
-  if (needsOrderIntake) message.orderFlow = { steps: [], pending: '总协调正在理解订单需求' }
+  let needsOrderIntake = !replay && !imageFile && !photoTurn && orderReady.value && !prefersReadOnlyQuery(text, { canQuery: queryReady.value })
+  if (!classify && !needsOrderIntake) session.messages.at(-2).orderMessage = false
+  if (!classify && needsOrderIntake) message.orderFlow = { steps: [], classifying: true }
   activeMessage = message
+  if (imageFile) { clearImage(); message.imageUpload = true }
+  if (imageFile || photoTurn) message.imageQuestion = true
   input.value = ''
   busy.value = true
   controller = new AbortController()
   persist()
   followScroll(true)
   try {
+    if (classify) {
+      message.routing = true
+      const { route } = await chatEntry(token, { text, ...context }, {
+        signal: controller.signal,
+        onDelta: delta => {
+          if (disposed || owner !== capturedOwner || token !== user.token || message.status !== 'RUNNING') return
+          message.directChat = true
+          message.text += delta
+          followScroll()
+        },
+      })
+      if (disposed || owner !== capturedOwner || token !== user.token || message.status !== 'RUNNING') return
+      delete message.routing
+      if (route === 'GENERAL' || route === 'WEATHER') {
+        session.messages.at(-2).orderMessage = false
+        message.directChat = true
+        message.status = 'COMPLETED'
+        return
+      }
+      if (replay && route === 'ORDER') throw new Error('该问题涉及业务办理，请单独发起请求。')
+      if (route === 'ORDER' && !orderReady.value) throw new Error('当前账号或连接无法办理订单。')
+      if (!['BUSINESS','ORDER','FALLBACK'].includes(route)) throw new Error('对话分流结果无效，请重试。')
+      if (route !== 'FALLBACK') needsOrderIntake = route === 'ORDER'
+      session.messages.at(-2).orderMessage = needsOrderIntake
+      if (needsOrderIntake) message.orderFlow = { steps: [], classifying: true }
+    }
+    if (imageFile) {
+      const body = new FormData()
+      body.append('file', imageFile)
+      body.append('mode', mode)
+      body.append('sessionId', session.id)
+      if (workAnchor) body.append('workRun', workAnchor)
+      body.append('question', text)
+      const response = await fetch('/api/assistant-v2/images/ask', {
+        method: 'POST', headers: { Authorization: 'Bearer ' + token }, body, signal: controller.signal,
+      })
+      const result = await response.json().catch(() => null)
+      if (!response.ok || result?.code !== 200 || !result?.data?.answer)
+        throw new Error(result?.message || '图片问答服务暂不可用，请确认后端已加载图片接口。')
+      if (capturedOwner !== owner || token !== user.token || disposed || message.status !== 'RUNNING') return
+      if (typeof result.data.annotatedImage === 'string' && result.data.annotatedImage.startsWith('data:image/jpeg;base64,'))
+        imagePreviews.set(message, result.data.annotatedImage)
+      if (/^\d+$/.test(result.data.detectionCount) && imagePreviews.has(message))
+        message.frameCount = Number(result.data.detectionCount)
+      message.imageStreaming = true
+      message.imageRef = result.data.imageRef
+      message.text = result.data.answer
+      message.status = 'COMPLETED'
+      followScroll()
+      return
+    }
+    let photoEvidence
+    if (photoTurn) {
+      message.imageStreaming = true
+      photoEvidence = await continueImage(token, { imageRef: photoTurn.imageRef, action: photoTurn.action, sessionId: session.id, question: text }, {
+        signal: controller.signal,
+        onDelta: (delta) => {
+          if (disposed || owner !== capturedOwner || user.token !== token || message.status !== 'RUNNING') return
+          if (photoTurn.action === 'compare') message.photoObservation = (message.photoObservation || '') + delta
+          else message.text += delta
+          followScroll()
+        },
+      })
+      if (disposed || owner !== capturedOwner || user.token !== token || message.status !== 'RUNNING') return
+      if (photoTurn.laterWork !== undefined) photoEvidence.workRun = photoTurn.laterWork
+      if (photoTurn.action !== 'compare' || !photoEvidence?.workRun) {
+        if (photoTurn.action === 'compare') message.text = '当前会话中没有唯一可核对的生产工单。'
+        message.status = 'COMPLETED'
+        return
+      }
+    }
     if (needsOrderIntake) {
       let envelope
       try {
@@ -330,13 +487,17 @@ async function send() {
     if (!queryReady.value) throw new Error('查询服务暂不可用，请稍后重新连接。')
     await streamWorkbench(
       token,
-      buildNaturalRequest(session, text, message.id),
+      photoTurn?.action === 'compare'
+        ? { sessionId: session.id, requestId: message.id, previousRunId: photoEvidence.workRun, text: '这张工单的质检情况怎么样' }
+        : buildNaturalRequest(replay ? { ...session, messages: previousMessages } : session, text, message.id),
       {
         signal: controller.signal,
         onEvent: (event) => {
           if (capturedOwner !== owner || token !== user.token || disposed)
             return
           applyWorkbenchEvent(message, event)
+          if (photoTurn?.action === 'compare' && event.type === 'result' && !message.evidenceInvalidated)
+            message.photoComparison = comparePhoto(photoEvidence.count, message.result)
           if (['run', 'agent', 'result', 'workflow'].includes(event.type)) persist()
           if (activeId.value === session.id) followScroll()
         },
@@ -345,10 +506,14 @@ async function send() {
   } catch (error) {
     if (capturedOwner === owner && token === user.token && !disposed) {
       if (message.orderFlow) {
+        delete message.orderFlow.classifying
         message.orderFlow.pending = ''
         message.orderFlow.needsRecovery = true
       }
-      if (error.name !== 'AbortError' && !message.runId && !message.orderFlow && !input.value && activeId.value === session.id) input.value = text
+      if (error.name !== 'AbortError' && !message.runId && !message.orderFlow && !input.value && activeId.value === session.id) {
+        input.value = typed
+        if (imageFile) { pendingImage.value = imageFile; imageMode.value = mode }
+      }
       interruptMessage(
         message,
         error.name === 'AbortError' && !message.orderFlow ? 'CANCELLED' : error.taskStatus || 'INTERRUPTED',
@@ -356,6 +521,7 @@ async function send() {
       )
     }
   } finally {
+    delete message.routing
     busy.value = false
     controller = null
     activeMessage = null
@@ -488,7 +654,7 @@ async function copy(text) {
   }
 }
 const displayAnswer = (message) =>
-  message.result?.presentation === 'compact_stream' ? message.text :
+  message.directChat || message.result?.presentation === 'compact_stream' ? message.text :
   compactBusinessAnswer(message) || (
   isInventoryOnly(message) ? '已查询到以下库存信息：' :
   isProductionOnly(message) ? '已查询到以下生产工单：' :
@@ -514,7 +680,7 @@ const answerParts = (message) => {
   <div class="agent-workbench" :class="{ 'has-messages': messages.length, 'inspector-open': inspectorOpen, 'history-collapsed': historyCollapsed }">
     <button v-if="showHistory" class="history-overlay" aria-label="关闭会话列表" @click="showHistory = false" />
     <aside class="workbench-history" :class="{ 'is-open': showHistory }" aria-label="新助手会话">
-      <div class="history-heading"><span class="brand-mark" aria-hidden="true"><Monitor /></span><strong>生产协作助手</strong><button class="icon-button history-collapse" aria-label="收起会话栏" @click="historyCollapsed = true"><PanelLeft /></button><button class="icon-button mobile-close" aria-label="关闭会话列表" @click="showHistory = false"><Close /></button></div>
+      <div class="history-heading"><span class="brand-mark" aria-hidden="true"><DisplayMark /></span><strong>生产协作助手</strong><button class="icon-button history-collapse" aria-label="收起会话栏" @click="historyCollapsed = true"><PanelLeft /></button><button class="icon-button mobile-close" aria-label="关闭会话列表" @click="showHistory = false"><Close /></button></div>
       <div class="sidebar-actions">
         <button class="new-conversation" @click="newSession"><Plus /><span>新对话</span></button>
         <label class="history-search"><Search /><input v-model="search" placeholder="搜索对话…" aria-label="搜索会话" /></label>
@@ -523,7 +689,9 @@ const answerParts = (message) => {
       <div class="workspace-folder"><ChevronRight /><span>生产协作</span><span>{{ sessions.length }}</span></div>
       <nav class="session-list" aria-label="会话列表">
         <div v-for="session in visibleSessions" :key="session.id" class="session-item" :class="{ active: activeId === session.id }">
-          <button :aria-current="activeId === session.id ? 'page' : undefined" @click="selectSession(session)"><MessageSquare /><span>{{ session.title }}</span></button>
+          <input v-if="editingTitle === session.id" v-model="titleDraft" class="session-title-field" maxlength="80" aria-label="会话名称" @blur="finishTitle(session)" @keydown.enter="!$event.isComposing && $event.target.blur()" @keydown.esc="editingTitle = null" />
+          <button v-else :aria-current="activeId === session.id ? 'page' : undefined" @click="selectSession(session)"><MessageSquare /><span>{{ session.title }}</span></button>
+          <button v-if="editingTitle !== session.id" class="session-delete session-rename" aria-label="重命名会话" title="重命名会话" @click="editTitle(session, $event)"><PencilLine /></button>
           <button class="session-delete" :disabled="busy" aria-label="删除此会话" @click="removeSession(session.id)"><Delete /></button>
         </div>
         <p v-if="!visibleSessions.length" class="history-empty">{{ search ? '没有匹配的对话' : '开始一次生产协作，对话将保存在这里。' }}</p>
@@ -537,43 +705,64 @@ const answerParts = (message) => {
       <BusinessActions v-if="businessToolsOpen" embedded />
     </el-drawer>
     <main class="workbench-main">
+      <WorkbenchGraphWindow v-if="graphWindow" :key="graphWindow" :mode="graphWindow" :message="inspectedMessage" :token="user.token" :can-ingest="user.userInfo?.roleCode === 'ADMIN'" @close="graphWindow = ''" />
       <header class="workbench-header">
         <button class="icon-button mobile-history" aria-label="打开会话列表" @click="toggleHistory"><PanelLeft /></button>
         <div class="workspace-breadcrumb"><span>生产协作</span><ChevronRight /><strong class="assistant-header-title">{{ active?.title || '新对话' }}</strong></div>
         <button class="icon-button" title="业务指令与语音" aria-label="业务指令与语音" @click="businessToolsOpen = true"><MessageSquare /></button>
+        <div class="graph-launchers">
+          <button aria-haspopup="dialog" aria-label="查看 Dify 工作流" title="查看 Dify 工作流" @click="graphWindow = 'workflow'"><GitBranch/><span>Dify 工作流</span></button>
+          <button aria-haspopup="dialog" aria-label="查看联合知识图" title="查看联合知识图" @click="graphWindow = 'knowledge'"><Share2/><span>联合知识图</span></button>
+        </div>
         <button class="connection-status" :class="{ online: ready }" :disabled="checking" aria-label="刷新连接状态" @click="checkConnection"><i />{{ statusText }}<Loading v-if="checking" class="spin" /></button>
         <button class="icon-button inspector-toggle" :aria-pressed="inspectorOpen" :aria-label="inspectorOpen ? '收起 Agent 面板' : '展开 Agent 面板'" @click="inspectorOpen = !inspectorOpen"><PanelRight /></button>
       </header>
       <div class="chat-stage" :class="{ 'is-empty': !messages.length }">
         <section v-if="!messages.length" class="workbench-welcome">
-            <div class="welcome-eyebrow"><Layers /> MES WORKSPACE</div>
+            <div class="welcome-emblem" aria-hidden="true"><DisplayMark /></div>
+            <div class="welcome-eyebrow">MES WORKSPACE</div>
             <h1>从一个生产问题开始</h1>
-            <p>{{ admin ? '从查询、分析到下单，让每一步都有依据。' : '描述订购需求，核对信息后提交订单审核。' }}</p>
+            <p>{{ queryReady ? '查询生产现场的数据，跟进工单与质量问题。' : '描述订购需求，核对信息后提交订单审核。' }}</p>
         </section>
         <div v-show="messages.length" ref="list" class="conversation-scroll" @scroll.passive="trackScroll">
           <div class="conversation-content">
             <article v-for="message in messages" :key="message.id" class="workbench-message" :class="message.role">
               <template v-if="message.role === 'user'"><div class="user-bubble">{{ message.text }}</div><div v-if="legacyMessageContext(message)" class="user-context">{{ legacyMessageContext(message) }}</div></template>
               <template v-else>
-                <OrderFlowCard v-if="message.orderFlow" :flow="message.orderFlow" :busy="busy || !orderReady" :customer="user.userInfo?.roleCode === 'CUSTOMER'" :historical="historicalOrder(message)" @action="orderAction(message, $event)" />
-                <AgentWorkflowCard v-else :message="message" />
+                <OrderFlowCard v-if="message.orderFlow && !message.orderFlow.classifying" :flow="message.orderFlow" :busy="busy || !orderReady" :customer="user.userInfo?.roleCode === 'CUSTOMER'" :historical="historicalOrder(message)" @action="orderAction(message, $event)" />
+                <AgentWorkflowCard v-else-if="!message.routing && !message.directChat" :message="message" />
                 <p v-if="message.orderIntakeNotice" class="message-error" role="status">{{ message.orderIntakeNotice }}</p>
-                <div v-if="!message.orderFlow && message.status === 'RUNNING' && !message.agents.length && !message.workflow" class="waiting-line"><Loading class="spin" />{{ message.runId ? '任务已接收，等待协调执行…' : '正在连接协调服务…' }}</div>
-                <div v-if="message.text" :id="`answer-${message.id}`" class="answer-content"><WorkbenchMarkdown :content="answerParts(message).intro" :smooth="message.result?.presentation === 'compact_stream'" :streaming="message.status === 'RUNNING'" :stopped="['FAILED','CANCELLED','INTERRUPTED'].includes(message.status)" :cursor="!answerParts(message).analysis" @progress="followScroll()" /></div>
+                <div v-if="(!message.orderFlow || message.orderFlow.classifying) && message.status === 'RUNNING' && !message.directChat && !message.agents.length && !message.workflow" class="waiting-line"><Loading class="spin" />{{ message.imageQuestion ? '正在分析图片…' : message.routing || message.orderFlow?.classifying ? '正在理解请求…' : message.runId ? '任务已接收，等待协调执行…' : '正在连接协调服务…' }}</div>
+                <WorkbenchMarkdown v-if="message.photoObservation" :content="message.photoObservation" :smooth="message.imageStreaming" :streaming="message.status === 'RUNNING' && !message.text" :stopped="['FAILED','CANCELLED','INTERRUPTED'].includes(message.status)" @progress="followScroll()" />
+                <div v-if="message.text" :id="`answer-${message.id}`" class="answer-content"><WorkbenchMarkdown :content="answerParts(message).intro" :smooth="message.directChat || message.result?.presentation === 'compact_stream' || message.imageStreaming" :streaming="message.status === 'RUNNING'" :stopped="['FAILED','CANCELLED','INTERRUPTED'].includes(message.status)" :cursor="!answerParts(message).analysis" @progress="followScroll()" /></div>
+                <ChatDetectionFrame v-if="imagePreviews.has(message) || (message.frameCount != null && message.imageRef)"
+                  :initial="imagePreviews.get(message)" :image-ref="message.imageRef" :count="message.frameCount"
+                  :session-id="active.id" :token="user.token" />
                 <InventoryAnswer :message="message" />
                 <BusinessQueryAnswer :message="message" />
                 <div v-if="answerParts(message).analysis" class="answer-analysis"><WorkbenchMarkdown :content="answerParts(message).analysis" :smooth="message.result?.presentation === 'compact_stream'" :streaming="message.status === 'RUNNING'" :stopped="['FAILED','CANCELLED','INTERRUPTED'].includes(message.status)" @progress="followScroll()" /></div>
+                <WorkbenchMarkdown v-if="message.photoComparison && !message.evidenceInvalidated" :content="message.photoComparison" />
                 <KnowledgeSources :message="message" />
+                <ExperienceEvidence :message="message" />
+                <details v-for="record in inspectionImageRecords(message)" :key="record.recordId" class="detected-image">
+                  <summary>检验图片依据 · {{ record.inspectionNo || record.inspectionId }} · {{ record.recordedAt }}</summary>
+                  <VisionImageEvidence :record="record" />
+                </details>
                 <div v-if="message.error" class="message-error"><span>{{ message.error }}</span><button v-if="message.runId && message.status !== 'CANCELLED'" @click="refreshRun(message)">查询运行结果</button></div>
-                <div v-if="message.text" class="message-actions"><button @click="copy(message.text)"><CopyDocument />复制</button><button v-if="canExportResult(message)" aria-label="导出完整查询 CSV" @click="exportResult(message)"><Download />CSV</button></div>
+                <div v-if="message.text" class="message-actions"><button @click="copy([message.photoObservation, message.text, message.evidenceInvalidated ? null : message.photoComparison].filter(Boolean).join('\n\n'))"><CopyDocument />复制</button><button v-if="canRegenerate(message)" aria-label="重新生成回答" @click="send(message)"><RotateCcw />重新生成</button><button v-if="canExportResult(message)" aria-label="导出完整查询 CSV" @click="exportResult(message)"><Download />CSV</button></div>
               </template>
             </article>
           </div>
         </div>
-        <footer class="composer-area">
+        <footer ref="composerArea" class="composer-area">
           <div v-if="statusHint" class="connection-notice" role="status"><span>{{ statusHint }}</span><button v-if="!busy" @click="checkConnection">重新连接</button></div>
-          <input ref="attachmentInput" class="attachment-input" type="file" accept=".txt,.md,.csv,.json" aria-label="选择文本资料" @change="attachTextFile" />
-          <WorkbenchComposer ref="composer" v-model="input" :welcome="!messages.length" :busy="busy" :can-send="canSend" @send="send" @stop="stop" @attach="attachmentInput?.click()" />
+          <input ref="attachmentInput" class="attachment-input" type="file" accept=".txt,.md,.csv,.json,.jpg,.jpeg,.png" aria-label="选择图片或文本资料" @change="attachTextFile" />
+          <div v-if="pendingImage" class="image-attachment">
+            <img v-if="pendingThumbnail" :src="pendingThumbnail" alt="待发送的图片" />
+            <select v-model="imageMode" aria-label="图片分析方式"><option value="auto">图片问答 · 自动识别</option><option value="screen">屏幕划痕检测</option></select>
+            <button type="button" aria-label="移除图片" @click="clearImage"><Close :size="16" /></button>
+          </div>
+          <WorkbenchComposer ref="composer" v-model="input" :welcome="!messages.length" :busy="busy" :can-send="canSend" @send="send" @stop="stop" @attach="attachmentInput?.click()" @paste-files="pasteFiles" />
         </footer>
         <nav v-if="!messages.length" class="welcome-shortcuts" aria-label="快捷提问">
           <div class="suggestions"><button v-for="item in introductory" :key="item.title" @click="chooseExample(item)"><span class="suggestion-icon"><component :is="item.icon" /></span><span class="suggestion-copy"><strong>{{ item.title }}</strong><small>{{ item.description }}</small></span><ArrowUpRight /></button></div>
@@ -585,3 +774,11 @@ const answerParts = (message) => {
 </template>
 
 <style scoped src="./workbench-theme.css"></style>
+
+<style scoped>
+.detected-image { margin:8px 0; font-size:13px }
+.detected-image img { display:block; max-width:100%; max-height:440px; margin-top:8px; object-fit:contain }
+.image-attachment { display:flex; align-items:center; gap:8px; flex-wrap:wrap; font-size:13px; margin-bottom:6px }
+.image-attachment img { width: 48px; height: 38px; object-fit: contain; border-radius: 4px; }
+.image-attachment select,.image-attachment button { font:inherit; color:inherit; background:transparent; border:1px solid var(--aw-border); border-radius:6px; padding:4px }
+</style>

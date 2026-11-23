@@ -6,7 +6,7 @@
 
 - [Dify第四阶段工作流](http://127.0.0.1:18080/app/7d20a448-fd0f-46ca-b062-b988fde2bfbc/workflow)：输入question，history可空。可问“Mura与分段伽马校正、APSO是什么关系？请给出处”。
 - [Neo4j Browser](http://127.0.0.1:17474)：连接 `bolt://127.0.0.1:17687`，用户 `neo4j`，密码取本地 `.env.neo4j.local` 的 `MES_GRAPH_PASSWORD`。不要把密码发到聊天。
-- [可视化查询](../rag/graph-visualization.cypher)：在Browser中逐条执行，可看概念—声明—方法，以及声明—切片—论文。文件内版本参数对应本次发布；重建后从 `rag/data/graph-active.json` 更新graphRelease。
+- [可视化查询](../rag/graph-visualization.cypher) 开头给出了读取本机活动发布版本的 PowerShell 命令。在 Browser 设置参数后，可先核对各类节点数量，再查看文档与全部切片、研究关系及其证据。
 
 模型与知识服务密钥已从第三阶段复制到独立应用，不用重新购买/配置API。旧第三阶段vector应用保留。第四阶段应用暂未接Java入口，也不需要你现在创建新的应用API Key。
 

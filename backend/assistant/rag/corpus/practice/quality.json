@@ -1,0 +1,82 @@
+[
+  {
+    "id": "M_STAT_PCHART",
+    "title": "批次不良率波动与 p 控制图",
+    "source_url": "https://www.itl.nist.gov/div898/handbook/pmc/section3/pmc332.htm",
+    "keywords": [
+      "不良率升高",
+      "样本量",
+      "控制限",
+      "p 控制图",
+      "p-chart",
+      "fraction nonconforming"
+    ],
+    "text": "比较多个批次时，对每批分别记录检验台数 n 和判为不合格的台数 D，样本不良率为 D/n。先核对取样范围、检验项目和判定版本是否一致。重复报缺陷、重复保存或复测同一台时，不能按新增受检产品累计。对稳定过程中的独立抽样，p 控制图以历史基线不良率 p 为中心，单批三倍标准差的距离为 3√[p(1−p)/n]。检验台数越少，随机波动范围越宽。以稳定历史批次估计基线时，用累计不合格台数除以累计检验台数。超出控制限应启动调查；确定责任工序还需核对相同样机在工序前后的实测记录。",
+    "attribution": "NIST/SEMATECH e-Handbook of Statistical Methods §6.3.3.2"
+  },
+  {
+    "id": "M_STAT_DEFECT_UNIT",
+    "title": "同一屏幕有多处缺陷时怎样统计",
+    "source_url": "https://www.itl.nist.gov/div898/handbook/pmc/section3/pmc331.htm",
+    "keywords": [
+      "缺陷数",
+      "不合格台数",
+      "重复检测",
+      "YOLO",
+      "划痕",
+      "defects per unit",
+      "nonconforming units"
+    ],
+    "text": "统计前先区分观测单位。统计不合格品率时，分子是经过判定的不合格整机数；同一台同时有划痕和亮点，整机只计一次。分析缺陷分布时，可按经复核的独立缺陷分别计数。若要算每台平均缺陷数，用独立缺陷总数除以实际检查台数。应用到相机检测时，应保留样机编号、检测面与位置，先核实相邻照片或多次曝光中出现的框是否对应同一物理缺陷。没有样机去重信息时，只能报告观察到的缺陷或框数，不能从框数反推出不合格台数。",
+    "attribution": "NIST/SEMATECH e-Handbook of Statistical Methods §6.3.3.1"
+  },
+  {
+    "id": "M_STAT_SAMPLING",
+    "title": "抽检零不良与批次接收判定",
+    "source_url": "https://www.itl.nist.gov/div898/handbook/pmc/section2/pmc23.htm",
+    "keywords": [
+      "抽检",
+      "抽样接收",
+      "零不良",
+      "抽检放行",
+      "抽样方案",
+      "acceptance sampling",
+      "acceptance number"
+    ],
+    "text": "一次计数抽样方案需要事先确定样本量 n 和接收数 c。按方案取样后，若样本中不合格品数超过 c，则拒收；未超过 c 才满足该方案的接收条件。抽检结果要同时保留批次、实际样本量、不合格台数和所用方案。抽检零不良只描述受检样本。报告应写成“本次抽检 n 台，观察到 0 台不合格”，不要据此声称整批每台都合格。MES 中查不到适用的已批准抽样方案、样本量或实际检验结果时，应列出缺项，交由质检员确认放行条件。",
+    "attribution": "NIST/SEMATECH e-Handbook of Statistical Methods §6.2.3"
+  },
+  {
+    "id": "M_STAT_REPEAT",
+    "title": "亮度测量的重复性与跨日复测",
+    "source_url": "https://www.itl.nist.gov/div898/handbook/mpc/section4/mpc44.htm",
+    "keywords": [
+      "重复性",
+      "再现性",
+      "量具",
+      "亮度计",
+      "复测差异",
+      "测量系统分析",
+      "gauge R&R",
+      "repeatability",
+      "reproducibility"
+    ],
+    "text": "同一块参考屏两次亮度读数不同，可先分开检查短时重复误差与跨日波动。短时内保持参考样机、仪器、测点和测试条件一致，做多次独立读数，记录组内离散程度。再用同一参考样机在不同日期重复测量，对比每日均值及组内波动。显示器场景同时记下亮度设置、预热状态、环境光、测点、操作者和仪器编号，便于追查发生变化的条件。如果换人、换仪器和换日期同时发生，仅凭两次结果无法分离各因素的影响。复测差异也不能单独证明某道装配工序异常。",
+    "attribution": "NIST/SEMATECH e-Handbook of Statistical Methods §2.4.4"
+  },
+  {
+    "id": "M_STAT_OPERATORS",
+    "title": "不同操作员测同一屏幕得到不同读数，如何安排复测",
+    "source_url": "https://www.itl.nist.gov/div898/handbook/mpc/section4/mpc42.htm",
+    "keywords": [
+      "操作员",
+      "换人复测",
+      "人员间差异",
+      "量具研究",
+      "测量系统分析",
+      "gauge operators"
+    ],
+    "text": "NIST 建议用能代表日常测量对象的多个参考件，选择受过培训且熟悉仪器的操作员。人员很少时可全部参加；若要代表大量操作员，则从中随机选择多名。显示器亮度复测可以选取覆盖日常亮度范围的参考屏，安排参与者使用同一台亮度计、相同测点及设置，分别对同一组参考屏重复读数，并保存样机、人员、仪器、时间和原始数值。这样可以先看同一人重复测量的波动，再对照不同人测同一参考屏的差异。若只有一名操作员，跨日复测能检查时间变化，却无法估计人员间差异。判断产品是否达标仍需适用的产品规范。",
+    "attribution": "NIST/SEMATECH e-Handbook of Statistical Methods §2.4.2"
+  }
+]

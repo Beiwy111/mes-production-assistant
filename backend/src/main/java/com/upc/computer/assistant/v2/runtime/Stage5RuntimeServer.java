@@ -111,7 +111,7 @@ public final class Stage5RuntimeServer implements AutoCloseable {
         if(path.equals("/stage5/natural/runs")) {
             requireRole(identity,"BOOTSTRAP");method(exchange,"POST");
             if(natural==null)throw fail(503,"NATURAL_RUNTIME_UNAVAILABLE");
-            return new Response(201,natural.create(body(exchange,Set.of("query","ownerUserId","previousRunRef"))));
+            return new Response(201,natural.create(body(exchange,Set.of("query","ownerUserId","previousRunRef","previousGeneralAnswer"))));
         }
         if (path.equals("/stage5/runs")) {
             requireRole(identity, "BOOTSTRAP"); method(exchange, "POST");

@@ -133,8 +133,23 @@ def main():
         from .graph.config import graph_settings, open_graph
         graph_config = graph_settings()
         graph = open_graph(graph_config) if graph_config.enabled else None
-        app = create_app(open_store(settings), settings.api_key.get_secret_value(), graph)
-        # Host-only. Do not expose this first public-only milestone as a general MES knowledge gateway.
+        import os
+        vector = open_store(settings)
+        experience_key = os.environ.get('MES_KNOWLEDGE_EXPERIENCE_API_KEY')
+        experience = None
+        if experience_key:
+            from .experience import ExperienceSearch
+            experience = ExperienceSearch.from_store(vector, graph)
+        ingestion_key = os.environ.get('MES_KNOWLEDGE_INGESTION_API_KEY')
+        ingestion = None
+        if ingestion_key:
+            from .ingestion.jobs import IngestionJobs
+            from .ingestion.indexes import PrivateIndexes
+            ingestion = IngestionJobs(settings.data_dir / 'private-ingestion', vector.embedding,
+                                      PrivateIndexes.configured(settings))
+        app = create_app(vector, settings.api_key.get_secret_value(), graph,
+                         experience=experience, experience_key=experience_key,
+                         ingestion=ingestion, ingestion_key=ingestion_key)
         try:
             uvicorn.run(app, host='127.0.0.1', port=args.port, access_log=False)
         finally:

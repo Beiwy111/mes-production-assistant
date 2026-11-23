@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "curation_note": "Source passages checked by coding assistant on 2026-11-08. SOURCE_VERIFIED means text support, not human-approved factory standards or causal conclusions. No project DRAFT cards included.",
+  "curation_note": "Source passages checked by coding assistant on 2026-11-08 (P01–P03) and 2026-11-23 (P06–P07). SOURCE_VERIFIED means text support, not human-approved factory standards or causal conclusions. No project DRAFT cards included.",
   "entities": [
     {
       "id": "DEF_LCD",
@@ -102,6 +102,61 @@
       "aliases": [
         "RGBY",
         "最大相对熵"
+      ]
+    },
+    {
+      "id": "METHOD_SATURATED_IMAGING",
+      "kind": "Method",
+      "name": "黑白条纹饱和成像",
+      "aliases": [
+        "饱和成像",
+        "黑白条纹",
+        "saturated imaging"
+      ]
+    },
+    {
+      "id": "DEF_POLARIZER_TRANSPARENT",
+      "kind": "DefectConcept",
+      "name": "偏光片微弱透明外观缺陷",
+      "aliases": [
+        "偏光片",
+        "偏振片",
+        "透明外观缺陷",
+        "透明凸凹点",
+        "transparent aesthetic defect",
+        "ESTAD",
+        "ESTADs"
+      ]
+    },
+    {
+      "id": "METHOD_POLARIZER_YOLOV10",
+      "kind": "Method",
+      "name": "改进的偏光片涂层 YOLOv10-N 检测方法",
+      "aliases": [
+        "YOLOv10-N",
+        "改进的偏光片涂层检测方法"
+      ]
+    },
+    {
+      "id": "DEF_POLARIZER_COATING",
+      "kind": "DefectConcept",
+      "name": "偏光片涂层表面缺陷",
+      "aliases": [
+        "偏光片涂层",
+        "偏光片涂布",
+        "涂层划痕",
+        "涂层污渍",
+        "polarizer coating",
+        "polariser coating"
+      ]
+    },
+    {
+      "id": "METHOD_ADAPTIVE_MEDIAN",
+      "kind": "Method",
+      "name": "自适应中值滤波",
+      "aliases": [
+        "自适应中值滤波",
+        "adaptive median filtering"
       ]
     }
   ],
@@ -207,6 +262,45 @@
       "page": 1,
       "quote": "Secondly, the image color quaternion matrix is converted into the logarithmic spectrum in the frequency domain through the hyper‐complex Fourier transform.",
       "statement": "方法将颜色四元数矩阵经超复数傅里叶变换转换为频域对数谱。",
+      "review_status": "SOURCE_VERIFIED",
+      "authority_type": "PUBLIC_RESEARCH"
+    },
+    {
+      "id": "CL_POLARIZER_SATURATED",
+      "subject": "METHOD_SATURATED_IMAGING",
+      "object": "DEF_POLARIZER_TRANSPARENT",
+      "relation": "DETECTS",
+      "document_id": "P06",
+      "document_version": "054666540b1310d1f102424df8d06bbffcec9dcc506887de30ccb9b595ac0be6",
+      "page": 2,
+      "quote": "detect the ESTADs using saturated imaging techniques that enhance the image contrast of transparent defects in a polymeric polarizer",
+      "statement": "研究通过黑白条纹饱和成像提高偏光片内微弱透明缺陷与背景的对比度，以便检测透明凸凹点。",
+      "review_status": "SOURCE_VERIFIED",
+      "authority_type": "PUBLIC_RESEARCH"
+    },
+    {
+      "id": "CL_POLARIZER_COATING_YOLO",
+      "subject": "METHOD_POLARIZER_YOLOV10",
+      "object": "DEF_POLARIZER_COATING",
+      "relation": "DETECTS",
+      "document_id": "P07",
+      "document_version": "e231afa43c69ba9652bdc457d82cdc4e7c9176153c65e6af5cd0aa64d946aa22",
+      "page": 1,
+      "quote": "an improved YOLOv10-N-based method is proposed for surface defect detection",
+      "statement": "研究针对液晶显示器偏光片涂层表面缺陷，提出改进的 YOLOv10-N 检测方法。",
+      "review_status": "SOURCE_VERIFIED",
+      "authority_type": "PUBLIC_RESEARCH"
+    },
+    {
+      "id": "CL_POLARIZER_MEDIAN",
+      "subject": "METHOD_POLARIZER_YOLOV10",
+      "object": "METHOD_ADAPTIVE_MEDIAN",
+      "relation": "USES",
+      "document_id": "P07",
+      "document_version": "e231afa43c69ba9652bdc457d82cdc4e7c9176153c65e6af5cd0aa64d946aa22",
+      "page": 1,
+      "quote": "Adaptive median filtering is then employed for image denoising",
+      "statement": "研究在检测前使用自适应中值滤波对偏光片涂层图像进行降噪。",
       "review_status": "SOURCE_VERIFIED",
       "authority_type": "PUBLIC_RESEARCH"
     }

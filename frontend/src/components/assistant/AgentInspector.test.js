@@ -7,16 +7,37 @@ import * as vue from 'vue'
 import { renderToString } from '@vue/server-renderer'
 import * as agents from '../../utils/agentWorkbench.js'
 import * as inspector from '../../utils/agentInspector.js'
+import * as knowledge from '../../utils/knowledgeSources.js'
 
 const { descriptor } = parse(readFileSync(new URL('./AgentInspector.vue', import.meta.url), 'utf8'))
-const dependencies = { vue, '@/utils/agentWorkbench': agents, '@/utils/agentInspector': inspector,
+const dependencies = { vue, '@/utils/agentWorkbench': agents, '@/utils/agentInspector': inspector, '@/utils/knowledgeSources': knowledge,
   './AgentStatusIndicator.vue': { props:['status'], setup:props=>()=>vue.h('span',{'data-status':props.status}) },
   'lucide-vue-next': Object.fromEntries(['Bot', 'Check', 'ChevronRight', 'Circle', 'CircleAlert', 'LoaderCircle', 'Network', 'X'].map((name) => [name, () => null])) }
-const code = stripTypeScriptTypes(compileScript(descriptor, { id: 'inspector-test', inlineTemplate: true }).content)
+function loadComponent(descriptor) {
+  const code = stripTypeScriptTypes(compileScript(descriptor, { id: 'inspector-test', inlineTemplate: true }).content)
   .replace(/^import\s*\{([^}]+)\}\s*from\s*['"]([^'"]+)['"];?\s*$/gm, (_, bindings, from) => `const { ${bindings.replace(/\bas\b/g, ':')} } = dependencies[${JSON.stringify(from)}];`)
   .replace(/^import\s+(\w+)\s+from\s*['"]([^'"]+)['"];?\s*$/gm, (_, binding, from) => `const ${binding} = dependencies[${JSON.stringify(from)}];`)
   .replace('export default', 'return')
-const component = new Function('dependencies', code)(dependencies)
+  return new Function('dependencies', code)(dependencies)
+}
+dependencies['./ExperienceEvidence.vue'] = loadComponent(parse(readFileSync(new URL('./ExperienceEvidence.vue', import.meta.url), 'utf8')).descriptor)
+dependencies['./AgentAvatar.vue'] = loadComponent(parse(readFileSync(new URL('./AgentAvatar.vue', import.meta.url), 'utf8')).descriptor)
+const component = loadComponent(descriptor)
+
+test('historical graph paths show only records in the current validated result', async () => {
+  const hash = 'a'.repeat(64), ref = 'experience:de9a5c32-d3e7-498a-895d-773061761a7e:' + hash
+  const hit = { kind:'MAINTENANCE', evidence_ref:ref, record_hash:hash, source_table:'equipment_maintenance_record',
+    record_id:3, title:'维修三号', text:'已更换零件', retrieval_source:'vector' }
+  const bundle = { agentId:'EQUIPMENT', domain:'DIAGNOSTIC', status:'MATCHES', graph_status:'MATCHES', hits:[hit],
+    graph_paths:[{source_ref:ref,target_ref:ref,relation:'ON_EQUIPMENT→RECORDED_ACTION',entity_label:'设备 → 处置',hops:2},
+      {source_ref:ref,target_ref:'foreign',entity_label:'不可见其他记录',hops:2}] }
+  const message = { status:'COMPLETED', agents:[], result:{experienceEvidence:[bundle]} }
+  const render = () => renderToString(vue.createSSRApp(component,{message}))
+  const html = await render()
+  assert.match(html,/维修三号/);assert.match(html,/Neo4j 关联图/);assert.doesNotMatch(html,/不可见其他记录/)
+  message.result.verdict='DATA_CHANGED'
+  assert.doesNotMatch(await render(),/维修三号/)
+})
 
 test('inspector renders seven actual roles and safely nests real research evidence', async () => {
   const html = await renderToString(vue.createSSRApp(component, { message: { status: 'COMPLETED',
@@ -25,7 +46,9 @@ test('inspector renders seven actual roles and safely nests real research eviden
     ] }], result: { knowledgeEvidence: [{ agentId: 'QUALITY', status: 'NO_MATCHES', graph_status: 'UNAVAILABLE_OR_STALE', hits: [] }] },
   } }))
   assert.equal((html.match(/class="inspector-role/g) || []).length, 7)
-  for (const label of ['Supervisor', '公开知识检索', 'RAG / GraphRAG', '不可用或已过期', '&lt;img']) assert.ok(html.includes(label), label)
+  assert.deepEqual(new Set(Array.from(html.matchAll(/data-role="([A-Z]+)"/g), match => match[1])), new Set(Object.keys(agents.AGENTS)))
+  assert.doesNotMatch(html, /agent-avatar working/)
+  for (const label of ['Supervisor', '公开知识检索', '本轮知识检索', '不可用或已过期', '&lt;img']) assert.ok(html.includes(label), label)
   assert.doesNotMatch(html, /<img|RAG Agent|GraphRAG Agent/)
   assert.match(html, /role="tab"[^>]*aria-selected="true"/)
   assert.match(html, /role="tabpanel"[^>]*hidden/)
@@ -86,6 +109,7 @@ test('live roles open automatically and expose actual query results without nest
         rows: [{ material_name: 'PCB板', quantity_available: 0, unit: '块' }] } } }] }],
   } }))
   assert.match(html, /class="inspector-role running"[^>]*open/)
+  assert.match(html, /class="agent-avatar working" data-role="SUPPLY"/)
   assert.match(html, /库存查询/)
   assert.match(html, /返回 1 条/)
   assert.match(html, /PCB板/)

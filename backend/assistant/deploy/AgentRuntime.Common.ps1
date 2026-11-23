@@ -14,7 +14,7 @@ function Read-AgentRuntimeConfig {
         }
         $values[$parts[0]] = $parts[1]
     }
-    foreach ($key in $allowed | Where-Object { $_ -ne 'MES_AGENT_PORT' }) {
+    foreach ($key in $allowed | Where-Object { $_ -ne 'MES_AGENT_PORT' -and $_ -notlike 'MES_AGENT_JDBC_*' }) {
         if (-not $values.ContainsKey($key)) { throw ('Missing local setting: ' + $key) }
     }
     if ($values['MES_AGENT_ALLOWED_ORDER_IDS'] -notmatch '^[1-9][0-9]*(,[1-9][0-9]*)*$') {
@@ -23,5 +23,25 @@ function Read-AgentRuntimeConfig {
     if ($values.ContainsKey('MES_AGENT_PORT') -and $values['MES_AGENT_PORT'] -ne '18082') {
         throw 'Stage5 Dify workflows require port 18082; custom port overrides are not supported.'
     }
+    foreach ($key in @('MES_AGENT_JDBC_URL','MES_AGENT_JDBC_USER','MES_AGENT_JDBC_PASSWORD')) {
+        $values.Remove($key)
+    }
     return $values
+}
+
+function Read-AssistantReaderConfig {
+    param([Parameter(Mandatory=$true)][ValidateSet('agent','workbench')][string]$Reader)
+    $path = Join-Path $PSScriptRoot ('.env.' + $Reader + '-read.local')
+    if (-not [IO.File]::Exists($path)) { throw 'Initialize local SELECT accounts with Prepare-AssistantReadersLocal.py.' }
+    $result = @{}
+    foreach ($line in [IO.File]::ReadAllLines($path)) {
+        if ($line -notmatch '^(MES_AGENT_JDBC_URL|MES_AGENT_JDBC_USER|MES_AGENT_JDBC_PASSWORD)=(.+)$' -or
+            $result.ContainsKey($matches[1])) { throw 'Invalid dedicated MySQL reader file.' }
+        $result[$matches[1]] = $matches[2]
+    }
+    if ($result.Count -ne 3 -or $result['MES_AGENT_JDBC_USER'] -ne ('mes_asst_ro_' + $Reader) -or
+        $result['MES_AGENT_JDBC_URL'] -notmatch '^jdbc:mysql://127\.0\.0\.1:[0-9]+/[A-Za-z0-9_]+\?') {
+        throw 'Unexpected MySQL reader identity or endpoint.'
+    }
+    return $result
 }

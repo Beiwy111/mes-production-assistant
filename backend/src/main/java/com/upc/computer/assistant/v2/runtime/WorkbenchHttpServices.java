@@ -17,6 +17,8 @@ public final class WorkbenchHttpServices implements WorkbenchGatewayServer.Servi
     // FULL_ASSESSMENT agent_node inputs/outputs alone exceed 262,144 characters.
     // Keep intermediate diagnostics bounded without rejecting legitimate six-expert workflows.
     private static final int MAX_SSE_EVENT_CHARS=1_048_576;
+    // Finalization may hold the runtime monitor while it rechecks multiple read-only SQL/graph tools.
+    private static final int OBSERVE_READ_TIMEOUT_MS=30_000;
     private final ObjectMapper json=new ObjectMapper().enable(JsonParser.Feature.STRICT_DUPLICATE_DETECTION).enable(DeserializationFeature.FAIL_ON_TRAILING_TOKENS);
     private final URI mes,runtime,dify;
     private final String bootstrap,key;
@@ -39,8 +41,12 @@ public final class WorkbenchHttpServices implements WorkbenchGatewayServer.Servi
     @Override public boolean configured(){return bootstrap!=null&&!bootstrap.isBlank()&&key!=null&&!key.isBlank();}
     @Override public boolean naturalLanguage(){return true;}
     @Override public String createNatural(long owner,String text,String previous)throws Exception {
+        return createNatural(owner,text,previous,null);
+    }
+    @Override public String createNatural(long owner,String text,String previous,String generalAnswer)throws Exception {
         Map<String,Object> request=new LinkedHashMap<>();request.put("query",text);request.put("ownerUserId",Long.toString(owner));
         if(previous!=null)request.put("previousRunRef",previous);
+        if(previous!=null&&generalAnswer!=null)request.put("previousGeneralAnswer",generalAnswer);
         return call(runtime,"/stage5/natural/runs","POST","Bearer "+bootstrap,request).path("runRef").asText();
     }
     @Override public long authenticate(String authorization)throws Exception {
@@ -108,7 +114,9 @@ public final class WorkbenchHttpServices implements WorkbenchGatewayServer.Servi
     @Override public String create(long owner,String order,String profile)throws Exception {
         return call(runtime,"/stage5/runs","POST","Bearer "+bootstrap,Map.of("orderPk",order,"workflowProfile",profile,"ownerUserId",Long.toString(owner))).path("runRef").asText();
     }
-    @Override public JsonNode observe(String run)throws Exception{return call(runtime,"/stage5/runs/"+run+"/observe","GET","Bearer "+bootstrap,null);}
+    @Override public JsonNode observe(String run)throws Exception{
+        return call(runtime,"/stage5/runs/"+run+"/observe","GET","Bearer "+bootstrap,null,OBSERVE_READ_TIMEOUT_MS);
+    }
     @Override public void cancel(String run)throws Exception{call(runtime,"/stage5/runs/"+run+"/cancel","POST","Bearer "+bootstrap,Map.of());}
     @Override public void stop(String run,String task,long owner)throws Exception {
         HttpURLConnection connection=connections.remove(run);if(connection!=null)connection.disconnect();
@@ -147,6 +155,8 @@ public final class WorkbenchHttpServices implements WorkbenchGatewayServer.Servi
                                 if(!authoritative.isObject()||!authoritative.path("runRef").asText().equals(run))throw new Failure(502,"RUNTIME_FINALIZATION_REQUIRED");
                                 if("DATA_CHANGED".equals(authoritative.path("verdict").asText()))continue;
                                 ObjectNode snapshot=authoritative.deepCopy();snapshot.put("reply","");snapshot.put("presentation","compact_stream");
+                                snapshot.remove("previousGeneralTurn");
+                                exposeSopReferences(snapshot,authoritative);
                                 progress.accept(json.createObjectNode().put("type","snapshot").set("data",snapshot));snapshotSent=true;
                             }
                             if(!chunk.asText().isEmpty())progress.accept(json.createObjectNode().put("type","delta").put("text",chunk.asText()));
@@ -162,9 +172,10 @@ public final class WorkbenchHttpServices implements WorkbenchGatewayServer.Servi
                             ObjectNode result=json.createObjectNode();result.put("reply",outputs.path("answer").asText());
                             if(outputs.path("presentation").asText().equals("compact_stream"))result.put("presentation","compact_stream");
                             if("DATA_CHANGED".equals(authoritative.path("verdict").asText()))result.put("reply",authoritative.path("reply").asText("查询期间业务记录已变化，请重新查询。"));
-                            for(String field:List.of("runRef","workflowProfile","queryMode","scope","plan","intents","verdict","sourceMode","facts","missing","checkedAt","queryRefs","resultRefs","revalidation","executedAgents","expertExplanations","knowledgeExplanations","analyses","knowledgeEvidence"))
+                            for(String field:List.of("runRef","workflowProfile","queryMode","scope","plan","intents","verdict","sourceMode","facts","missing","checkedAt","queryRefs","resultRefs","revalidation","executedAgents","expertExplanations","knowledgeExplanations","analyses","knowledgeEvidence","experienceEvidence"))
                                 if(authoritative.has(field))result.set(field,authoritative.get(field));
                             if(decision.has("presentation_truncated"))result.set("presentation_truncated",decision.get("presentation_truncated"));
+                            exposeSopReferences(result,authoritative);
                             return result;
                         }
                     }else if(line.startsWith("data:")){
@@ -178,10 +189,30 @@ public final class WorkbenchHttpServices implements WorkbenchGatewayServer.Servi
         catch(Exception failure){throw new Failure(502,"DIFY_UNAVAILABLE");}
         finally{connections.remove(run,connection);connection.disconnect();}
     }
+    private void exposeSopReferences(ObjectNode target,JsonNode source) {
+        var bundles=json.createArrayNode();
+        for(var bundle:source.path("approvedSopEvidence")){
+            var entry=bundles.addObject();entry.put("status",bundle.path("status").asText());
+            var refs=entry.putArray("hits");
+            for(var hit:bundle.path("hits")){
+                var ref=refs.addObject();
+                for(var field:List.of("document_id","version","title","section","evidence_ref"))
+                    if(hit.has(field))ref.set(field,hit.get(field));
+            }
+        }
+        target.set("approvedSopEvidence",bundles);
+    }
     private JsonNode call(URI base,String path,String method,String authorization,Object body)throws Exception {
-        HttpURLConnection connection=open(base,path,method,authorization,body,5000);
+        return call(base,path,method,authorization,body,5000);
+    }
+    private JsonNode call(URI base,String path,String method,String authorization,Object body,int readMillis)throws Exception {
+        HttpURLConnection connection=open(base,path,method,authorization,body,readMillis);
         try {
             int code=connection.getResponseCode();
+            if(base.equals(runtime)&&path.endsWith("/observe")){
+                if(code==403)throw new Failure(403,"PERMISSION_CHANGED");
+                if(code==404||code==410)throw new Failure(code,"RUN_UNAVAILABLE");
+            }
             if(code<200||code>=300)throw new Failure(code==401?401:503,code==401?"UNAUTHORIZED":"DEPENDENCY_UNAVAILABLE");
             try(InputStream stream=connection.getInputStream()){
                 // Observations contain both role packets and the final factual snapshot.

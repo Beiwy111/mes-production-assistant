@@ -18,6 +18,7 @@ def main():
     parser.add_argument('--data-dir', type=Path, default=RAG_ROOT / 'data')
     parser.add_argument('--config', type=Path, default=RAG_ROOT.parent / 'deploy' / '.env.ragflow.local')
     sub = parser.add_subparsers(dest='command', required=True)
+    sub.add_parser('datasets', help='Read the configured RAGFlow dataset and its current document processing counts')
     ingest = sub.add_parser('ingest', help='Upload registered originals, start parse, export a draft')
     ingest.add_argument('--out', required=True, type=Path)
     export = sub.add_parser('export', help='Resume polling/export using a saved upload receipt')
@@ -43,8 +44,8 @@ def main():
                 default=RAG_ROOT.parent / 'deploy' / '.env.qdrant.local')
     args = parser.parse_args()
     try:
-        originals = archived_corpus(args.registry, args.data_dir)
-        if args.command in ('ingest', 'export', 'parse'):
+        originals = archived_corpus(args.registry, args.data_dir) if args.command not in ('datasets', 'parse') else None
+        if args.command in ('datasets', 'ingest', 'export', 'parse'):
             values = dotenv_values(args.config, interpolate=False)
             config_values = {k.removeprefix('MES_RAGFLOW_').lower(): v for k, v in values.items()
                              if k.startswith('MES_RAGFLOW_')}
@@ -52,7 +53,9 @@ def main():
                 config_values['allowed_hosts'] = json.loads(config_values['allowed_hosts'])
             settings = RagflowConfig(**config_values)
             with RagflowClient(settings) as client:
-                if args.command == 'parse':
+                if args.command == 'datasets':
+                    result = client.datasets()
+                elif args.command == 'parse':
                     client.parse(args.document_id)
                     result = {'status': 'PARSE_REQUEST_ACCEPTED'}
                 else:

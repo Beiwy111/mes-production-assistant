@@ -1,6 +1,6 @@
 <template>
   <el-dialog :model-value="modelValue" :title="otherUser ? `人脸管理 · ${targetName || targetUserId}` : '我的人脸信息'" width="min(560px, 94vw)" top="5vh" class="face-auth-dialog" destroy-on-close :close-on-click-modal="!busy" :show-close="!busy" :close-on-press-escape="!busy" @update:model-value="$emit('update:modelValue', $event)" @open="load">
-    <el-alert title="人脸登录为演示功能，尚无可靠活体检测。原密码登录继续可用。" type="warning" :closable="false" show-icon />
+    <el-alert title="当前未提供可靠活体检测，仍可使用密码登录。" type="warning" :closable="false" show-icon />
     <div v-loading="loading">
       <p class="face-notice">{{ capabilities.notice }}</p>
       <el-alert v-if="error" :title="error" type="error" :closable="false" show-icon />
@@ -121,7 +121,7 @@ async function save(photo) {
     } else {
       comparison.value = null
       status.value = await enrollFace(data)
-      message.value = status.value.pendingCleanup ? '绑定已更新，旧样本正在清理，请稍后刷新状态。' : '本人人脸已绑定，可在登录页使用演示人脸验证。'
+      message.value = status.value.pendingCleanup ? '绑定已更新，旧样本正在清理，请稍后刷新状态。' : '本人人脸已绑定，可在登录页使用人脸验证。'
     }
     if (mode.value === 'enroll') consent.value = false
   } catch (err) { error.value = err.message || '录入失败' }

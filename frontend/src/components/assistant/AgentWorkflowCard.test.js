@@ -8,6 +8,7 @@ import * as agents from '../../utils/agentWorkbench.js'
 
 const { descriptor } = parse(readFileSync(new URL('./AgentWorkflowCard.vue', import.meta.url), 'utf8'))
 const dependencies = { vue, '@/utils/agentWorkbench': agents,
+  './AgentAvatar.vue': { props: ['agentId', 'active'], setup: props => () => vue.h('span', { 'data-role': props.agentId, 'data-active': props.active }) },
   './AgentStatusIndicator.vue': { props:['status'], setup:props=>()=>vue.h('span',{'data-status':props.status}) },
   '@/components/assistant/InventoryFindings.vue': { setup: () => () => null },
   'lucide-vue-next': Object.fromEntries(['ChevronRight', 'Check', 'Circle', 'CircleAlert', 'LoaderCircle'].map((name) => [name, () => null])),

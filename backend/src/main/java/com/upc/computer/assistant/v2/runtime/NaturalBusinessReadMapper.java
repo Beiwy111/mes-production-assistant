@@ -4,13 +4,48 @@ import org.apache.ibatis.annotations.*;
 import java.util.*;
 
 /** Closed set of SELECT projections. No caller-provided SQL, identifiers or ordering. */
-public interface NaturalBusinessReadMapper {
+public interface NaturalBusinessReadMapper extends InspectionTraceMapper {
+    // Each subquery is rooted in this inspection. Return only the conflict flag for list views.
+    String DETAIL_CONFLICT = "CASE WHEN ((q.unqualified_quantity=0 OR q.inspection_result='QUALIFIED') AND EXISTS "
+        +"(SELECT 1 FROM quality_inspection_item x WHERE x.inspection_id=q.inspection_id AND x.result IN ('FAILED','NG','UNQUALIFIED'))) "
+        +"OR (SELECT SUM(n.quantity) FROM nonconforming_product n WHERE n.inspection_id=q.inspection_id)!=q.unqualified_quantity "
+        +"OR (q.unqualified_quantity=0 AND EXISTS (SELECT 1 FROM nonconforming_product n WHERE n.inspection_id=q.inspection_id)) THEN 1 ELSE 0 END";
+    @Select("""
+        SELECT r.route_id,r.route_code,r.route_name,r.version_no,m.material_code,m.material_name,
+               s.step_id,s.step_no,s.step_code,s.step_name,s.standard_equipment_type,s.quality_required
+        FROM process_route r JOIN material m ON m.material_id=r.material_id
+        LEFT JOIN process_step s ON s.route_id=r.route_id AND s.status=1
+        WHERE r.status=1 AND (#{keyword} IS NULL OR r.route_code=#{keyword}
+              OR LOCATE(#{keyword},r.route_name)>0 OR m.material_code=#{keyword} OR LOCATE(#{keyword},m.material_name)>0)
+        ORDER BY r.route_code,r.route_id,s.step_no,s.step_id
+        """)
+    List<Map<String,Object>> activeRouteSteps(@Param("keyword") String keyword);
+    @Select("""
+        <script>SELECT q.inspection_id AS record_id,q.inspection_no,w.work_order_id,w.work_order_no,q.work_report_id,
+        q.batch_no,q.material_id,q.inspection_category,q.inspection_type,q.inspection_status,
+        q.sample_quantity,q.qualified_quantity,q.unqualified_quantity,q.inspection_result AS status,q.inspected_at AS event_at,
+        """ + DETAIL_CONFLICT + " AS detail_count_conflict," + """
+        (SELECT GROUP_CONCAT(DISTINCT n.defect_type ORDER BY n.defect_type SEPARATOR '、')
+         FROM nonconforming_product n WHERE n.inspection_id=q.inspection_id
+         AND (n.work_order_id IS NULL OR n.work_order_id=w.work_order_id)
+         AND (n.material_id IS NULL OR n.material_id=q.material_id)) AS recorded_defect_types
+        FROM quality_inspection q LEFT JOIN work_report wr ON wr.report_id=q.work_report_id
+        JOIN work_order w ON w.work_order_id=COALESCE(q.work_order_id,wr.work_order_id)
+        <if test="salesOrders">
+        JOIN production_plan_item pi ON pi.plan_item_id=w.plan_item_id AND w.plan_id=pi.plan_id
+        JOIN production_plan p ON p.plan_id=pi.plan_id JOIN customer_order_item i ON i.order_item_id=pi.order_item_id
+        AND p.source_order_id=i.order_id AND w.material_id=i.material_id AND pi.material_id=i.material_id
+        </if>
+        WHERE <choose><when test="salesOrders">i.order_id</when><otherwise>w.work_order_id</otherwise></choose> IN <foreach collection="ids" item="id" open="(" separator="," close=")">#{id}</foreach>
+        ORDER BY w.work_order_id,q.inspection_id</script>
+        """)
+    List<Map<String,Object>> inspectionsForWorkOrders(@Param("ids") List<Long> ids,@Param("salesOrders") boolean salesOrders);
     String AUTH_FILTER = "<if test='customer != null'> AND <choose><when test=\"domain == 'ORDER'\">t.customer_name=#{customer}</when><when test=\"domain == 'AFTERSALES'\">t.record_id IN (SELECT case_id FROM after_sales_case WHERE customer_name=#{customer}) AND (t.order_id IS NULL OR t.order_id IN (SELECT order_id FROM customer_order WHERE customer_name=#{customer}))</when><otherwise>1=0</otherwise></choose></if>"
         + "<if test='operator != null'> AND <choose><when test=\"domain == 'PRODUCTION'\">t.record_id IN (SELECT work_order_id FROM dispatch_task WHERE operator_id=#{operator})</when><when test=\"domain == 'ALARMS'\">t.work_order_id IN (SELECT work_order_id FROM dispatch_task WHERE operator_id=#{operator})</when><otherwise>1=0</otherwise></choose></if>";
     String SOURCE = "<choose>"
-        + "<when test=\"domain == 'INVENTORY'\">SELECT v.inventory_id AS record_id,v.material_id,m.material_code,m.material_name,m.unit,v.warehouse_code,v.location_code,v.batch_no,v.quantity_on_hand,v.quantity_reserved,v.quantity_available,v.inventory_status AS status,v.updated_at AS event_at,CONCAT_WS(' ',m.material_code,m.material_name) AS search_text FROM inventory v LEFT JOIN material m ON m.material_id=v.material_id <if test='id != null'>WHERE v.material_id IN (SELECT material_id FROM customer_order_item WHERE order_id=#{id} UNION SELECT b.child_material_id FROM bom b JOIN customer_order_item i ON i.material_id=b.parent_material_id WHERE i.order_id=#{id})</if></when>"
+        + "<when test=\"domain == 'INVENTORY'\">SELECT v.inventory_id AS record_id,v.material_id,m.material_code,m.material_name,m.unit,v.warehouse_code,v.location_code,v.batch_no,v.quantity_on_hand,v.quantity_reserved,v.quantity_available,v.inventory_status AS status,v.updated_at AS event_at,CONCAT_WS(' ',m.material_code,m.material_name,CASE WHEN UPPER(m.material_name) REGEXP '^PCB.{0,8}板$' THEN 'PCB板' END) AS search_text FROM inventory v LEFT JOIN material m ON m.material_id=v.material_id <if test='id != null'>WHERE v.material_id IN (SELECT material_id FROM customer_order_item WHERE order_id=#{id} UNION SELECT b.child_material_id FROM bom b JOIN customer_order_item i ON i.material_id=b.parent_material_id WHERE i.order_id=#{id})</if></when>"
         + "<when test=\"domain == 'PRODUCTION'\">SELECT w.work_order_id AS record_id,w.work_order_no,w.material_id,m.material_name,m.unit,w.planned_quantity,w.completed_quantity,w.qualified_quantity,w.unqualified_quantity,w.status,w.updated_at AS event_at,CONCAT_WS(' ',w.work_order_no,m.material_code,m.material_name) AS search_text FROM work_order w LEFT JOIN material m ON m.material_id=w.material_id <if test='id != null'>WHERE w.work_order_id IN " + com.upc.computer.assistant.v2.mapper.business.AiBusinessReadMapper.WORK_ORDERS + "</if></when>"
-        + "<when test=\"domain == 'QUALITY'\">SELECT q.inspection_id AS record_id,q.inspection_no,q.material_id,m.material_name,m.unit,q.batch_no,q.sample_quantity,q.qualified_quantity,q.unqualified_quantity,q.inspection_result AS status,q.inspected_at AS event_at,CONCAT_WS(' ',q.inspection_no,m.material_code,m.material_name,q.batch_no) AS search_text FROM quality_inspection q LEFT JOIN material m ON m.material_id=q.material_id <if test='id != null'>WHERE q.inspection_id IN " + com.upc.computer.assistant.v2.mapper.business.AiBusinessReadMapper.INSPECTIONS + "</if></when>"
+        + "<when test=\"domain == 'QUALITY'\">SELECT q.inspection_id AS record_id,q.inspection_no,q.material_id,m.material_name,m.unit,q.batch_no,q.inspection_category,q.inspection_type,q.inspection_status,q.sample_quantity,q.qualified_quantity,q.unqualified_quantity,q.inspection_result AS status,q.inspected_at AS event_at,"+DETAIL_CONFLICT+" AS detail_count_conflict,CONCAT_WS(' ',q.inspection_no,m.material_code,m.material_name,q.batch_no) AS search_text FROM quality_inspection q LEFT JOIN material m ON m.material_id=q.material_id <if test='id != null'>WHERE q.inspection_id IN " + com.upc.computer.assistant.v2.mapper.business.AiBusinessReadMapper.INSPECTIONS + "</if></when>"
         + "<when test=\"domain == 'EQUIPMENT'\">SELECT e.equipment_id AS record_id,e.equipment_code,e.equipment_name,e.equipment_type,e.workshop,e.workstation,e.status,e.updated_at AS event_at,CONCAT_WS(' ',e.equipment_code,e.equipment_name,e.equipment_type) AS search_text FROM equipment e <if test='id != null'>WHERE e.equipment_id IN " + com.upc.computer.assistant.v2.mapper.business.AiBusinessReadMapper.EQUIPMENT + "</if></when>"
         + "<when test=\"domain == 'AFTERSALES'\">SELECT c.case_id AS record_id,c.case_no,c.order_id,c.material_id,m.material_name,c.problem_type,c.case_level,c.case_status AS status,c.opened_at AS event_at,CONCAT_WS(' ',c.case_no,c.problem_type,m.material_code,m.material_name) AS search_text FROM after_sales_case c LEFT JOIN material m ON m.material_id=c.material_id <if test='id != null'>WHERE c.case_id IN " + com.upc.computer.assistant.v2.mapper.business.AiBusinessReadMapper.CASES + "</if></when>"
         + "<when test=\"domain == 'MAINTENANCE'\">SELECT r.maintenance_id AS record_id,r.maintenance_no,r.equipment_id,e.equipment_code,e.equipment_name,r.maintenance_type,r.fault_description,r.maintenance_content,r.start_time,r.end_time,r.downtime_minutes,r.maintenance_result AS status,r.start_time AS event_at,CONCAT_WS(' ',r.maintenance_no,e.equipment_code,e.equipment_name,r.fault_description) AS search_text FROM equipment_maintenance_record r LEFT JOIN equipment e ON e.equipment_id=r.equipment_id</when>"
@@ -18,12 +53,61 @@ public interface NaturalBusinessReadMapper {
         + "<when test=\"domain == 'STOCK_MOVEMENT'\">SELECT t.transaction_id AS record_id,t.transaction_no,t.inventory_id,t.material_id,m.material_code,m.material_name,m.unit,t.transaction_type AS status,t.quantity,t.warehouse_code,t.location_code,t.batch_no,t.related_purchase_order_id,t.related_work_order_id,t.handled_at AS event_at,CONCAT_WS(' ',t.transaction_no,m.material_code,m.material_name,t.batch_no) AS search_text FROM inventory_transaction t LEFT JOIN material m ON m.material_id=t.material_id</when>"
         + "<otherwise>SELECT o.order_id AS record_id,o.order_no,o.customer_name,o.audit_status AS status,o.order_date AS event_at,o.required_delivery_date,o.order_no AS search_text FROM customer_order o <if test='id != null'>WHERE o.order_id=#{id}</if></otherwise></choose>";
     String FILTER = " WHERE 1=1 <if test='keyword != null'>AND LOCATE(#{keyword},t.search_text)>0</if><if test='start != null'>AND t.event_at &gt;= #{start} AND t.event_at &lt; #{end}</if>";
+    @Select("<script><bind name='domain' value=\"'QUALITY'\"/><bind name='id' value='null'/>SELECT t.*,q.work_order_id FROM ("+SOURCE
+            +") t JOIN quality_inspection q ON t.record_id=q.inspection_id WHERE t.record_id IN <foreach collection='ids' item='pk' open='(' separator=',' close=')'>#{pk}</foreach>"
+            + AUTH_FILTER+" ORDER BY t.record_id</script>")
+    List<Map<String,Object>> displayedInspections(@Param("ids") List<Long> ids,@Param("customer") String customer,@Param("operator") Long operator);
 
+
+    @Select("""
+        <script>SELECT s.step_id,s.step_no,s.step_name,COUNT(d.dispatch_id) AS dispatch_count,
+        CASE WHEN s.route_id=w.route_id THEN '当前路线' ELSE '实际派工与当前路线不一致' END AS step_origin,
+        CASE WHEN COUNT(d.dispatch_id)=0 THEN '未见派工记录'
+             WHEN SUM(CASE WHEN d.status IN ('COMPLETED','CANCELLED') THEN 0 ELSE 1 END)>0 THEN '有未完派工'
+             WHEN SUM(CASE WHEN d.status='COMPLETED' THEN d.completed_quantity ELSE 0 END) &gt;= w.planned_quantity AND w.planned_quantity>0 THEN '记录已完成'
+             ELSE '未证实完成' END AS trace_status
+        FROM work_order w JOIN process_step s ON (s.route_id=w.route_id OR EXISTS
+        (SELECT 1 FROM dispatch_task dd WHERE dd.work_order_id=w.work_order_id AND dd.step_id=s.step_id
+         <if test='operator != null'>AND dd.operator_id=#{operator}</if>))
+        LEFT JOIN dispatch_task d ON d.work_order_id=w.work_order_id AND d.step_id=s.step_id
+        <if test='operator != null'>AND d.operator_id=#{operator}</if>
+        WHERE w.work_order_id=#{id} <if test='operator != null'>AND d.dispatch_id IS NOT NULL</if>
+        GROUP BY s.step_id,s.step_no,s.step_name,s.route_id,w.route_id,w.planned_quantity ORDER BY COUNT(d.dispatch_id) DESC,s.step_no,s.step_id</script>
+        """)
+    List<Map<String,Object>> stepCoverage(@Param("id") long id,@Param("operator") Long operator);
+
+    @Select("""
+        SELECT q.inspection_id AS record_id,q.inspection_no,q.work_order_id,q.batch_no,q.material_id,
+        q.inspection_category,q.inspection_result AS status,q.inspection_status,q.sample_quantity,
+        q.qualified_quantity,q.unqualified_quantity,q.inspected_at AS event_at,
+        """ + DETAIL_CONFLICT + " AS detail_count_conflict, CASE WHEN (" + DETAIL_CONFLICT + ")=1 OR " + """
+        q.unqualified_quantity>0 OR q.inspection_result IN ('UNQUALIFIED','CONCESSION') OR q.inspection_status IN ('FAILED','RECHECK_REQUIRED')
+             THEN '异常线索' WHEN q.inspection_status='PASSED' AND q.inspection_result='QUALIFIED' AND q.unqualified_quantity=0
+             THEN '未见异常' ELSE '待核实' END AS trace_status
+        FROM quality_inspection q WHERE EXISTS (SELECT 1 FROM quality_inspection a
+        WHERE a.work_order_id=#{id} AND TRIM(a.batch_no)<>'' AND a.batch_no=q.batch_no
+        AND a.material_id=q.material_id AND a.inspection_category=q.inspection_category)
+        ORDER BY q.inspection_id
+        """)
+    List<Map<String,Object>> batchInspections(long id);
+
+    @Select("""
+        SELECT i.order_id,i.order_item_id,w.plan_id,w.work_order_id,q.inspection_id FROM work_order w
+        JOIN production_plan_item pi ON pi.plan_item_id=w.plan_item_id AND pi.plan_id=w.plan_id
+        JOIN customer_order_item i ON i.order_item_id=pi.order_item_id AND i.material_id=w.material_id
+        JOIN production_plan p ON p.plan_id=w.plan_id AND p.source_order_id=i.order_id
+        LEFT JOIN quality_inspection q ON q.work_order_id=w.work_order_id WHERE w.work_order_id=#{id}
+        ORDER BY q.inspection_id
+        """)
+    List<Map<String,Object>> liveTraceLinks(long id);
     @Select("<script>SELECT t.* FROM (" + SOURCE + ") t" + FILTER + " ORDER BY t.record_id</script>")
     List<Map<String,Object>> rows(@Param("domain") String domain,@Param("id") Long id,@Param("keyword") String keyword,@Param("start") String start,@Param("end") String end);
     @Select("<script>SELECT COUNT(*) FROM (" + SOURCE + ") t" + FILTER + "</script>")
     long count(@Param("domain") String domain,@Param("id") Long id,@Param("keyword") String keyword,@Param("start") String start,@Param("end") String end);
     String EXACT_FILTER = "<if test='selectors.warehouse_code != null'> AND t.warehouse_code=#{selectors.warehouse_code}</if>"
+        + "<if test='selectors.equipment_code != null'> AND t.equipment_code=#{selectors.equipment_code}</if>"
+        + "<if test='selectors.batch_no != null'> AND t.batch_no=#{selectors.batch_no}</if>"
+        + "<if test='selectors.excluded_material_keyword != null'> AND LOCATE(#{selectors.excluded_material_keyword},t.search_text)=0</if>"
         + "<if test='selectors.location_code != null'> AND t.location_code=#{selectors.location_code}</if>"
         + "<if test='selectors.customer_name != null'> AND t.customer_name=#{selectors.customer_name}</if>"
         + "<if test='selectors.customer_names != null'> AND t.customer_name IN <foreach collection=\"@com.upc.computer.assistant.v2.runtime.BusinessSelectors@customerNames(selectors.customer_names)\" item='customer' open='(' separator=',' close=')'>#{customer}</foreach></if>"
@@ -47,6 +131,10 @@ public interface NaturalBusinessReadMapper {
     List<Map<String,Object>> workOrderRows(@Param("id") long id,@Param("operator") Long operator,@Param("start") String start,@Param("end") String end);
     @Select("<script>SELECT d.dispatch_id,d.dispatch_no,d.work_order_id,d.step_id,s.step_no,s.step_name,d.operator_id,u.real_name AS operator_name,d.equipment_id,d.assigned_quantity,d.accepted_quantity,d.completed_quantity,d.assigned_at,d.accepted_at,d.status FROM dispatch_task d LEFT JOIN process_step s ON s.step_id=d.step_id LEFT JOIN `user` u ON u.user_id=d.operator_id WHERE d.work_order_id=#{id}<if test='operator != null'> AND d.operator_id=#{operator}</if> ORDER BY s.step_no,d.dispatch_id</script>")
     List<Map<String,Object>> workOrderDispatch(@Param("id") long id,@Param("operator") Long operator);
+    @Select("<script><bind name='id' value='null'/>SELECT t.* FROM ("+SOURCE+") t"+FILTER+" AND t.record_id IN <foreach collection='ids' item='key' open='(' separator=',' close=')'>#{key}</foreach>"+EXACT_FILTER+AUTH_FILTER+" ORDER BY t.record_id</script>")
+    List<Map<String,Object>> selectedRows(@Param("domain") String domain,@Param("ids") List<Long> ids,@Param("customer") String customer,@Param("operator") Long operator,@Param("selectors") Map<String,String> selectors,@Param("keyword") String keyword,@Param("start") String start,@Param("end") String end);
+    @Select("<script>SELECT w.work_order_no,d.dispatch_no,d.work_order_id,s.step_name,u.real_name AS operator_name,d.status FROM dispatch_task d JOIN work_order w ON w.work_order_id=d.work_order_id LEFT JOIN process_step s ON s.step_id=d.step_id LEFT JOIN `user` u ON u.user_id=d.operator_id WHERE d.work_order_id IN <foreach collection='ids' item='key' open='(' separator=',' close=')'>#{key}</foreach> <if test='operator != null'>AND d.operator_id=#{operator}</if> ORDER BY w.work_order_id,s.step_no,d.dispatch_id</script>")
+    List<Map<String,Object>> selectedDispatches(@Param("ids") List<Long> ids,@Param("operator") Long operator);
     @Select("<script>SELECT i.order_item_id, i.order_id, i.material_id, i.product_name, i.quantity, i.unit, m.unit AS material_unit, i.delivery_date, i.item_status, i.updated_at FROM customer_order_item i LEFT JOIN material m ON m.material_id=i.material_id WHERE i.order_id IN <foreach collection='ids' item='orderId' open='(' separator=',' close=')'>#{orderId}</foreach> <if test='customer != null'>AND i.order_id IN (SELECT order_id FROM customer_order WHERE customer_name=#{customer})</if> ORDER BY i.order_item_id</script>")
     List<Map<String,Object>> riskLines(@Param("ids") List<Long> ids,@Param("customer") String customer);
     @Select("<script>SELECT d.delivery_id, d.order_id, d.material_id, d.work_order_id, d.batch_no, d.delivery_quantity, d.delivery_date, d.delivery_status, d.updated_at, CASE WHEN p.order_item_id=i.order_item_id AND w.material_id=d.material_id AND p.material_id=d.material_id AND pp.source_order_id=d.order_id AND w.plan_id=p.plan_id THEN p.order_item_id END AS mapped_order_item_id, CASE WHEN d.work_order_id IS NOT NULL AND (w.work_order_id IS NULL OR p.plan_item_id IS NULL OR w.plan_id IS NULL OR w.plan_id&lt;&gt;p.plan_id OR i.order_item_id IS NULL OR w.material_id&lt;&gt;d.material_id OR p.material_id&lt;&gt;d.material_id OR pp.source_order_id IS NULL OR pp.source_order_id&lt;&gt;d.order_id) THEN 'INVALID' ELSE 'RECORDED' END AS mapping_status FROM delivery_order d LEFT JOIN work_order w ON w.work_order_id=d.work_order_id LEFT JOIN production_plan_item p ON p.plan_item_id=w.plan_item_id LEFT JOIN production_plan pp ON pp.plan_id=p.plan_id LEFT JOIN customer_order_item i ON i.order_item_id=p.order_item_id AND i.order_id=d.order_id AND i.material_id=d.material_id WHERE d.order_id IN <foreach collection='ids' item='orderId' open='(' separator=',' close=')'>#{orderId}</foreach> <if test='customer != null'>AND d.order_id IN (SELECT order_id FROM customer_order WHERE customer_name=#{customer})</if> ORDER BY d.delivery_id</script>")

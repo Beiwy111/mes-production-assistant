@@ -19,6 +19,21 @@ const code = stripTypeScriptTypes(compiled.content, { mode: 'strip' })
 const component = new Function('dependencies', code)(dependencies)
 const render = (message) => renderToString(vue.createSSRApp(component, { message }))
 
+test('inspection shows pre-inspection work order alarms only, collapsed even for saved conversations', async () => {
+  const trace = { inspection: [{ inspected_at: '2026-07-11 10:30:00' }], alarmRows: [
+    { alarm_no: 'BEFORE', reported_at: '2026-07-10 10:30:00' },
+    { alarm_no: 'EXACT', reported_at: '2026-07-11 10:30:00' },
+    { alarm_no: 'FUTURE', reported_at: '2026-07-19 01:15:40' }, { alarm_no: 'UNDATED' }
+  ] }
+  const result = { facts: { inspection_trace: trace } }
+  const html = await render({ result })
+  assert.match(html, /<details[^>]*><summary[^>]*>[^<]*工单报警[^<]*2 条/)
+  assert.match(html, /BEFORE/); assert.match(html, /EXACT/)
+  assert.doesNotMatch(html, /FUTURE|UNDATED|<details[^>]* open/)
+  trace.inspection = []
+  assert.doesNotMatch(await render({ result }), /工单报警|FUTURE|BEFORE/)
+})
+
 test('all returned production rows, IDs, zero and caveats render with escaped cells', async () => {
   // Test-only records; the application renders only API evidence.
   const rows = Array.from({ length: 165 }, (_, i) => ({ record_id: `000${i}`, work_order_no: `TEST-WO-${i}`,

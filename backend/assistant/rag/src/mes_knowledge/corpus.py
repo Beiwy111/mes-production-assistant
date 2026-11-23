@@ -62,7 +62,8 @@ def chunk_document(document: dict, tokenizer, max_tokens: int = 320, overlap: in
     tokenizer.no_truncation()
     tokenizer.no_padding()
     for page_number, page in enumerate(document['pages'], 1):
-        references = re.search(r'^\s*References\s*$', page, flags=re.MULTILINE | re.IGNORECASE)
+        references = (re.search(r'^\s*References\s*$', page, flags=re.MULTILINE | re.IGNORECASE)
+                      if document.get('source_type', 'PUBLIC_RESEARCH') == 'PUBLIC_RESEARCH' else None)
         indexed_page = page[:references.start()] if references else page
         offsets = tokenizer.encode(indexed_page, add_special_tokens=False).offsets
         for start in range(0, len(offsets), max_tokens - overlap):
@@ -77,8 +78,9 @@ def chunk_document(document: dict, tokenizer, max_tokens: int = 320, overlap: in
                 'license': document['license'], 'page_start': page_number, 'page_end': page_number,
                 'char_start': char_start, 'char_end': char_end, 'text': text,
                 'knowledge_domain': 'display_reference', 'visibility': 'PUBLIC',
-                'review_status': 'REFERENCE_ALLOWED', 'authority_type': 'PUBLIC_RESEARCH',
+                'review_status': 'REFERENCE_ALLOWED', 'authority_type': document.get('source_type', 'PUBLIC_RESEARCH'),
                 'keywords': document.get('keywords', []),
+                **({'location_type':'document'} if document.get('pdf_path') and document['pdf_path'].suffix.lower() in ('.docx', '.md') else {}),
             })
             if end == len(offsets):
                 break

@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import * as evidence from './workbenchEvidence.js'
+import { knowledgeGraph, layoutGraph } from './workbenchGraph.js'
 
 export const hit = { release_id: 'release', evidence_ref: 'release:P01:c1', document_id: 'P01',
   document_version: 'sha256', chunk_id: 'c1', title: '<img src=x onerror=alert(1)>',
@@ -14,6 +15,18 @@ export const path = { claim_id: 'C1', subject_id: 'METHOD', subject_name: 'Optic
 export const bundle = { agentId: 'QUALITY', status: 'MATCHES', query: 'Mura', release_id: 'release',
   requested_mode: 'graph_assisted', mode_used: 'graph_assisted', graph_status: 'MATCHES',
   graph_release_id: 'graph', hits: [hit], graph_paths: [path], limitations: [], missing_information: [] }
+
+test('the knowledge window joins verified claims to their chunks once across agent results', () => {
+  const checked = evidence.verifiedPublicBundle(bundle)
+  const graph = knowledgeGraph([checked, checked])
+  assert.equal(graph.nodes.length, 5)
+  assert.deepEqual(graph.edges.map(edge => edge.label).sort(), ['主语', '包含', '宾语', '支持'].sort())
+  const layout = layoutGraph(graph.nodes, graph.edges)
+  assert.equal(layout.links.length, 4)
+  assert.ok(layout.nodes.every(node => Number.isFinite(node.x) && Number.isFinite(node.y)))
+  const fallback = evidence.verifiedPublicBundle({ ...bundle, graph_paths: [], graph_status: 'UNAVAILABLE_OR_STALE' })
+  assert.deepEqual(knowledgeGraph([fallback]).nodes.map(node => node.kind), ['资料', '索引片段'])
+})
 
 test('research presentation validates original Python hit and graph shapes', () => {
   const [result] = evidence.knowledgeEvidence({ knowledgeEvidence: [bundle] })

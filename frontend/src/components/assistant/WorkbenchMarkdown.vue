@@ -24,11 +24,21 @@ const visibilityChanged = () => { hidden.value = document.hidden }
 onMounted(() => { media?.addEventListener('change', motionChanged); document.addEventListener('visibilitychange', visibilityChanged) })
 onBeforeUnmount(() => { buffer.dispose(); media?.removeEventListener('change', motionChanged); document.removeEventListener('visibilitychange', visibilityChanged) })
 const html = computed(() => renderWorkbenchMarkdown(displayedText.value))
+async function copyCode(event: MouseEvent) {
+  const button = (event.target as HTMLElement)?.closest('button.copy-code')
+  const code = button?.closest('figure')?.querySelector('pre code')
+  if (!button || !code) return
+  try {
+    await navigator.clipboard.writeText(code.textContent || '')
+    button.textContent = '已复制'
+  } catch { button.textContent = '复制失败，请选择代码复制' }
+  setTimeout(() => { if (button.isConnected) button.textContent = '复制代码' }, 1800)
+}
 const showCursor = computed(() => props.smooth && props.cursor && pending.value && !props.stopped && !reduced.value)
 </script>
 
 <template>
-  <div class="workbench-markdown" :class="{ 'is-streaming': showCursor }" :data-streaming="showCursor" v-html="html"></div>
+  <div class="workbench-markdown" :class="{ 'is-streaming': showCursor }" :data-streaming="showCursor" @click="copyCode" v-html="html"></div>
 </template>
 
 <style scoped>
@@ -37,9 +47,14 @@ const showCursor = computed(() => props.smooth && props.cursor && pending.value 
 .workbench-markdown :deep(> :last-child) { margin-bottom:0; }
 .workbench-markdown.is-streaming :deep(> :last-child:not(ul):not(ol):not(pre):not(table))::after,
 .workbench-markdown.is-streaming :deep(> :last-child:is(ul,ol) > li:last-child)::after,
-.workbench-markdown.is-streaming :deep(> pre:last-child > code)::after { content:''; display:inline-block; width:2px; height:1em; margin-left:3px; background:currentColor; vertical-align:-2px; animation:answer-caret .9s ease-in-out infinite; }
+.workbench-markdown.is-streaming :deep(> pre:last-child > code)::after { content:''; display:inline-block; width:3px; height:.96em; margin-left:4px; border-radius:2px; background:var(--mes-accent,currentColor); vertical-align:-2px; animation:answer-caret 1.15s ease-in-out infinite; }
 @keyframes answer-caret { 0%,100% { opacity:1; } 50% { opacity:.2; } }
 @media (prefers-reduced-motion:reduce) { .workbench-markdown::after,.workbench-markdown :deep(*)::after { animation:none !important; } }
+.workbench-markdown { line-height:1.7; }
+.workbench-markdown :deep(.code-block) { margin:14px 0; border:1px solid var(--aw-border); border-radius:var(--mes-radius-md); overflow:hidden; }
+.workbench-markdown :deep(.code-block figcaption) { display:flex; justify-content:space-between; align-items:center; padding:7px 12px; background:var(--aw-panel); border-bottom:1px solid var(--aw-border); font:500 12px var(--aw-font-mono); color:var(--aw-muted); }
+.workbench-markdown :deep(.code-block button) { background:transparent; border:none; color:var(--mes-accent); cursor:pointer; font:400 12px var(--aw-font-sans); }
+.workbench-markdown :deep(.code-block pre) { margin:0; border:0; }
 .workbench-markdown :deep(p) { margin:0 0 12px; }
 .workbench-markdown :deep(h1),.workbench-markdown :deep(h2),.workbench-markdown :deep(h3),.workbench-markdown :deep(h4),.workbench-markdown :deep(h5),.workbench-markdown :deep(h6) { margin:22px 0 10px; color:var(--aw-text, #202124); font-weight:500; line-height:1.5; }
 .workbench-markdown :deep(h1) { font-size:20px; }

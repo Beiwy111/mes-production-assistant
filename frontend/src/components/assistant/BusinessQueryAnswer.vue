@@ -5,14 +5,16 @@ import { evidenceValue } from '@/utils/workbenchEvidence'
 
 const props = defineProps<{ message: BusinessMessage }>()
 const snapshot = computed(() => businessSnapshot(props.message))
+const collapsible = (key: string) => ['inspection-alarmRows', 'inspection-rounds', 'inspection-round-items'].includes(key) || (key === 'process-route' && snapshot.value.tables.length > 1)
 const numeric = (key: string) => /quantity|qty|rate|minutes|hours/i.test(key)
 const identity = (key: string) => /(^|_)id$|Id$|Pk$|Refs$|Ids$|_no$|_code$/i.test(key)
 </script>
 
 <template>
   <section v-if="snapshot.tables.length || snapshot.unavailable" class="business-answer" aria-label="业务查询结果">
-    <div v-for="table in snapshot.tables" :key="table.key" class="business-result">
-      <h3 v-if="snapshot.tables.length > 1">{{ table.label }}</h3>
+    <component :is="collapsible(table.key) ? 'details' : 'div'" v-for="table in snapshot.tables" :key="table.key" class="business-result">
+      <summary v-if="collapsible(table.key)">{{ table.label }}{{ table.key === 'inspection-alarmRows' ? '（' + table.rows.length + ' 条）' : '' }}</summary>
+      <h3 v-else-if="snapshot.tables.length > 1">{{ table.label }}</h3>
       <p v-if="table.partial" class="business-notice">查询结果不完整或已截断，以下仅展示本次返回的全部明细，不能据此确定完整总数。</p>
       <p v-if="table.returned !== null && table.returned !== String(table.rows.length)" class="business-note">服务端报告返回 {{ table.returned }} 条；可展示明细 {{ table.rows.length }} 条。</p>
       <div v-if="table.rows.length" class="business-table-scroll" tabindex="0" :aria-label="`${table.label}，可左右滚动查看全部字段`">
@@ -26,7 +28,7 @@ const identity = (key: string) => /(^|_)id$|Id$|Pk$|Refs$|Ids$|_no$|_code$/i.tes
       </div>
       <p v-else class="business-empty">本次未返回此类记录。</p>
 
-    </div>
+    </component>
     <ul v-if="snapshot.notices.length" class="business-caveats"><li v-for="notice in snapshot.notices" :key="notice">{{ notice }}</li></ul>
 
   </section>

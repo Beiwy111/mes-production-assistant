@@ -2,7 +2,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { ArrowUp, Paperclip, Square } from 'lucide-vue-next'
 const props = defineProps<{ modelValue: string; busy: boolean; canSend: boolean; welcome?: boolean }>()
-const emit = defineEmits<{ 'update:modelValue': [value: string]; send: []; stop: []; attach: [] }>()
+const emit = defineEmits<{ 'update:modelValue': [value: string]; send: []; stop: []; attach: []; 'paste-files': [files: File[]] }>()
 const textarea = ref<HTMLTextAreaElement | null>(null)
 const composing = ref(false)
 const expanded = computed(() => props.welcome || props.modelValue.length > 0)
@@ -33,6 +33,20 @@ function keydown(event: KeyboardEvent) {
   event.preventDefault()
   send()
 }
+function paste(event: ClipboardEvent) {
+  const clipboard = event.clipboardData
+  if (!clipboard) return
+  let files = Array.from(clipboard.files)
+  if (!files.length) {
+    files = Array.from(clipboard.items)
+      .filter(item => item.kind === 'file')
+      .map(item => item.getAsFile())
+      .filter((file): file is File => file !== null)
+  }
+  if (!files.length) return
+  event.preventDefault()
+  emit('paste-files', files)
+}
 defineExpose({ focus: () => textarea.value?.focus() })
 </script>
 
@@ -41,8 +55,8 @@ defineExpose({ focus: () => textarea.value?.focus() })
     <textarea ref="textarea" :value="modelValue" rows="1" maxlength="2000"
       placeholder="询问生产协作助手…" aria-label="输入问题"
       @input="emit('update:modelValue', ($event.target as HTMLTextAreaElement).value)"
-      @compositionstart="composing = true" @compositionend="composing = false" @keydown="keydown" />
-    <button type="button" class="attachment-button" :disabled="busy" aria-label="附加文本资料" @click="emit('attach')"><Paperclip :size="18" /></button>
+      @compositionstart="composing = true" @compositionend="composing = false" @keydown="keydown" @paste="paste" />
+    <button type="button" class="attachment-button" :disabled="busy" aria-label="附加图片或文本资料" @click="emit('attach')"><Paperclip :size="18" /></button>
     <button v-if="busy" class="send-button stop-button" type="button" aria-label="停止回答" @click="emit('stop')"><Square :size="12" fill="currentColor" /></button>
     <button v-else class="send-button" type="submit" aria-label="发送问题" :disabled="!canSend"><ArrowUp :size="19" /></button>
   </form>
@@ -59,10 +73,10 @@ textarea:focus-visible { outline: none !important; }
 button { position: absolute; bottom: 9px; display: grid; place-items: center; width: 34px; height: 34px; padding: 0; border: 0; border-radius: 50%; cursor: pointer; }
 .attachment-button { left: 8px; background: transparent; color: var(--aw-muted); }
 .attachment-button:hover { background: var(--aw-hover); }
-.send-button { right: 9px; color: #fff; background: var(--aw-text); transition: background .15s, transform .12s; }
+.send-button { right: 9px; color: var(--mes-on-brand); background: var(--mes-accent); transition: background .15s, transform .12s; }
 .send-button:hover:not(:disabled) { background: var(--mes-accent-hover); }
 .send-button:active:not(:disabled) { transform: scale(.94); }
-.send-button:disabled { color: var(--aw-subtle); background: var(--aw-hover); cursor: default; }
+.send-button:disabled { color: var(--mes-accent-hover); background: var(--mes-bg-selected); cursor: default; }
 button:focus-visible { outline: 2px solid var(--aw-muted); outline-offset: 2px; }
 @media(max-width:760px) { textarea { font-size: 16px; } }
 @media(prefers-reduced-motion:reduce) { .workbench-composer, button { transition: none; } }

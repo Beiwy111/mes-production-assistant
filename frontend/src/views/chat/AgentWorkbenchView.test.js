@@ -6,7 +6,8 @@ import * as vue from 'vue'
 import * as workbench from '../../utils/agentWorkbench.js'
 import * as inventory from '../../utils/inventoryPresentation.js'
 import * as business from '../../utils/businessPresentation.ts'
-import { prefersReadOnlyQuery } from '../../utils/workbenchRouting.js'
+import * as images from '../../utils/imageConversation.js'
+import { prefersReadOnlyQuery, entryContext } from '../../utils/workbenchRouting.js'
 
 const filename = new URL('./AgentWorkbenchView.vue', import.meta.url)
 const source = readFileSync(filename, 'utf8')
@@ -24,7 +25,8 @@ function setupView(overrides = {}, role = 'ADMIN') {
     ...workbench,
     ...inventory,
     ...business,
-    prefersReadOnlyQuery,
+    ...images,
+    prefersReadOnlyQuery, entryContext,
     useUserStore: () => user,
     watch: () => {},
     onBeforeUnmount: () => {},
@@ -55,7 +57,7 @@ function setupView(overrides = {}, role = 'ADMIN') {
 test('view compiles and presents natural examples without order or scenario selectors', () => {
   const template = compileTemplate({ source: descriptor.template.content, filename: filename.pathname, id: 'natural-workbench-test' })
   assert.deepEqual(template.errors, [])
-  assert.equal(/<select\b/.test(descriptor.template.content), false)
+  assert.deepEqual([...descriptor.template.content.matchAll(/<select\b[^>]*v-model="([^"]+)"/g)].map(m => m[1]), ['imageMode'])
   assert.equal(source.includes('resolveOrderContext'), false)
   const { view } = setupView()
   assert.deepEqual(view.introductory.value.map((example) => example.title), ['创建订单', '查库存', '看生产进度', '分析质量问题'])
@@ -68,6 +70,29 @@ test('clear read questions start the streaming Supervisor without order-intake l
   assert.equal(intakes, 0);assert.equal(sent.length, 1)
   assert.equal(view.messages.value.at(-2).orderMessage, false)
   assert.equal(view.messages.value.at(-1).orderFlow, undefined)
+})
+
+test('general chat streams without creating business tasks and a topic switch enters quality lookup', async () => {
+  const calls = []
+  const { view, sent } = setupView({
+    workbenchStatus: async () => ({ configured: true, naturalLanguage: true, directChat: true }),
+    orderTurn: async () => { throw Error('unexpected order intake') },
+    chatEntry: async (_token, request, { onDelta }) => {
+      calls.push(request)
+      if (request.text.includes('质检')) return { route: 'BUSINESS' }
+      onDelta('你想查'); onDelta('哪个城市？')
+      return { route: 'WEATHER' }
+    },
+  })
+  await view.checkConnection()
+  view.input.value = '今天天气怎么样'; await view.send()
+  assert.equal(sent.length, 0)
+  assert.equal(view.messages.value.at(-1).text, '你想查哪个城市？')
+  assert.deepEqual(view.messages.value.at(-1).agents, [])
+  view.input.value = '查询质检情况'; await view.send()
+  assert.equal(calls[1].history.user, '今天天气怎么样')
+  assert.deepEqual(sent.map(request => request.text), ['查询质检情况'])
+  assert.equal(view.messages.value.at(-2).orderMessage, false)
 })
 
 test('switching session cancels its stream and late events cannot enter the new session', async () => {
@@ -84,6 +109,23 @@ test('switching session cancels its stream and late events cannot enter the new 
   publish({type:'result',runId:'run-old',data:{reply:'late'}})
   assert.equal(view.messages.value.length,0);assert.equal(original.text,'')
   release();await pending;assert.equal(view.busy.value,false)
+})
+
+test('regenerating a read reuses the original scope and never invokes order intake', async () => {
+  let writes = 0
+  const { view, sent } = setupView({ orderTurn: async () => { writes++; return { handled: false } } })
+  await view.checkConnection()
+  view.input.value = '查询当前库存'
+  await view.send()
+  const original = view.messages.value.at(-1)
+  assert.ok(view.canRegenerate(original))
+  await view.send(original)
+  assert.equal(writes, 0)
+  assert.equal(sent.length, 2)
+  assert.equal(sent[1].previousRunId, sent[0].previousRunId)
+  assert.equal(sent[1].text, sent[0].text)
+  assert.notEqual(sent[1].requestId, sent[0].requestId)
+  assert.equal(view.canRegenerate(original), false)
 })
 
 test('reading earlier messages prevents queued auto scroll from moving the viewport',async()=>{
@@ -143,6 +185,20 @@ test('text attachment adds editable content only and rejects oversized input wit
   await view.attachTextFile({ target: { files: [{ name: 'long.txt', size: 3000, text: async () => 'x'.repeat(2001) }] } })
   assert.equal(view.input.value, previous)
   assert.equal(warnings.length, 1)
+})
+
+test('clipboard screenshots without extensions use image MIME and invalid pastes preserve the draft', async () => {
+  const warnings = []
+  const { view } = setupView({ ElMessage: { warning: (value) => warnings.push(value) } })
+  view.input.value = '看看这张截图'
+  const screenshot = new File(['image'], 'clipboard', { type: 'image/png' })
+  await view.pasteFiles([screenshot])
+  assert.equal(view.pendingImage.value, screenshot)
+  await view.pasteFiles([screenshot, screenshot])
+  await view.pasteFiles([new File(['x'], 'archive.zip')])
+  assert.equal(warnings.length, 2)
+  assert.equal(view.pendingImage.value, screenshot)
+  assert.equal(view.input.value, '看看这张截图')
 })
 
 test('reading a text attachment never replaces newer edits or crosses an identity change', async () => {

@@ -20,8 +20,9 @@ RUN = '12345678-1234-4234-9234-123456789abc'
 def test_knowledge_sources_use_stable_unique_reference_numbering():
     node=load_nodes()
     data={'runRef':RUN,'sourceMode':'LOCAL_READONLY_PREVIEW','verdict':'EVIDENCE_READY','intents':['KNOWLEDGE'],'facts':{},
-          'knowledgeEvidence':[{'hits':[{'evidence_ref':'a'},{'evidence_ref':'b'}]}, {'hits':[{'evidence_ref':'a'},{'evidence_ref':'c'}]}]}
+          'knowledgeEvidence':[{'status':'MATCHES','hits':[{'evidence_ref':'a'},{'evidence_ref':'b'}]}, {'status':'MATCHES','hits':[{'evidence_ref':'a'},{'evidence_ref':'c'}]}]}
     result=json.loads(node.compact_response_context(json.dumps(data),200,RUN)['context'])
+    assert result['answer_mode']=='document_guidance' and result['knowledge_only']
     assert [(h['id'],h['evidence_ref']) for h in result['sources']]==[('S1','a'),('S2','b'),('S3','c')]
 
 
@@ -214,3 +215,23 @@ def test_resource_answer_keeps_scenario_and_missing_coverage_cautions():
     result=json.loads(load_nodes().compact_response_context(json.dumps(data),200,RUN)['context'])
     assert 'SO-RISK' in result['required_reply'] and '情景' in result['required_reply']
     assert '缺失' in result['required_reply'] and '实际缺料' in result['required_reply']
+
+def test_scoped_dispatch_and_step_answers_name_the_actual_people_and_open_steps():
+    nodes=load_nodes()
+    packet={'runRef':RUN,'sourceMode':'LOCAL_READONLY_PREVIEW','verdict':'EVIDENCE_READY',
+            'scope':{'workOrderNo':'WO3'},'facts':{'production':{'dispatchRows':[{'step_name':'终检','operator_name':'操作员甲','dispatch_no':'DP3','status':'ASSIGNED'}]}}}
+    def answer():
+        return json.loads(nodes.compact_response_context(json.dumps(packet),200,RUN)['context'])['required_reply']
+    assert all(text in answer() for text in ('WO3','终检','操作员甲','DP3','已派工'))
+    packet['facts']['production'].update(stepCoverage=[{'trace_status':'未见派工记录','step_name':'包装'}],traceConclusion='有未完派工的工序：终检。')
+    assert '未完派工的工序：终检' in answer() and '未见派工记录的工序为包装' in answer()
+    packet['facts']['production']={'dispatchRows':[]}
+    assert '未查到派工记录' in answer()
+
+def test_resource_answer_names_shared_demand_even_without_shortage_and_identifies_conflicts():
+    facts={'shared_material':{'rows':[{'material_name':'PCB','competing_order_nos':['SO1','SO2'],'risk_status':'SHARED_POOL_COMPETITION','scenario_gap_qty':'0'}]},
+           'capacity_conflicts':{'rows':[{'resource_type':'OPERATOR','resource_id':'17','left_order_no':'SO1','right_order_no':'SO2','left_source_id':'41','right_source_id':'51','overlap_start':'13:00','overlap_end':'14:00'}]}}
+    packet={'runRef':RUN,'sourceMode':'LOCAL_READONLY_PREVIEW','verdict':'EVIDENCE_READY','facts':facts}
+    reply=json.loads(load_nodes().compact_response_context(json.dumps(packet),200,RUN)['context'])['required_reply']
+    for text in ('PCB','SO1、SO2','可计算的供料情景未发现缺口','实际领用的批号','派工ID 41、51','13:00 至 14:00'):
+        assert text in reply

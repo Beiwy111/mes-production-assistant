@@ -17,7 +17,7 @@ public final class BusinessQueryFilter {
     }
     private static Map<String,String> statuses(String domain) {
         return switch(domain) {
-            case "ORDER" -> Map.of("待审核|待处理|未审核","PENDING","已审核","APPROVED","已作废","REJECTED","已发货","SHIPPED");
+            case "ORDER" -> Map.of("待审核|待处理|未审核|等(?:待)?审核","PENDING","已审核","APPROVED","已作废","REJECTED","已发货","SHIPPED");
             case "PRODUCTION" -> Map.of("未完成","DRAFT,QC_PENDING,CREATED,PENDING,RELEASED,DISPATCHED,RUNNING,PRODUCING,PAUSED", "已完成","COMPLETED", "待质检","QC_PENDING", "已派工","DISPATCHED", "正在生产|生产中|执行中","RUNNING,PRODUCING");
             default -> Map.of();
         };
@@ -30,6 +30,8 @@ public final class BusinessQueryFilter {
         return java.util.regex.Pattern.compile("同时.*(?:已审核|待审核|已完成|未完成).*且|既.*又").matcher(query).find();
     }
     private static String statusCriterion(String domain,String query) {
+        if(domain.equals("PRODUCTION"))query=query.replaceAll("(?:还|尚)?(?:没(?:有)?(?:做完|完成|完工|做完工)|未(?:完工|做完)|尚未完成)","未完成");
+        if(domain.equals("ORDER"))query=query.replaceAll("(?:还)?没(?:有)?(?:审(?:核)?|过审)(?:批)?","待审核");
         var aliases=statuses(domain);if(aliases.isEmpty())return null;
         var all=new TreeSet<String>();aliases.values().forEach(v->all.addAll(Arrays.asList(v.split(","))));
         String expression=String.join("|",aliases.keySet());
@@ -60,9 +62,9 @@ public final class BusinessQueryFilter {
         if(query.matches(".*(?:不筛选状态|不限状态|所有状态|全部状态).*"))return "ALL";
         String states=statusCriterion(domain,query);if(states!=null)return states;
         return switch(domain) {
-            case "INVENTORY" -> query.matches(".*(?:库存不足|缺货|无可用库存|没有可用库存).*")?"NO_AVAILABLE":
+            case "INVENTORY" -> query.matches(".*(?:没(?:有)?预留|未预留|无预留|预留(?:量)?为零).*")?"NO_RESERVED":query.matches(".*(?:有预留|已预留|预留量大于零).*")?"RESERVED":query.matches(".*(?:库存不足|缺货|无可用库存|没有可用库存).*")?"NO_AVAILABLE":
                 query.contains("可用库存")?"AVAILABLE":"ALL";
-            case "QUALITY" -> query.matches(".*(?:仅|只|筛选|列出|查询|查找|哪些).*不合格.*")?"UNQUALIFIED":"ALL";
+            case "QUALITY" -> query.matches(".*(?:仅|只|筛选|列出|查询|查找|哪些).*不合格(?!率).*")?"UNQUALIFIED":"ALL";
             case "PRODUCTION" -> query.contains("未完成")?"UNFINISHED":query.contains("已完成")?"COMPLETED":query.contains("待质检")?"QC_PENDING":query.contains("已派工")?"DISPATCHED":query.matches(".*(?:正在生产|生产中|执行中).*")?"RUNNING":"ALL";
             case "ORDER" -> query.matches(".*(?:待审核|待处理|未审核).*")?"PENDING":query.contains("已审核")?"APPROVED":query.contains("已作废")?"REJECTED":query.contains("已发货")?"SHIPPED":"ALL";
             case "EQUIPMENT" -> query.matches(".*(?:异常设备|故障设备).*")?"ABNORMAL":"ALL";
@@ -81,9 +83,12 @@ public final class BusinessQueryFilter {
             return rows.stream().filter(row->row.get("status")!=null&&values.contains(String.valueOf(row.get("status")))).toList();
         }
         Predicate<Map<String,Object>> accept=switch(criterion) {
+            case "NO_RESERVED" -> row->number(row.get("quantity_reserved"))!=null&&number(row.get("quantity_reserved")).signum()==0;
+            case "RESERVED" -> row->number(row.get("quantity_reserved"))!=null&&number(row.get("quantity_reserved")).signum()>0;
             case "NO_AVAILABLE" -> row->number(row.get("quantity_available"))!=null&&number(row.get("quantity_available")).signum()<=0;
             case "AVAILABLE" -> row->number(row.get("quantity_available"))!=null&&number(row.get("quantity_available")).signum()>0;
             case "UNQUALIFIED" -> row->Set.of("UNQUALIFIED","FAIL").contains(String.valueOf(row.get("status")));
+            case "WORKFLOW_FAILED" -> row->"FAILED".equals(row.get("inspection_status"));
             case "UNFINISHED" -> row->Set.of("DRAFT","QC_PENDING","CREATED","PENDING","RELEASED","DISPATCHED","RUNNING","PRODUCING","PAUSED").contains(String.valueOf(row.get("status")));
             case "RUNNING" -> row->Set.of("RUNNING","PRODUCING").contains(String.valueOf(row.get("status")));
             case "PENDING","APPROVED","REJECTED","SHIPPED","COMPLETED","QC_PENDING","DISPATCHED" -> row->criterion.equals(row.get("status"));

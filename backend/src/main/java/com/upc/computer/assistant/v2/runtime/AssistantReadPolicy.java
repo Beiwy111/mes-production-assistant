@@ -11,6 +11,7 @@ public record AssistantReadPolicy(long owner,String role,String customer,Long op
     private static final Map<String,Set<String>> MENUS=Map.ofEntries(
         Map.entry("ORDER",Set.of("order:list","order:track","order:audit")),
         Map.entry("PRODUCTION",Set.of("production:workOrder","production:progress","production:myDispatch")),
+        Map.entry("PROCESS_ROUTE",Set.of("production:route")),
         Map.entry("DISPATCH",Set.of("production:dispatch","production:myDispatch")),
         Map.entry("INVENTORY",Set.of("warehouse:inventory")),
         Map.entry("STOCK_MOVEMENT",Set.of("warehouse:flow")),
@@ -45,7 +46,11 @@ public record AssistantReadPolicy(long owner,String role,String customer,Long op
         return new AssistantReadPolicy(owner,role,customer,operator,Set.copyOf(grants),signature);
     }
     public boolean adminRole(){return "ADMIN".equals(role);}
-    public boolean allows(String domain){return domains.contains(domain);}
+    public boolean allows(String domain){return domains.contains(switch(domain) {
+        case "GENERAL","GRAPH_KNOWLEDGE" -> "KNOWLEDGE";
+        case "INSPECTION_TRACE" -> "QUALITY";
+        default -> domain;
+    });}
     public void require(String domain){if(!allows(domain))throw denied();}
     public Map<String,Object> publicCapabilities(){return Map.of("domains",domains.stream().sorted().toList(),"scope",customer!=null?"OWN_CUSTOMER":operator!=null?"OWN_DISPATCH":"GRANTED_DOMAINS");}
     private static ResponseStatusException denied(){return new ResponseStatusException(HttpStatus.FORBIDDEN,"BUSINESS_PERMISSION_REQUIRED");}

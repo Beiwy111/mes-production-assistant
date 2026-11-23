@@ -27,6 +27,19 @@ def test_pagination_configuration_respects_go_api_page_size_limit():
         config(page_size=101)
 
 
+def test_dataset_listing_is_scoped_and_only_returns_management_fields():
+    def handler(request):
+        assert request.url.path == '/api/v1/datasets'
+        assert request.url.params['id'] == 'dataset1'
+        return httpx.Response(200, json={'code':0, 'data':[{'id':'dataset1','chunk_count':4,'created_by':'internal'}]})
+    with RagflowClient(config(), transport=httpx.MockTransport(handler)) as client:
+        assert client.datasets() == [{'id':'dataset1','chunk_count':4}]
+    with RagflowClient(config(), transport=httpx.MockTransport(lambda _: httpx.Response(
+            200, json={'code':0, 'data':[{'id':'another'}]}))) as client:
+        with pytest.raises(RagflowError):
+            client.datasets()
+
+
 def test_real_http_contract_upload_parse_poll_and_paginated_chunks(tmp_path):
     pdf = tmp_path / 'paper.pdf'
     pdf.write_bytes(b'%PDF-1.4 local only')

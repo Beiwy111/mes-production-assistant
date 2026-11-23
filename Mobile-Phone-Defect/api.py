@@ -75,9 +75,9 @@ def resize_for_infer(img: Image.Image) -> Image.Image:
 
 
 def encode_result_image(result_image: np.ndarray) -> str:
-    rgb = cv2.cvtColor(result_image, cv2.COLOR_BGR2RGB)
     buf = BytesIO()
-    Image.fromarray(rgb).save(buf, format='JPEG', quality=RESULT_JPEG_QUALITY, optimize=True)
+    # run_predict already converts the plotted frame to RGB for both response formats.
+    Image.fromarray(result_image).save(buf, format='JPEG', quality=RESULT_JPEG_QUALITY, optimize=True)
     return base64.b64encode(buf.getvalue()).decode('ascii')
 
 

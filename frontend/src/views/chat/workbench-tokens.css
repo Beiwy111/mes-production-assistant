@@ -13,30 +13,34 @@
 }
 .agent-workbench {
   --mes-bg-primary: #ffffff;
-  --mes-bg-sidebar: #f8f9fc;
-  --mes-bg-panel: #f5f6f9;
-  --mes-bg-hover: #eef0f5;
-  --mes-bg-selected: #eeebf6;
-  --mes-text-primary: #242833;
-  --mes-text-secondary: #626b7a;
-  --mes-text-muted: #687181;
-  --mes-border-primary: #e3e6ee;
-  --mes-border-subtle: #edf0f5;
-  --mes-accent: #6e5a9b;
-  --mes-accent-hover: #594782;
-  --mes-accent-soft: #f1eef8;
+  --mes-bg-sidebar: #f5f7fb;
+  --mes-bg-panel: #f8fafd;
+  --mes-bg-hover: #edf2ff;
+  --mes-bg-selected: #e7edff;
+  --mes-text-primary: #172033;
+  --mes-text-secondary: #657187;
+  --mes-text-muted: #5e6d84;
+  --mes-border-primary: #dfe5ef;
+  --mes-border-subtle: #e8edf5;
+  --mes-brand-deep: #142448;
+  --mes-orange: #f07845;
+  --mes-active-line: #9eb2ef;
+  --mes-on-brand: #fff;
+  --mes-accent: #2952e3;
+  --mes-accent-hover: #2042b9;
+  --mes-accent-soft: #eff3ff;
   --mes-success: #28765a;
   --mes-warning: #94621e;
   --mes-danger: #b34248;
   --mes-radius-sm: 6px;
   --mes-radius-md: 10px;
   --mes-radius-lg: 14px;
-  --mes-radius-xl: 18px;
+  --mes-radius-xl: 16px;
   --mes-motion-fast: 150ms;
   --mes-motion-normal: 220ms;
   --mes-ease: cubic-bezier(.2,.7,.2,1);
-  --mes-shadow-composer: 0 2px 8px #20232e06, 0 8px 24px #20232e04;
-  --mes-focus-halo: 0 0 0 3px #6e5a9b0c;
+  --mes-shadow-composer: 0 2px 8px rgb(20 36 72 / 3.5%), 0 8px 28px rgb(20 36 72 / 4%);
+  --mes-focus-halo: 0 0 0 3px #2952e30c;
   --aw-bg: var(--mes-bg-primary); --aw-surface: var(--mes-bg-sidebar);
   --aw-panel: var(--mes-bg-panel); --aw-hover: var(--mes-bg-hover);
   --aw-border: var(--mes-border-primary); --aw-text: var(--mes-text-primary);
@@ -46,7 +50,7 @@
   --aw-font-sans: 'MES Inter', 'Noto Sans SC Variable', 'Microsoft YaHei UI', 'PingFang SC', system-ui, sans-serif;
   --aw-font-mono: 'MES Mono', 'Noto Sans SC Variable', 'Microsoft YaHei UI', 'PingFang SC', monospace;
   --aw-text-size: 15px; --aw-label-size: 14px; --aw-meta-size: 12px;
-  --aw-header-height: 64px; --aw-content-width: 880px; --aw-content-gutter: 36px;
+  --aw-header-height: 60px; --aw-content-width: 860px; --aw-content-gutter: 36px;
   /* Existing MES heading rules inherit only these workspace-scoped values. */
   --layout-text-title: var(--aw-text); --layout-text-body: var(--aw-text);
   --layout-text-caption: var(--aw-muted); --text-main: var(--aw-text); --heading-color: var(--aw-text);

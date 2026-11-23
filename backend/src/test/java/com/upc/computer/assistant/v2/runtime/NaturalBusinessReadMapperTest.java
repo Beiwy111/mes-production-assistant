@@ -7,6 +7,16 @@ import java.util.*;
 import static org.junit.jupiter.api.Assertions.*;
 
 class NaturalBusinessReadMapperTest {
+    @Test void materialExclusionIsAppliedToBothRowsAndCountUsingLiteralBoundParameters() {
+        Configuration config=new Configuration();config.addMapper(NaturalBusinessReadMapper.class);
+        for(String method:List.of("rowsScoped","countScoped","rowsAuthorized","countAuthorized")) {
+            var statement=config.getMappedStatement(NaturalBusinessReadMapper.class.getName()+"."+method);
+            var bound=statement.getBoundSql(Map.of("domain","INVENTORY","selectors",Map.of("excluded_material_keyword","PCB%_")));
+            assertTrue(bound.getSql().contains("LOCATE(?,t.search_text)=0"));
+            assertTrue(bound.getSql().contains("THEN 'PCB板'"));
+            assertFalse(bound.getSql().contains("PCB%_"));
+        }
+    }
     @Test void eachDomainUsesFixedSelectAndBindsEveryUserFilterWithoutSilentlyTruncatingRows() {
         Configuration config=new Configuration();config.addMapper(NaturalBusinessReadMapper.class);
         for(String domain:List.of("INVENTORY","PRODUCTION","QUALITY","ORDER","EQUIPMENT","AFTERSALES","MAINTENANCE","ALARMS","STOCK_MOVEMENT"))for(String method:List.of("rows","count")) {

@@ -4,6 +4,7 @@ import { ChevronRight } from 'lucide-vue-next'
 import { AGENTS, observedSteps } from '@/utils/agentWorkbench'
 import ChatBubble from '@/components/chat/ChatBubble.vue'
 import AgentStatusIndicator from './AgentStatusIndicator.vue'
+import AgentAvatar from './AgentAvatar.vue'
 
 const props = defineProps({ message: { type: Object, required: true } })
 const workflow = computed(() => props.message.workflow)
@@ -128,6 +129,7 @@ const time = (value) =>
     <p v-if="workflow?.invalidated" class="flow-notice">查询期间数据发生变化，请重新查询。</p>
     <template v-else>
     <div v-if="workflow?.plan || events.length" class="flow-phase">
+      <AgentAvatar agent-id="SUP" :active="live && coordination?.status === 'RUNNING'" />
       <span><strong>总协调 Agent</strong><small>{{ live ? coordination?.detail || phase : phase }}</small></span>
     </div>
     <div v-if="taskNodes.length" class="flow-steps">
@@ -138,7 +140,7 @@ const time = (value) =>
         :class="agent.status.toLowerCase()"
       >
         <summary>
-          <AgentStatusIndicator :status="agent.status" class="step-icon" />
+          <AgentAvatar :agent-id="agent.agentId" :active="live && agent.status === 'RUNNING'" />
           <span class="step-info"
             ><strong>{{ latestStep(agent)?.label || AGENTS[agent.agentId].name }}</strong
             ><span v-if="agent.status === 'UNCALLED' && agent.dependencies.length">前序：{{ agent.dependencies.map(agentName).join('、') }}</span>
@@ -269,7 +271,10 @@ const time = (value) =>
   clip-path: inset(50%);
   white-space: nowrap;
 }
-.flow-phase { padding: 10px 0 10px 20px; }
+.flow-phase { display: flex; align-items: center; gap: 10px; padding: 10px 0 10px 20px; }
+.agent-flow { --avatar-size: 28px; }
+.flow-step:not(:last-child)::before { content: ''; position: absolute; left: 28px; top: 40px; bottom: -3px; width: 1px; background: var(--aw-border); pointer-events: none; }
+.flow-step:not(:last-child) > .step-detail { margin-left: 36px; }
 .flow-phase strong, .step-info strong { font-size: 14px; font-weight: 500; }
 .flow-phase small { display: block; color: var(--aw-muted); font-size: 13px; }
 .flow-steps { padding: 0 0 0 5px; }

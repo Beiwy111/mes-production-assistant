@@ -23,6 +23,12 @@ class WorkbenchHttpServicesTest {
         upstream.createContext("/",exchange->{
             auth.set(exchange.getRequestHeaders().getFirst("Authorization"));payload.set(new String(exchange.getRequestBody().readAllBytes(),StandardCharsets.UTF_8));
             String path=exchange.getRequestURI().getPath(),body;
+            if(mode.equals("observation-forbidden")&&path.endsWith("/observe")){
+                exchange.sendResponseHeaders(403,-1);exchange.close();return;
+            }
+            if(mode.equals("slow-observation")&&path.endsWith("/observe")){
+                try{Thread.sleep(5500);}catch(InterruptedException interrupted){Thread.currentThread().interrupt();}
+            }
             if(path.startsWith("/stage5/"))runtimeCalls.incrementAndGet();
             if(path.equals("/auth/userInfo"))body=mode.equals("expired")?"{\"code\":401}":"{\"code\":200,\"data\":{\"userId\":7,\"roleCode\":\"ADMIN\"}}";
             else if(path.endsWith("/observe"))body=mode.equals("history-observation")?
@@ -51,6 +57,18 @@ class WorkbenchHttpServicesTest {
     @Test void completeHistoryObservationsAreNotLimitedToHalfAMegabyte()throws Exception {
         mode="history-observation";
         assertEquals(600000,services.observe(run()).at("/result/history").asText().length());
+    }
+    @Test void finalAuthorizationAndEvidenceReadCanWaitForRuntimeRevalidation()throws Exception {
+        mode="slow-observation";
+        var result=services.workflow(run(),"核对同批两期质检",7,task->{});
+        assertEquals("EVIDENCE_READY",result.path("verdict").asText());
+        assertEquals(7,result.at("/facts/trustedCount").asInt());
+        assertEquals(1,runtimeCalls.get());
+    }
+    @Test void revokedObservationNeverFallsBackToDifyAnswer() {
+        mode="observation-forbidden";
+        var denied=assertThrows(WorkbenchGatewayServer.Failure.class,()->services.workflow(run(),"查库存",7,task->{}));
+        assertEquals(403,denied.status);assertEquals("PERMISSION_CHANGED",denied.code);
     }
     @Test void intakeUsesExistingSupKeyAndNoStage5RunAndValidatesModelOutput() throws Exception {
         mode="intake";

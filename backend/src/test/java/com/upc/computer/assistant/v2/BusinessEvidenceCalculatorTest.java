@@ -22,7 +22,9 @@ class BusinessEvidenceCalculatorTest {
     @Test void emptyRecordedIsDifferentFromUnsupportedAndMissingVision() throws Exception {
         for(String kind:List.of("Q1","D1","A1")) assertThat(calculate(kind,Map.of(),true)).containsEntry("status","EMPTY_RECORDED");
         assertThat(calculate("X1",Map.of(),true)).containsEntry("status","UNSUPPORTED");
-        assertThat(((Map<?,?>)calculate("Q1",Map.of(),true).get("visionEvidence")).get("status")).isEqualTo("SOURCE_RECORD_MISSING");
+        assertThat(((Map<?,?>)calculate("Q1",Map.of(),true).get("visionEvidence")).get("status")).isEqualTo("NO_INSPECTIONS_IN_SCOPE");
+        var inspected=Map.of("quality_inspection",List.of(row("inspection_id","1")));
+        assertThat(((Map<?,?>)calculate("Q1",inspected,true).get("visionEvidence")).get("status")).isEqualTo("SOURCE_RECORD_MISSING");
     }
     @Test void sampleRatesArePerInspectionAndDuplicateIdsDoNotDoubleCount() throws Exception {
         Map<String,String> a=row("inspection_id","1","sample_quantity","10","qualified_quantity","8","unqualified_quantity","2");
@@ -38,6 +40,19 @@ class BusinessEvidenceCalculatorTest {
         var out=calculate("Q1",Map.of("quality_inspection",List.of(a,row("inspection_id","1","sample_quantity","5"))),true);
         assertThat(rows(out,"inspections").get(0)).containsEntry("samplePassRate",null);
         assertThat(out.get("warnings").toString()).contains("CONFLICTING_DUPLICATE");
+    }
+    @Test void linkedConflictsWithholdOnlyTheAffectedSampleAndKeepConcessionSeparate() throws Exception {
+        var counts=row("sample_quantity","10","qualified_quantity","10","unqualified_quantity","0");
+        var a=new HashMap<>(counts);a.putAll(row("inspection_id","1","inspection_status","RECHECK_REQUIRED","inspection_result","UNQUALIFIED"));
+        var b=new HashMap<>(counts);b.putAll(row("inspection_id","2","inspection_status","PASSED","inspection_result","QUALIFIED"));
+        var c=new HashMap<>(counts);c.putAll(row("inspection_id","3","inspection_status","PASSED","inspection_result","CONCESSION","qualified_quantity","9","unqualified_quantity","1"));
+        var out=calculate("Q1",Map.of("quality_inspection",List.of(a,b,c),
+            "nonconforming_product",List.of(row("nonconforming_id","18","inspection_id","1","quantity","1","handle_method","CONCESSION"))),true);
+        assertThat(rows(out,"inspections").get(0)).containsEntry("samplePassRate",null).containsEntry("sampleRateStatus","WITHHELD_CONFLICT");
+        assertThat(rows(out,"inspections").get(1)).containsEntry("samplePassRate","1.000000");
+        Map<?,?> metrics=(Map<?,?>)out.get("qualityMetrics");
+        assertThat(metrics.get("workflowStatusCounts")).isEqualTo(Map.of("RECHECK_REQUIRED",1L,"PASSED",2L));
+        assertThat(metrics.get("verdictCounts")).isEqualTo(Map.of("UNQUALIFIED",1L,"QUALIFIED",1L,"CONCESSION",1L));
     }
     @Test void truncationPreventsAllDomainTotals() throws Exception {
         assertThat(calculate("Q1",Map.of(),false)).containsEntry("inspectionCount",null).containsEntry("nonconformingRecordCount",null).containsEntry("status","PARTIAL");

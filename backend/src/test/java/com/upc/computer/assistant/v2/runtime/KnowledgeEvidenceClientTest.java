@@ -46,7 +46,82 @@ class KnowledgeEvidenceClientTest {
         server.start();
     }
     @AfterEach void stop() { server.stop(0); }
+    @Test void privateTransportValidatesRecordAndPathScopeAndUsesOnlyPrivateCredential() throws Exception {
+        String privateKey="independent-private-test-only-key", hash="a".repeat(64);
+        String ref="experience:"+UUID.randomUUID()+":"+hash;
+        Map<String,Object> hit=Map.of("evidence_ref",ref,"record_hash",hash,"kind","MAINTENANCE","record_id",2,
+            "title","维修记录","text","登记了处置方式","source_table","equipment_maintenance_record","retrieval_source","vector");
+        Map<String,Object> path=Map.of("source_ref",ref,"target_ref",ref,"relation","ON_EQUIPMENT→RECORDED_ACTION","entity_label","设备 → 处置","hops",2);
+        server.createContext("/internal/experience/query",exchange->{
+            authorization.set(exchange.getRequestHeaders().getFirst("Authorization"));
+            request.set(json.readValue(exchange.getRequestBody(),Map.class));
+            byte[] out=json.writeValueAsBytes(Map.of("status","MATCHES","hits",List.of(hit,hit),"graph_paths",List.of(path),
+                "graph_status","MATCHES","vector_status","MATCHES","stale_record_count",1));
+            exchange.sendResponseHeaders(200,out.length);exchange.getResponseBody().write(out);exchange.close();
+        });
+        var c=new KnowledgeEvidenceClient(endpoint,secret,privateKey,clock,Duration.ofSeconds(3),true);
+        var result=c.retrieveExperience("历史维修经验","DIAGNOSTIC");
+        assertEquals("Bearer "+privateKey,authorization.get());assertEquals("DIAGNOSTIC",request.get().get("domain"));
+        assertEquals("MATCHES",result.get("status"));assertEquals(1,((List<?>)result.get("hits")).size());
+        assertEquals(1,((List<?>)result.get("graph_paths")).size());assertEquals(1,result.get("stale_record_count"));
+        var wrongDomain=c.retrieveExperience("历史质量经验","QUALITY");
+        assertEquals("UNAVAILABLE",wrongDomain.get("status"));assertEquals(List.of(),wrongDomain.get("hits"));
+    }
+    @Test void publicManualAndStandardRemainDocumentsAndCannotSupportResearchGraphClaims() {
+        for(String type:List.of("PUBLIC_STANDARD","PUBLIC_MANUAL")) {
+            var reference=hit();reference.put("authority_type",type);response.put("hits",List.of(reference));
+            var result=client().retrieveQuestion("显示器检测规范");
+            assertEquals("vector",request.get().get("mode"));assertEquals("NOT_REQUESTED",result.get("graph_status"));
+            assertEquals("MATCHES",result.get("status"));assertEquals(List.of(),result.get("graph_paths"));
+            reference.put("source_url","http://example.org/unsafe");assertEquals("NO_MATCHES",client().retrieveQuestion("检测方法").get("status"));
+        }
+    }
     KnowledgeEvidenceClient client() { return new KnowledgeEvidenceClient(endpoint, secret, clock, Duration.ofSeconds(2)); }
+
+    void serveCatalog(AtomicReference<String> requested) {
+        server.createContext("/internal/knowledge/catalog", exchange -> {
+            requested.set(exchange.getRequestMethod() + " " + exchange.getRequestURI().getRawQuery());
+            authorization.set(exchange.getRequestHeaders().getFirst("Authorization"));
+            byte[] bytes = json.writeValueAsBytes(response);
+            exchange.sendResponseHeaders(code, bytes.length);
+            try (var out = exchange.getResponseBody()) { out.write(bytes); }
+        });
+    }
+
+    @Test void catalogPagesUsePublicCredentialAndKeepOnlyVerifiedFields() throws Exception {
+        var requested = new AtomicReference<String>();
+        serveCatalog(requested);
+        var firstHit = hit();
+        firstHit.remove("score");
+        firstHit.put("local_path", "internal-only");
+        var claim = path();
+        claim.put("evidence_refs", List.of(release + ":paper:paper-p2-c2"));
+        response.put("hits", List.of(firstHit));
+        response.put("graph_paths", List.of(claim));
+        response.put("counts", Map.of("documents", 1, "chunks", 4, "entities", 2, "claims", 3, "evidence_links", 3, "private", 99));
+        response.put("graph_status", "READY");
+        response.put("next_offset", 3);
+        var result = client().catalog(2, 1, release);
+        assertEquals("GET offset=2&limit=1&release_id=" + release, requested.get());
+        assertEquals("Bearer " + secret, authorization.get());
+        assertEquals(3, result.get("next_offset"));
+        assertEquals(List.of(claim), result.get("graph_paths"));
+        firstHit.remove("local_path");
+        assertEquals(List.of(firstHit), result.get("hits"));
+        assertEquals(Set.of("release_id", "graph_release_id", "graph_status", "counts", "hits", "graph_paths", "next_offset"), result.keySet());
+        assertFalse(((Map<?,?>)result.get("counts")).containsKey("private"));
+        firstHit.put("visibility", "PRIVATE");
+        assertThrows(java.io.IOException.class, () -> client().catalog(2, 1, release));
+        firstHit.remove("visibility");
+        firstHit.put("license", Map.of("notPublic", "private-metadata"));
+        assertThrows(java.io.IOException.class, () -> client().catalog(2, 1, release));
+    }
+
+    @Test void catalogConflictIsDistinguishable() {
+        serveCatalog(new AtomicReference<>());
+        code = 409;
+        assertThrows(KnowledgeEvidenceClient.CatalogChanged.class, () -> client().catalog(1, 100, release));
+    }
     Map<String,Object> hit() {
         var h = new LinkedHashMap<String,Object>();
         h.put("document_id", "paper"); h.put("document_version", "c".repeat(64)); h.put("chunk_id", "paper-p2-c1");

@@ -45,8 +45,9 @@ def archive_sources(document: dict, data_dir: Path):
     original = data_dir / 'sources' / document['sha256']
     original.mkdir(parents=True, exist_ok=True)
     refs = {}
+    suffix = document['pdf_path'].suffix.lower()
     for source, name, expected, kind in (
-        (document['pdf_path'], 'original.pdf', document['sha256'], 'pdf_ref'),
+        (document['pdf_path'], 'original' + suffix, document['sha256'], 'source_ref'),
         (document['text_path'], 'text-' + document['text_sha256'] + '.txt', document['text_sha256'], 'text_ref'),
     ):
         destination = original / name
@@ -55,10 +56,12 @@ def archive_sources(document: dict, data_dir: Path):
         if sha256_file(destination) != expected:
             raise ValueError('Archived source does not match registered hash')
         refs[kind] = destination.relative_to(data_dir).as_posix()
+    if suffix == '.pdf':
+        refs['pdf_ref'] = refs['source_ref']
     return refs
 
 
-def ingest(documents, client, embedding, data_dir: Path, tokenizer_path: Path, batch_size=8):
+def ingest(documents, client, embedding, data_dir: Path, tokenizer_path: Path, batch_size=8, *, expected_release=None):
     data_dir.mkdir(parents=True, exist_ok=True)
     lock = data_dir / '.ingest.lock'
     try:
@@ -67,6 +70,8 @@ def ingest(documents, client, embedding, data_dir: Path, tokenizer_path: Path, b
         raise RuntimeError('An ingest lock exists. Verify no writer is running before manual recovery.') from None
     os.close(descriptor)
     try:
+        if expected_release is not None and json.loads((data_dir/'active.json').read_text('utf-8'))['release_id'] != expected_release:
+            raise ValueError('Active release changed during preparation; retry')
         release = uuid.uuid4().hex
         tokenizer = Tokenizer.from_file(str(tokenizer_path))
         chunks = [chunk for document in documents for chunk in chunk_document(document, tokenizer)]
@@ -85,7 +90,8 @@ def ingest(documents, client, embedding, data_dir: Path, tokenizer_path: Path, b
             refs = archive_sources(document, data_dir)
             source_metadata.append({**{key: document[key] for key in
                                      ('id', 'title', 'sha256', 'text_sha256', 'source_url', 'license', 'page_count')},
-                                    **refs})
+                                    'source_type': document.get('source_type', 'PUBLIC_RESEARCH'),
+                                    'keywords': document.get('keywords', []), **refs})
         for start in range(0, len(chunks), batch_size):
             batch = chunks[start:start + batch_size]
             # Metadata aids bilingual recall; evidence text remains the exact source substring.

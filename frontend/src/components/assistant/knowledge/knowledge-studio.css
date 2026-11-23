@@ -1,0 +1,21 @@
+.ks-workspace, .kg-studio {
+  --ks-brand:#2457e6;
+  --ks-deep:#163b85;
+  --ks-teal:#0f8b8d;
+  --ks-text:#1f2937;
+  --ks-strong:#111827;
+  --ks-secondary:#4b5563;
+  --ks-muted:#626d7d;
+  --ks-border:#d8e0ea;
+  --ks-surface:#ffffff;
+  --ks-soft:#f6f8fb;
+  --ks-sidebar:#f4f7fa;
+  --ks-hover:#eef4ff;
+  --ks-active:#e5eeff;
+  --ks-font:"MES Inter","Inter Variable",Inter,"PingFang SC","Noto Sans SC Variable","Noto Sans SC","Microsoft YaHei UI",sans-serif;
+  font:400 14px/1.55 var(--ks-font);
+  font-variant-numeric:tabular-nums;
+  color:var(--ks-text);
+  color-scheme:light;
+}
+.ks-workspace :focus-visible,.kg-studio :focus-visible { outline:2px solid var(--ks-brand);outline-offset:2px }

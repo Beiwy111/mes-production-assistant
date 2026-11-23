@@ -1,0 +1,42 @@
+[
+  {
+    "id": "M_DISP_SELF_TEST",
+    "title": "花屏、闪烁或固定线条：用显示器内置诊断区分故障来源",
+    "source_url": "https://www.dell.com/support/kbdoc/en-us/000124390/how-to-run-diagnostic-test-on-a-dell-monitor",
+    "keywords": ["花屏", "闪屏", "闪烁", "横线", "竖线", "色带", "色偏", "内置自检", "BIST", "BID", "flicker"],
+    "text": "发现闪烁、横竖线或颜色失真时，先记下异常出现的输入口、画面和屏幕位置。查该型号使用手册，确认它是否提供内置诊断（BIST 或 BID），再按手册调出显示器自身生成的测试画面。若内置画面也出现相同异常，优先转显示器本体复检，记录哪种画面能够复现；这一步尚不能定位到某块板或面板。若仅外部输入能复现，优先核查信号源、线缆和输入接口。断开视频线后出现的无信号提示只能说明设备能显示自身提示，不能替代内置画面测试，也不能据此放行。",
+    "attribution": "参考 Dell 技术支持文章 000124390，由本项目整理为中文排查笔记。"
+  },
+  {
+    "id": "M_DISP_NO_SIGNAL",
+    "title": "点亮工位出现“无信号”：核对输入口并交叉验证线缆和信号源",
+    "source_url": "https://www.dell.com/support/contents/en-us/article/product-support/self-support-knowledgebase/monitor-screen-video/monitors-and-screens",
+    "keywords": ["黑屏", "无信号", "不亮", "无输入", "点不亮", "信号源", "测试线", "HDMI", "DisplayPort", "DP", "OSD", "No Signal"],
+    "text": "先区分电源指示灯熄灭、无法调出菜单，与屏幕已显示“无信号”两种现象。前者先查供电和电源线。若看得到提示，核对屏幕菜单中选择的输入口与实际接线是否一致，确认测试主机已唤醒并向该口输出。检查视频线两端，再依次替换为已验证的同规格线缆和可正常输出的信号源，每次只改变一项。记录哪个端口、哪根线、哪个信号源能复现；若换线即恢复，可用原线复测以验证相关性。无信号提示本身不足以判定面板损坏。",
+    "attribution": "参考 Dell 技术支持《Computer Turns On But No Display》中的输入源与交叉测试方法，由本项目整理。"
+  },
+  {
+    "id": "M_DISP_PIXEL",
+    "title": "亮点、暗点和彩点：用纯色画面复核并按位置计数",
+    "source_url": "https://www.dell.com/support/kbdoc/en-us/000126004/dell-display-pixel-guidelines",
+    "keywords": ["亮点", "暗点", "坏点", "黑点", "彩点", "像素", "子像素", "白点", "stuck pixel", "dead pixel", "subpixel"],
+    "text": "发现单个小点时，先按机型允许的清洁方法排除屏面浮尘，再用纯黑、纯白及红绿蓝画面复核同一位置。黑底上持续发亮或显色的点可记为疑似亮点，白底上持续发暗的点可记为疑似暗点。逐点记录位置、颜色、出现在哪些背景下，同一位置在多张图上的观察合并记录，避免重复计数。单个颜色通道异常可能只涉及子像素。勿按压或揉搓屏幕尝试修复。允收数量、整像素与子像素的统计口径取自当前型号和客户的有效检验规范；厂商售后保修表不能代替出货判定。",
+    "attribution": "参考 Dell 技术支持文章 000126004 的像素分类与复核方法，由本项目整理；计数记录为现场应用建议。"
+  },
+  {
+    "id": "M_DISP_LIGHT_BLEED",
+    "title": "液晶屏边角发亮或疑似漏光：统一观察条件后与同型号对照",
+    "source_url": "https://www.dell.com/support/kbdoc/en-us/000132299/troubleshooting-light-leakage-bleeding-on-a-lcd-monitor-or-notebook-lcd-screen",
+    "keywords": ["漏光", "背光", "边角发亮", "亮斑", "边缘发白", "背光不均", "均匀性", "backlight bleed", "light leakage"],
+    "text": "液晶显示器在暗背景下出现较大面积的边角亮斑时，记录屏幕亮度设置、环境照明、测试画面和观察角度。按该型号检验规范恢复观察条件，正面观察，并让待检机和同型号参考机在相同设置下显示同一幅图。另用正常明暗内容复核，记录亮斑出现的位置、在哪些条件下仍可见，以及相对参考机的差异。全黑环境、高亮度或斜视可改变亮斑的观感。单张暗室照片不足以判断是否超限，出货判定应引用该型号的均匀性或外观规格。",
+    "attribution": "参考 Dell 技术支持文章 000132299 的环境控制与同型号比对方法，由本项目整理。"
+  },
+  {
+    "id": "M_DISP_SURFACE_MARK",
+    "title": "疑似划伤、擦痕或污渍：检查屏面并保留外观证据",
+    "source_url": "https://www.dell.com/support/kbdoc/en-us/000188802/damage-to-monitor-through-incorrect-cleaning-methods",
+    "keywords": ["划伤", "划痕", "擦伤", "擦痕", "污渍", "膜层", "涂层", "外观检查", "scratch", "smudge", "coating"],
+    "text": "发现疑似划痕、指印或雾状污渍时，先拍下痕迹的位置、形态和照明条件。按该型号屏面清洁要求及现场作业指导书处理；若允许用水，先轻微润湿洁净软布，避免向屏面直接喷液。研磨剂和不适用的溶剂可能损伤涂层。轻拭后在相同照明下复看，若痕迹仍在，保留照片并交外观检验复核；仅凭“擦不掉”不能认定划伤深度或责任工序。记录位置、范围与形状，再对照该型号的外观限度样板或检验规格。",
+    "attribution": "参考 Dell 技术支持文章 000188802 的屏面清洁与涂层损伤说明，由本项目整理；拍照和复核为现场应用建议。"
+  }
+]

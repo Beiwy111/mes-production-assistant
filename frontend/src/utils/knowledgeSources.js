@@ -11,11 +11,26 @@ export function knowledgeSources(message) {
         if (!['https:', 'http:'].includes(url.protocol) || url.username || url.password ||
             !hit.evidence_ref || seen.has(hit.evidence_ref) || !hit.title || !Number.isInteger(hit.page_start) || hit.page_start < 1) continue
         seen.add(hit.evidence_ref)
-        sources.push({ id: `S${sources.length+1}`, ref: hit.evidence_ref, title: hit.title, page: hit.page_start, url: url.href })
+        sources.push({ id: `S${sources.length+1}`, ref: hit.evidence_ref, title: hit.title, page: hit.page_start, url: url.href,
+          ...(hit.location_type === 'document' ? { location: '文档段落' } : {}),
+          type: ({ PUBLIC_RESEARCH:'论文', PUBLIC_MANUAL:'公开手册', PUBLIC_STANDARD:'公开标准' })[hit.authority_type] || '公开资料' })
       } catch { /* An invalid citation is never made into a clickable link. */ }
     }
   }
   return sources
+}
+
+export function approvedSopSources(message) {
+  if (invalid(message)) return []
+  const byRef = new Map()
+  for (const bundle of message.result.approvedSopEvidence || []) {
+    if (bundle.status !== 'MATCHES') continue
+    for (const hit of bundle.hits || []) {
+      if (hit.evidence_ref && hit.title && hit.version && hit.section)
+        byRef.set(hit.evidence_ref, { ref:hit.evidence_ref, title:hit.title, version:hit.version, section:hit.section })
+    }
+  }
+  return [...byRef.values()]
 }
 
 function factTables(value, path = '', out = []) {

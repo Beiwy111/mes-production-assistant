@@ -6,13 +6,29 @@ import java.util.regex.Pattern;
 /** Grounded, exact selectors. Neither model text nor column names can become SQL. */
 public record BusinessSelectors(Map<String,String> values,String remainingText) {
     private static final Set<String> STOCK=Set.of("INVENTORY","STOCK_MOVEMENT");
+    static final Pattern EQUIPMENT_CODE=Pattern.compile("(?i)(?<![A-Z0-9_-])EQ-[A-Z0-9]+(?:-[A-Z0-9]+)*(?![A-Z0-9_-])");
+    static final Pattern BATCH_CODE=Pattern.compile("(?i)(?<![A-Z0-9_-])BATCH-[A-Z0-9]+(?:-[A-Z0-9]+)*(?![A-Z0-9_-])");
+    static final Set<String> EQUIPMENT_DOMAINS=Set.of("EQUIPMENT","MAINTENANCE","ALARMS");
     private static final Pattern FOLLOWUP=Pattern.compile("其中|这些|上述|刚才|刚刚|上面|同一范围");
+    private static final Pattern OTHER_MATERIALS=Pattern.compile("(?:其他|其它|其余|剩余)(?:的)?物料");
+    static boolean otherMaterials(String query){return OTHER_MATERIALS.matcher(query).find();}
+    static boolean followsScope(String query){return FOLLOWUP.matcher(query).find()||otherMaterials(query);}
     public BusinessSelectors { values=Map.copyOf(values); }
     public static BusinessSelectors parse(String query,List<String> intents,Map<String,Object> previous) {
         Map<String,String> values=new LinkedHashMap<>();
-        if(previous!=null&&FOLLOWUP.matcher(query).find()&&previous.get("scope") instanceof Map<?,?> scope
+        if(previous!=null&&followsScope(query)&&previous.get("scope") instanceof Map<?,?> scope
             &&Boolean.TRUE.equals(scope.get("confirmed"))&&scope.get("selectors") instanceof Map<?,?> prior) {
             prior.forEach((key,value)->{if(key instanceof String k&&value instanceof String v)values.put(k,v);});
+        }
+        if(otherMaterials(query)&&intents.contains("INVENTORY")) {
+            if(previous==null||!(previous.get("scope") instanceof Map<?,?> scope)||!Boolean.TRUE.equals(scope.get("confirmed"))
+                ||!(scope.get("criteria") instanceof Map<?,?> criteria)||!criteria.keySet().equals(Set.of("INVENTORY"))
+                ||scope.get("orderPk")!=null||!(scope.get("keyword") instanceof String keyword)||keyword.isBlank()
+                ||values.containsKey("excluded_material_keyword"))throw new IllegalArgumentException("Missing single prior inventory keyword");
+            values.put("excluded_material_keyword",keyword);
+        }
+        if(intents.contains("QUALITY")||intents.stream().anyMatch(EQUIPMENT_DOMAINS::contains)) {
+            putCode(values,"equipment_code",EQUIPMENT_CODE,query);putCode(values,"batch_no",BATCH_CODE,query);
         }
         String text=query;SortedSet<String> customers=new TreeSet<>();
         // Strip customer literals first so names cannot become warehouse/date/negative filters.
@@ -78,8 +94,13 @@ public record BusinessSelectors(Map<String,String> values,String remainingText) 
             throw new IllegalArgumentException("Unresolved selector");
         if(!extracted.isEmpty()&&Pattern.compile("除外|之外|除了|非|不只|不仅|不查|不看|不含|不要|不包括|排除|剔除|去掉|除去|不在").matcher(text).find())
             throw new IllegalArgumentException("Unresolved exclusion");
-        for(String domain:intents)validate(domain,values);
+        for(String domain:intents)if(!domain.equals("KNOWLEDGE")||intents.size()==1)validate(domain,values);
         return new BusinessSelectors(values,text);
+    }
+    private static void putCode(Map<String,String> selectors,String field,Pattern pattern,String query) {
+        var codes=pattern.matcher(query).results().map(match->match.group().toUpperCase(Locale.ROOT)).distinct().toList();
+        if(codes.size()>1)throw new IllegalArgumentException("Specify a single code");
+        if(codes.size()==1)selectors.put(field,codes.get(0));
     }
     public static void validate(String domain,Map<String,String> values) {
         if(values==null)throw new IllegalArgumentException("Missing selector object");
@@ -92,6 +113,10 @@ public record BusinessSelectors(Map<String,String> values,String remainingText) 
                     throw new IllegalArgumentException("Invalid code list");
                 for(String code:codes)if(!code.matches("[A-Za-z0-9][A-Za-z0-9_-]{1,63}"))throw new IllegalArgumentException("Invalid code");
                 if(key.endsWith("_code")&&values.containsKey(key+"s"))throw new IllegalArgumentException("Conflicting selector forms");
+            } else if(key.equals("equipment_code")&&EQUIPMENT_DOMAINS.contains(domain)&&value.length()<=100&&EQUIPMENT_CODE.matcher(value).matches()
+                ||key.equals("batch_no")&&domain.equals("QUALITY")&&value.length()<=100&&BATCH_CODE.matcher(value).matches()
+                ||key.equals("excluded_material_keyword")&&domain.equals("INVENTORY")&&value.length()<=100) {
+                // Validated scalar selectors appear only in fixed SQL predicates.
             } else if(key.equals("customer_names")&&domain.equals("ORDER")) {
                 customerNames(value);if(values.containsKey("customer_name"))throw new IllegalArgumentException("Conflicting customer selectors");
             } else if(!(key.equals("customer_name")&&domain.equals("ORDER")&&value.length()<=100))throw new IllegalArgumentException("Unsupported selector domain");

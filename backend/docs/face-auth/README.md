@@ -1,8 +1,31 @@
-# MES 人脸登录（课程演示）
+# MES 人脸登录
 
-在原 MES 登录页输入账号并选择“人脸登录 · 演示”。浏览器获取授权后自动检测画面，后端用 CompreFace Recognition 将采集帧与这个账号绑定的样本作 1:1 比对。成功后沿用 MES 的 JWT、Redis 会话、菜单和登出流程。默认相似度阈值为 0.85。目前缺少可靠活体检测，仅供课程演示。
+在原 MES 登录页输入账号并选择“人脸登录”。浏览器获取授权后自动检测画面，后端用 CompreFace Recognition 将采集帧与这个账号绑定的样本作 1:1 比对。成功后沿用 MES 的 JWT、Redis 会话、菜单和登出流程。默认相似度阈值为 0.85。目前缺少可靠活体检测，照片或视频可能通过验证。
 
-## 在已有演示机上启用
+## 本机重启后
+
+在 `backend` 运行 `mvn spring-boot:run`，在 `frontend` 运行 `npm run dev`。已配置的 Windows 开发机在前端开始监听时会自动启动本机服务。前端终端出现 `[OK] CompreFace recognition API` 后，在登录页输入原 MES 账号，选择 **人脸登录**。若启动中途遇到问题，也可双击 `Start-Assistant.cmd` 单独重试。
+
+本机 Spring 配置导入 `backend/deploy/compreface/mes-face.local.yaml` 和 `services.local.env`，普通启动即可读取已有 Key。人脸绑定同时依赖 MES MySQL 中的绑定记录和 Docker 卷 `mes-compreface-face-isolated_postgres-data` 中的识别样本。启动器复用这两处数据。
+
+## 首次启用
+
+已有服务使用 8000 时，可从项目根目录用独立端口启动 CompreFace。首次部署需按 [CompreFace 部署说明](../../../compreface/README.md) 准备本机配置，首次接入业务库需执行下方的人脸表迁移。
+
+```powershell
+.\compreface\Start-CompreFace.ps1 -Isolated -LoopbackOnly -Port 8001
+```
+
+打开 [本机人脸控制台](http://127.0.0.1:8001)，在应用内分别创建 Recognition 和 Detection 服务。在同一个 PowerShell 窗口执行下面两行，按提示输入各自的 Key。第二行会重新启动当前项目在 8088 上通过 Maven 运行的 MES 后端，使其加载人脸配置；原前端可继续使用。
+
+```powershell
+.\backend\deploy\compreface\Set-FaceEnvironment.ps1 -BaseUrl 'http://127.0.0.1:8001'
+.\backend\deploy\compreface\Start-MesFaceBackend.ps1 -RestartCurrentMes
+```
+
+用原账号密码登录，在右上角账号菜单打开 **我的人脸信息**，完成本人授权、采集和绑定。退出后，在登录页输入同一账号，选择 **人脸登录**。上述 Key 仅在当前 PowerShell 进程中有效。
+
+## 在已有部署上启用
 
 从仓库根目录打开 PowerShell。沿用原 MES MySQL、Redis、CompreFace 地址和原服务的两把 Key，即可沿用已有绑定。人脸特征保存在 CompreFace 的 PostgreSQL 卷中。MES 用户 ID、样本 ID 和绑定版本保存在原 MySQL 中。
 

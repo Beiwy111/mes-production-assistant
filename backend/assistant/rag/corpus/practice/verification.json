@@ -1,0 +1,274 @@
+{
+  "checked_at": "2026-11-23T13:16:25.254643+00:00",
+  "vector_release": "13d21eb325d1472e995cf8b0d48ac259",
+  "graph_release": "c4228231b51546aabeb92a465d558c05",
+  "public_graph": {
+    "chunks": 290,
+    "claims": 11,
+    "entities": 16,
+    "documents": 18,
+    "evidence_links": 13
+  },
+  "test_scope": "本机公开知识范围；通过与网页相同的接入点使用质检角色。检索题是为这组公开资料编写的验收问题。",
+  "retrieval": [
+    {
+      "question": "Mura缺陷为何在低对比度图像中难以检测？",
+      "expected": "P02",
+      "rank": 1,
+      "evidence_roundtrip": true
+    },
+    {
+      "question": "分段伽马校正如何用于Mura缺陷检测？",
+      "expected": "P02",
+      "rank": 1,
+      "evidence_roundtrip": true
+    },
+    {
+      "question": "YOLO-DEI如何改进液晶显示屏缺陷检测？",
+      "expected": "P01",
+      "rank": 1,
+      "evidence_roundtrip": true
+    },
+    {
+      "question": "串扰缺陷的显著颜色通道频域滤波方法是什么？",
+      "expected": "P03",
+      "rank": 1,
+      "evidence_roundtrip": true
+    },
+    {
+      "question": "点亮工位显示无信号，怎样检查 HDMI 输入和线缆？",
+      "expected": "M_DISP_NO_SIGNAL",
+      "rank": 1,
+      "evidence_roundtrip": true
+    },
+    {
+      "question": "暗背景边角发亮，应该在什么条件下复查漏光？",
+      "expected": "M_DISP_LIGHT_BLEED",
+      "rank": 1,
+      "evidence_roundtrip": true
+    },
+    {
+      "question": "样机有疑似划伤和污渍，怎么复核？",
+      "expected": "M_DISP_SURFACE_MARK",
+      "rank": 1,
+      "evidence_roundtrip": true
+    },
+    {
+      "question": "检验台数不同，应该怎样比较两个批次的不良率波动？",
+      "expected": "M_STAT_PCHART",
+      "rank": 1,
+      "evidence_roundtrip": true
+    },
+    {
+      "question": "抽检零不良能说明整批每一台都合格吗？",
+      "expected": "M_STAT_SAMPLING",
+      "rank": 1,
+      "evidence_roundtrip": true
+    },
+    {
+      "question": "换人复测同一个样机结果不一样，怎么安排操作员和参考屏？",
+      "expected": "M_STAT_OPERATORS",
+      "rank": 1,
+      "evidence_roundtrip": true
+    },
+    {
+      "question": "同一块屏跨日测得亮度不同，怎样检查重复性？",
+      "expected": "M_STAT_REPEAT",
+      "rank": 1,
+      "evidence_roundtrip": true
+    },
+    {
+      "question": "一个屏上拍到多个缺陷框，要怎么算不合格台数？",
+      "expected": "M_STAT_DEFECT_UNIT",
+      "rank": 1,
+      "evidence_roundtrip": true
+    },
+    {
+      "question": "NIST 的晶圆算例里，哪些样本超出了 p 控制图的初始控制限？",
+      "expected": "M_STAT_WAFER_CASE",
+      "rank": 1,
+      "evidence_roundtrip": true
+    },
+    {
+      "question": "偏光片透明凸点能用黑白条纹饱和成像检测吗？",
+      "expected": "P06",
+      "rank": 1,
+      "evidence_roundtrip": true
+    },
+    {
+      "question": "检测偏光片涂层污渍和划痕的改进 YOLOv10-N 是怎么用的？",
+      "expected": "P07",
+      "rank": 1,
+      "evidence_roundtrip": true
+    }
+  ],
+  "chat": [
+    {
+      "question": "接好主机以后显示器还是提示没信号，我怎么判断问题在屏本身还是视频线那边？",
+      "route": "BUSINESS",
+      "terminal": "task_completed",
+      "tools": [
+        "KNOWLEDGE_RETRIEVAL",
+        "SOP_LOOKUP"
+      ],
+      "run_id": "da3fadc0-042c-499c-9b66-9cf8d03b3181",
+      "ordered_events": true,
+      "release": "13d21eb325d1472e995cf8b0d48ac259",
+      "graph_status": [
+        "NOT_REQUESTED"
+      ],
+      "graph_paths": [],
+      "sources": [
+        {
+          "number": 1,
+          "id": "M_DISP_NO_SIGNAL",
+          "title": "点亮工位出现“无信号”：核对输入口并交叉验证线缆和信号源（中文参考笔记）",
+          "locator": "document",
+          "page": null,
+          "url": "https://www.dell.com/support/contents/en-us/article/product-support/self-support-knowledgebase/monitor-screen-video/monitors-and-screens"
+        },
+        {
+          "number": 2,
+          "id": "M_DISP_SELF_TEST",
+          "title": "花屏、闪烁或固定线条：用显示器内置诊断区分故障来源（中文参考笔记）",
+          "locator": "document",
+          "page": null,
+          "url": "https://www.dell.com/support/kbdoc/en-us/000124390/how-to-run-diagnostic-test-on-a-dell-monitor"
+        }
+      ],
+      "answer": "先确认屏上是否已显示“无信号”提示：若电源灯不亮、菜单也调不出，先查供电和电源线；若能看到提示，先核对屏菜单所选输入口与实际接线是否一致，并确认主机已唤醒、确实向该口输出[S1]。\n\n然后做单变量交叉验证：检查视频线两端，再依次换用已验证的同规格线缆、可正常输出的信号源，每次只改一项，记录哪个端口、哪根线、哪个信号源能复现；若换线即恢复，用原线复测确认相关性[S1]。无信号提示本身不足以判定面板损坏[S1]。\n\n若该型号手册提供内置诊断（BIST/BID），按手册调出屏自生成的测试画面：内置画面也异常则优先转屏本体复检，但这一步尚不能定位到具体板或面板；仅外部输入异常则优先查信号源、线缆和接口。断开视频线后的无信号提示只说明屏能显示自身提示，不能替代内置画面测试，也不能据此放行[S2]。\n\n以上为公开资料方法，未取得本厂已批准SOP，也无该型号手册确认是否支持内置诊断；如需据此做检验判定或放行，须另行核对企业批准版本。",
+      "baseline": {
+        "route": "GENERAL",
+        "tools": [],
+        "sources": []
+      }
+    },
+    {
+      "question": "每班抽的台数不一样，怎样跟踪不良品占比有没有失控？同一套办法能直接拿来决定这一批收不收吗？",
+      "route": "BUSINESS",
+      "terminal": "task_completed",
+      "tools": [
+        "KNOWLEDGE_RETRIEVAL",
+        "SOP_LOOKUP"
+      ],
+      "run_id": "5b3818bd-eb1c-403f-a6a3-6270fa2f1523",
+      "ordered_events": true,
+      "release": "13d21eb325d1472e995cf8b0d48ac259",
+      "graph_status": [
+        "NOT_REQUESTED"
+      ],
+      "graph_paths": [],
+      "sources": [
+        {
+          "number": 1,
+          "id": "M_STAT_PCHART",
+          "title": "批次不良率波动与 p 控制图（中文参考笔记）",
+          "locator": "document",
+          "page": null,
+          "url": "https://www.itl.nist.gov/div898/handbook/pmc/section3/pmc332.htm"
+        },
+        {
+          "number": 2,
+          "id": "M_STAT_SAMPLING",
+          "title": "抽检零不良与批次接收判定（中文参考笔记）",
+          "locator": "document",
+          "page": null,
+          "url": "https://www.itl.nist.gov/div898/handbook/pmc/section2/pmc23.htm"
+        }
+      ],
+      "answer": "**跟踪不良品占比是否失控**\n\n每班抽检台数不同，不能直接比较各班不良率高低。应逐班记录检验台数 n 和不合格台数 D，算出样本不良率 D/n，再用 p 控制图按各自的 n 计算控制限：中心为基线不良率 p，单批控制限为 p ± 3√[p(1−p)/n]。n 越小，随机波动带越宽，控制限也越宽。基线用累计不合格台数除以累计检验台数估计。累计前须核对取样范围、检验项目和判定版本一致，重复报缺陷、重复保存或复测同一台不得按新增受检产品计入。超出控制限即启动调查[S1]。\n\n**能否直接用来决定这批收不收**\n\n不能。控制图用于过程监控，批次接收判定是另一套方法：须事先确定样本量 n 和接收数 c，样本不合格数超过 c 才拒收，未超过 c 才满足该方案的接收条件。抽检零不良只描述受检样本，应写成“本次抽检 n 台，观察到 0 台不合格”，不能据此声称整批合格[S2]。\n\n**当前缺项**\n\n本次为知识检索，未查询任何检验记录、样本量或不合格台数，无法评估实际是否失控；也未取得本厂已批准的控制图基线和抽样方案（样本量、接收数），厂内 SOP 检索无命中。放行前须由质检员确认适用的已批准抽样方案，并结合实际检验结果判定[S2]。",
+      "baseline": {
+        "route": "BUSINESS",
+        "tools": [
+          "KNOWLEDGE_RETRIEVAL",
+          "SOP_LOOKUP"
+        ],
+        "sources": []
+      }
+    },
+    {
+      "question": "同一件样品用同一把量具连量几次，读数老在跳。怎么安排一组测量，搞清波动来自仪器还是换人操作？",
+      "route": "BUSINESS",
+      "terminal": "task_completed",
+      "tools": [
+        "KNOWLEDGE_RETRIEVAL",
+        "SOP_LOOKUP"
+      ],
+      "run_id": "2f33aeb1-7715-4196-bc28-a88678c58a7f",
+      "ordered_events": true,
+      "release": "13d21eb325d1472e995cf8b0d48ac259",
+      "graph_status": [
+        "NOT_REQUESTED"
+      ],
+      "graph_paths": [],
+      "sources": [
+        {
+          "number": 1,
+          "id": "M_STAT_OPERATORS",
+          "title": "不同操作员测同一屏幕得到不同读数，如何安排复测（中文参考笔记）",
+          "locator": "document",
+          "page": null,
+          "url": "https://www.itl.nist.gov/div898/handbook/mpc/section4/mpc42.htm"
+        },
+        {
+          "number": 2,
+          "id": "M_STAT_REPEAT",
+          "title": "亮度测量的重复性与跨日复测（中文参考笔记）",
+          "locator": "document",
+          "page": null,
+          "url": "https://www.itl.nist.gov/div898/handbook/mpc/section4/mpc44.htm"
+        }
+      ],
+      "answer": "先固定同一参考件、同一台仪器、同一测点和相同设置，让多名受训操作者各自重复读数多次，完整记录人员、仪器编号、时间与原始数值。这样先看同一人重复读数的组内离散，再比较不同人对同一参考件的差异，就能把仪器重复性和人员间差异分开[S1]。\n\n若人员很少可全部参加；若要代表较多操作者，则从中随机选人。参考件宜选覆盖日常测量范围的多个，而不是只测一件[S1]。\n\n再补充跨日复测：同一参考件在不同日期重复测量，比较每日均值与组内波动，同时记录亮度设置、预热状态、环境光、测点和仪器编号[S2]。注意不要让人、仪器、日期同时变化，否则仅凭结果无法分离各因素影响[S2]。\n\n读数跳动可能来自仪器重复性，也可能来自操作者手法差异，需分别估计；复测差异本身不能证明某道工序异常[S2]。本次未取得已批准的企业测量SOP，抽样次数、允收限和判定口径需向质量或计量部门索取现行有效文件，以上仅为公开研究方法，不构成放行或判定结论。",
+      "baseline": {
+        "route": "GENERAL",
+        "tools": [],
+        "sources": []
+      }
+    },
+    {
+      "question": "偏光片里肉眼很难看清的透明凸点，公开研究用过什么成像方法？请给出图谱关系和论文出处。",
+      "route": "BUSINESS",
+      "terminal": "task_completed",
+      "tools": [
+        "KNOWLEDGE_RETRIEVAL",
+        "SOP_LOOKUP"
+      ],
+      "run_id": "3a83eca3-3e90-4ac3-8e6d-be609f872d49",
+      "ordered_events": true,
+      "release": "13d21eb325d1472e995cf8b0d48ac259",
+      "graph_status": [
+        "MATCHES"
+      ],
+      "graph_paths": [
+        {
+          "document_id": "P06",
+          "page": 2,
+          "subject_name": "黑白条纹饱和成像",
+          "relation": "DETECTS",
+          "object_name": "偏光片微弱透明外观缺陷",
+          "statement": "研究通过黑白条纹饱和成像提高偏光片内微弱透明缺陷与背景的对比度，以便检测透明凸凹点。"
+        }
+      ],
+      "sources": [
+        {
+          "number": 1,
+          "id": "P06",
+          "title": "Saturated Imaging for Inspecting Transparent Aesthetic Defects in a Polymeric Polarizer with Black and White Stripes",
+          "locator": "page",
+          "page": 2,
+          "url": "https://www.mdpi.com/1996-1944/11/5/736"
+        },
+        {
+          "number": 3,
+          "id": "P06",
+          "title": "Saturated Imaging for Inspecting Transparent Aesthetic Defects in a Polymeric Polarizer with Black and White Stripes",
+          "locator": "page",
+          "page": 1,
+          "url": "https://www.mdpi.com/1996-1944/11/5/736"
+        }
+      ],
+      "answer": "公开研究针对偏光片内极微弱的透明外观缺陷（ESTADs）采用了以下成像方法：常规白光背光下这类缺陷几乎不可见；引入黑白条纹后，条纹相当于一维光阑，可显著增强透明缺陷的成像效果；当缺陷深度和折射率差进一步减小时，即使结构光照明也无法成像，论文因此提出用饱和成像技术提高透明缺陷与背景的对比度[S1]。\n\n图谱关系为：黑白条纹饱和成像 —检测→ 偏光片微弱透明外观缺陷；原文表述是增强透明缺陷图像对比度以检测ESTADs[S1]。这是研究陈述，不是本厂验收规则或因果结论。\n\n论文出处：Materials 2018, 11, 736（doi:10.3390/ma11050736，CC BY 4.0），第1–2页；第1页另提及偏光片在线实时缺陷检测系统的复杂算法处理[S3]。\n\n如需在本厂落地，应先核对厂内已批准检验规范中的照明条件、判定阈值与允收口径；本次未检索到可引用的企业已批准SOP，论文参数不能直接作为验收标准。"
+    }
+  ]
+}

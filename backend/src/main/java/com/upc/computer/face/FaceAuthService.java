@@ -15,7 +15,7 @@ import java.util.concurrent.Semaphore;
 @Service
 public class FaceAuthService {
     public static final String CONSENT_VERSION = "face-demo-2026-11-v3";
-    public static final String NOTICE = "仅用于本 MES 的人脸录入和账号验证。点击开始后，浏览器会间隔采集画面并交由 CompreFace 检测。录入或更新会展示自动采集的实际照片和目标账号，需你确认后才保存；登录和匹配测试在检测通过后自动提交，可随时停止检测。MES 不保存原始图像或特征向量，CompreFace 处理并保存录入的人脸特征；其原图留存由管理员配置。你可以随时撤销绑定。当前未提供可靠活体检测，可能被照片或视频欺骗，仅供经授权的课程演示，请保留密码登录。";
+    public static final String NOTICE = "仅用于本 MES 的人脸录入和账号验证。点击开始后，浏览器会间隔采集画面并交由 CompreFace 检测。录入或更新会展示自动采集的实际照片和目标账号，需你确认后才保存；登录和匹配测试在检测通过后自动提交，可随时停止检测。MES 不保存原始图像或特征向量，CompreFace 处理并保存录入的人脸特征；其原图留存由管理员配置。你可以随时撤销绑定。当前未提供可靠活体检测，可能被照片或视频欺骗，请保留密码登录方式。";
     private static final Logger log = LoggerFactory.getLogger(FaceAuthService.class);
     private final FaceAuthProperties properties;
     private final FaceStore store;
@@ -190,7 +190,7 @@ public class FaceAuthService {
     }
     private void requireLoginEnabled() {
         properties.requireService();
-        if (!properties.isAllowDemoLogin()) throw new FaceException(403, "DEMO_DISABLED", "尚未开放演示人脸登录，请使用密码登录");
+        if (!properties.isAllowDemoLogin()) throw new FaceException(403, "DEMO_DISABLED", "尚未开放人脸登录，请使用密码登录");
     }
     private void consent(boolean accepted, String version) {
         if (!accepted || !CONSENT_VERSION.equals(version)) throw new FaceException(400, "CONSENT_REQUIRED", "请阅读并同意当前人脸信息授权说明");
