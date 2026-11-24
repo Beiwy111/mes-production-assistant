@@ -6,7 +6,7 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
-from filelock import FileLock
+from filelock import FileLock, Timeout
 
 from qdrant_client import models
 from tokenizers import Tokenizer
@@ -52,7 +52,14 @@ def archive_sources(document: dict, data_dir: Path):
     ):
         destination = original / name
         if not destination.exists():
-            shutil.copyfile(source, destination)
+            partial = original / (uuid.uuid4().hex + '.tmp')
+            try:
+                shutil.copyfile(source, partial)
+                if sha256_file(partial) != expected:
+                    raise ValueError('Source changed during archival')
+                partial.replace(destination)
+            finally:
+                partial.unlink(missing_ok=True)
         if sha256_file(destination) != expected:
             raise ValueError('Archived source does not match registered hash')
         refs[kind] = destination.relative_to(data_dir).as_posix()
@@ -63,15 +70,20 @@ def archive_sources(document: dict, data_dir: Path):
 
 def ingest(documents, client, embedding, data_dir: Path, tokenizer_path: Path, batch_size=8, *, expected_release=None):
     data_dir.mkdir(parents=True, exist_ok=True)
-    lock = data_dir / '.ingest.lock'
+    # Legacy publishers used an exclusive-create marker. Preserve an existing marker for recovery.
+    if (data_dir / '.ingest.lock').exists():
+        raise RuntimeError('An ingest lock exists. Verify no legacy writer is running before manual recovery.')
+    lock = FileLock(data_dir / '.ingest-writer.lock')
     try:
-        descriptor = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-    except FileExistsError:
-        raise RuntimeError('An ingest lock exists. Verify no writer is running before manual recovery.') from None
-    os.close(descriptor)
+        lock.acquire(timeout=0)
+    except Timeout:
+        raise RuntimeError('An ingest lock is held by another publisher. Retry when it finishes.') from None
     try:
-        if expected_release is not None and json.loads((data_dir/'active.json').read_text('utf-8'))['release_id'] != expected_release:
-            raise ValueError('Active release changed during preparation; retry')
+        if expected_release is not None:
+            pointer = data_dir / 'active.json'
+            actual = json.loads(pointer.read_text('utf-8'))['release_id'] if pointer.exists() else ''
+            if actual != expected_release:
+                raise ValueError('Active release changed during preparation; retry')
         release = uuid.uuid4().hex
         tokenizer = Tokenizer.from_file(str(tokenizer_path))
         chunks = [chunk for document in documents for chunk in chunk_document(document, tokenizer)]
@@ -116,4 +128,4 @@ def ingest(documents, client, embedding, data_dir: Path, tokenizer_path: Path, b
         atomic_json(data_dir / 'active.json', manifest)
         return manifest
     finally:
-        lock.unlink(missing_ok=True)
+        lock.release()

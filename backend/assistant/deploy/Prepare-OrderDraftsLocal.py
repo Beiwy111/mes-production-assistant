@@ -9,13 +9,14 @@ import sys
 import pymysql
 
 
-def main():
+def main(config=None):
     deploy = Path(__file__).resolve().parent
-    config = {}
-    for line in (deploy / '.env.agents.local').read_text(encoding='utf-8-sig').splitlines():
-        if line.strip() and not line.lstrip().startswith('#'):
-            key, value = line.split('=', 1)
-            config[key] = value
+    if config is None:
+        config = {}
+        for line in (deploy / '.env.agents.local').read_text(encoding='utf-8-sig').splitlines():
+            if line.strip() and not line.lstrip().startswith('#'):
+                key, value = line.split('=', 1)
+                config[key] = value
     url = urlparse(config['MES_AGENT_JDBC_URL'].removeprefix('jdbc:'))
     if url.scheme != 'mysql' or url.hostname not in ('127.0.0.1', 'localhost') or not url.path.strip('/'):
         raise ValueError('Local MySQL configuration required')

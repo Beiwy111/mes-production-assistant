@@ -105,12 +105,13 @@ def main():
     deploy = RAG_ROOT.parent / 'deploy'
     settings = settings_from_file(deploy / '.env.knowledge.local')
     data = settings.data_dir
-    manifest = json.loads((data / 'active.json').read_text('utf-8'))
+    active = data / 'active.json'
+    manifest = json.loads(active.read_text('utf-8')) if active.exists() else None
     with TemporaryDirectory() as directory:
         papers = load_corpus(
             RAG_ROOT / 'corpus/papers.json', RAG_ROOT.parents[2] / 'docs/ai-planning-2026-11-07'
         )
-        current = restore_active(data, manifest)
+        current = restore_active(data, manifest) if manifest else []
         docs = merge_documents(
             current, [*papers, *practice_notes(RAG_ROOT / 'corpus/practice', Path(directory))]
         )
@@ -119,20 +120,27 @@ def main():
         def signature(rows):
             return [[row.get(k) for k in fields] for row in rows]
 
-        if signature(docs) == signature(current):
-            print('Active public catalog already matches.')
-            return
         writer = dotenv_values(deploy / '.env.qdrant.local', interpolate=False)['QDRANT__SERVICE__API_KEY']
         with closing(
             QdrantClient(url=settings.qdrant_url, api_key=writer, trust_env=False, timeout=30)
         ) as client:
+            from qdrant_client import models
+            embedding = E5Embedding(data / 'model', settings.threads)
+            if (manifest and signature(docs) == signature(current)
+                    and manifest['embedding_signature'] == embedding.signature
+                    and client.collection_exists(manifest['collection'])):
+                generation = models.Filter(must=[models.FieldCondition(
+                    key='release_id', match=models.MatchValue(value=manifest['release_id']))])
+                if client.count(manifest['collection'], count_filter=generation, exact=True).count == manifest['point_count']:
+                    print('Active public catalog and vector generation already match.')
+                    return
             result = ingest(
                 docs,
                 client,
-                E5Embedding(data / 'model', settings.threads),
+                embedding,
                 data,
                 data / 'model/tokenizer.json',
-                expected_release=manifest['release_id'],
+                expected_release=manifest['release_id'] if manifest else '',
             )
         print(json.dumps({k: result[k] for k in ('release_id', 'point_count')}))
 

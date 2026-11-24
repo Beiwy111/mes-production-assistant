@@ -1,5 +1,7 @@
 # 队友交接：MES Web 与生产协作助手
 
+首次部署请使用仓库根目录的 `Initialize-Assistant.cmd`，详见[新电脑一键初始化](deploy/NEW-COMPUTER.md)。下文为分阶段维护说明。
+
 唯一入口为 /assistant，旧 /chat 自动跳转。工具栏“业务指令与语音”使用原角色授权和确认接口。
 
 1. 在独立 MySQL、Redis 开发环境初始化 MES（见根 README）。从 backend/src/main/resources/application-local.yaml.example 复制为 application-local.yaml，填写本机数据库密码、独立随机 MES_JWT_SECRET（至少 32 字节）及用到的供应商密钥。不要使用他人登录令牌。

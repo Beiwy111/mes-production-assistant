@@ -77,3 +77,16 @@ def test_single_writer_lock_is_preserved_when_another_writer_is_running(tmp_path
     with pytest.raises(RuntimeError, match='ingest lock'):
         ingest([], None, None, tmp_path, tmp_path / 'unused')
     assert (tmp_path / '.ingest.lock').exists()
+
+
+def test_fresh_publisher_requires_empty_pointer_under_writer_lock(tmp_path):
+    from filelock import FileLock
+
+    pointer = tmp_path / 'active.json'
+    pointer.write_text(json.dumps({'release_id': 'another-writer'}))
+    with FileLock(tmp_path / '.ingest-writer.lock'):
+        with pytest.raises(RuntimeError, match='held by another publisher'):
+            ingest([], None, None, tmp_path, tmp_path / 'unused', expected_release='')
+    with pytest.raises(ValueError, match='Active release changed'):
+        ingest([], None, None, tmp_path, tmp_path / 'unused', expected_release='')
+    assert json.loads(pointer.read_text()) == {'release_id': 'another-writer'}

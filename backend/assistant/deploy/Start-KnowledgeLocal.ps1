@@ -37,9 +37,21 @@ try {
     }
     $env:MES_KNOWLEDGE_EXPERIENCE_API_KEY = Read-ExperienceCredential
     $env:PYTHONPATH = Join-Path $ragDirectory 'src'
-    $process = Start-Process -FilePath $pythonPath -ArgumentList @('-m', 'mes_knowledge.cli', 'serve') -WorkingDirectory $ragDirectory -WindowStyle Hidden -RedirectStandardOutput (Join-Path $logDirectory 'api.stdout.log') -RedirectStandardError (Join-Path $logDirectory 'api.stderr.log') -PassThru
-    $process.Id | Set-Content (Join-Path $ragDirectory 'data\api.pid')
-    Write-Host ('Knowledge API starting in background; PID ' + $process.Id + '. Verify /health before using.')
+    # Limit inherited handles to the log files and NUL. A redirected PowerShell caller can then exit
+    # while the long-lived API stays up, including under an installer capturing console output.
+    $launch = @'
+import pathlib, subprocess, sys
+root = pathlib.Path(sys.argv[1])
+with (root / 'logs/api.stdout.log').open('wb') as out, (root / 'logs/api.stderr.log').open('wb') as err:
+    server = subprocess.Popen([sys.executable, '-m', 'mes_knowledge.cli', 'serve'], cwd=root,
+                              stdin=subprocess.DEVNULL, stdout=out, stderr=err, close_fds=True,
+                              creationflags=subprocess.CREATE_NO_WINDOW)
+print(server.pid)
+'@
+    $serverPid = & $pythonPath -c $launch $ragDirectory
+    if ($LASTEXITCODE -ne 0 -or $serverPid -notmatch '^\d+$') { throw 'Knowledge API process launch failed.' }
+    $serverPid | Set-Content (Join-Path $ragDirectory 'data\api.pid')
+    Write-Host ('Knowledge API starting in background; PID ' + $serverPid + '. Verify /health before using.')
 } finally {
     foreach ($name in $ingestionEnvironment.Keys) { [Environment]::SetEnvironmentVariable($name, $ingestionEnvironment[$name]) }
     $env:MES_KNOWLEDGE_EXPERIENCE_API_KEY = $priorExperienceKey

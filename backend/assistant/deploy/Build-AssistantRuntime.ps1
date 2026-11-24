@@ -30,6 +30,7 @@ foreach ($spec in @(@('resources','resource','src\main\resources'), @('testResou
 $pom = Join-Path $buildRoot 'pom.xml'
 $document.Save($pom)
 $classpath = Join-Path $dataRoot 'stage5-classpath.txt'
-& mvn -f $pom '-DskipTests' compile dependency:build-classpath ('-Dmdep.outputFile=' + $classpath) '-Dmdep.includeScope=runtime' -q
+$maven = & (Join-Path $backendRoot 'deploy\compreface\Resolve-Maven.ps1') -BackendDirectory $backendRoot
+& $maven -f $pom '-DskipTests' compile dependency:build-classpath ('-Dmdep.outputFile=' + $classpath) '-Dmdep.includeScope=runtime' -q
 if ($LASTEXITCODE -ne 0) { throw 'Isolated assistant build failed; MES target/classes was not modified.' }
 Write-Host ('Assistant build ready in assistant/rag/data/' + $OutputName + '/classes; MES output unchanged.')

@@ -8,6 +8,20 @@ import json
 import sys
 
 
+def tool_spec(role, app_name, tool_names):
+    if role == 'SUP':
+        return None
+    if role == 'KNOWLEDGE':
+        return {'name': 'public_display_knowledge', 'label': '显示器公开知识 RAG+GraphRAG',
+                'description': '公开论文与有出处关系；不提供订单或放行事实。',
+                'parameters': [{'name': 'question', 'description': '公开研究问题，不含客户与订单标识', 'form': 'llm'},
+                               {'name': 'history', 'description': '空历史', 'form': 'form'}]}
+    return {'name': tool_names[role], 'label': app_name,
+            'description': '只处理服务端校验的查询范围（概览或精确订单）；依赖和角色由后端验证，返回resultRef与证据。角色 '+role,
+            'parameters': [{'name': 'run_ref', 'description': '固定绑定运行引用，不由模型生成', 'form': 'llm'},
+                           {'name': 'task_goal', 'description': '本角色范围内的具体问题', 'form': 'llm'}]}
+
+
 def container_main():
     sys.path.insert(0, '/app/api')
     from gevent import monkey
@@ -112,7 +126,9 @@ def local_main():
     parser.add_argument('--inputs-file',type=Path)
     args=parser.parse_args()
     base=root/'backend/assistant/agents'
-    bindings=json.loads((base/'bindings.stage5.local.json').read_text(encoding='utf-8'))
+    private_bindings=root/'backend/assistant/deploy/.env.stage5-bindings.local'
+    bindings_file=private_bindings if private_bindings.is_file() else base/'bindings.stage5.local.json'
+    bindings=json.loads(bindings_file.read_text(encoding='utf-8'))
     env={}
     for line in (root/'backend/assistant/deploy/.env.agents.local').read_text(encoding='utf-8').splitlines():
         if line.strip() and not line.lstrip().startswith('#'):
@@ -126,24 +142,24 @@ def local_main():
         if args.action in ('run','node-test'):
             if args.inputs_file is None or len(args.roles)!=1:raise ValueError('Run needs exactly one role and local inputs file')
             cmd['inputs']=json.loads(args.inputs_file.read_text(encoding='utf-8'))
-        if role=='KNOWLEDGE':
-            cmd['tool']={'name':'public_display_knowledge','label':'显示器公开知识 RAG+GraphRAG',
-                'description':'公开论文与有出处关系；不提供订单或放行事实。',
-                'parameters':[{'name':'question','description':'公开研究问题，不含客户与订单标识','form':'llm'},
-                              {'name':'history','description':'空历史','form':'form'}]}
-        else:
+        cmd['tool']=tool_spec(role,mapped['name'],tools)
+        if role!='KNOWLEDGE':
             source=base/'workflows/stage5'/f'{role}.yml'
-            if source.exists():
+            if private_bindings.is_file():
+                import runpy
+                generator=runpy.run_path(str(base/'scripts/build_stage5.py'))
+                providers={r:a['tool_id'] for r,a in bindings['apps'].items() if a.get('tool_id')}
+                dsl=generator['build'](role,providers)
+                configure=runpy.run_path(str(private_bindings.parent/'stage5_dify_provision.py'))['configure_model']
+                configure(dsl,bindings['provider'],bindings['model'])
+                cmd['workflow']=dsl['workflow']
+                cmd['description']=dsl['app']['description']
+            elif source.exists():
                 dsl=yaml.safe_load(source.read_text(encoding='utf-8'));cmd['workflow']=dsl['workflow']
                 cmd['description']=dsl['app']['description']
             if args.action=='deploy':
                 if not source.exists():raise ValueError('Generate the role DSL first')
                 cmd['role_key']=env[f'MES_AGENT_{role}_KEY']
-            if role!='SUP':
-                cmd['tool']={'name':tools[role],'label':mapped['name'],'description':
-                    '只处理服务端校验的查询范围（概览或精确订单）；依赖和角色由后端验证，返回resultRef与证据。角色 '+role,
-                    'parameters':[{'name':'run_ref','description':'固定绑定运行引用，不由模型生成','form':'llm'},
-                                  {'name':'task_goal','description':'本角色范围内的具体问题','form':'llm'}]}
         commands.append(cmd)
     copied=subprocess.run(['docker','cp',str(Path(__file__).resolve()),'mes-dify-local-api-1:/tmp/mes-stage5-admin.py'],capture_output=True)
     if copied.returncode:raise RuntimeError('Could not copy the scoped Dify maintenance helper')
@@ -173,7 +189,7 @@ def local_main():
         return
     for item in result['apps']:
         bindings['apps'][item['role']].update({k:v for k,v in item.items() if k!='role'})
-    (base/'bindings.stage5.local.json').write_text(json.dumps(bindings,ensure_ascii=False,indent=2),encoding='utf-8')
+    bindings_file.write_text(json.dumps(bindings,ensure_ascii=False,indent=2),encoding='utf-8')
     print(json.dumps(result,ensure_ascii=True))
 
 

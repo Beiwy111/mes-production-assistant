@@ -26,7 +26,7 @@
 
 本机已使用现有 MySQL、Dify SUP 应用密钥与 DeepSeek，无新增 API Key。
 
-首次部署新数据库环境执行 `python backend/assistant/deploy/Prepare-OrderDraftsLocal.py`（需要 pymysql，当前电脑已安装），从既有 `.env.agents.local` 读取凭据，仅执行 `order-drafts.sql` 的助手表创建。不要把凭据放入聊天或提交Git。
+新机配置入口使用项目知识服务的 Python 虚拟环境运行 `Initialize-MesAssistant.py`，通过本机 MySQL 管理凭据执行 `order-drafts.sql` 并核对专用读账号。已有旧式管理配置的环境也可以单独运行 `Prepare-OrderDraftsLocal.py` 建立草稿表。
 
 Spring 新接口在 `backend/src/main/java/com/upc/computer/assistant/v2/orders`：
 

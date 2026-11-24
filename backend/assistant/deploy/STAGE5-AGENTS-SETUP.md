@@ -50,14 +50,14 @@ flowchart TD
 
 不需要新的DeepSeek key、不需要租GPU。官方[Agent策略插件](https://marketplace.dify.ai/plugin/langgenius/agent)0.0.51已安装；使用FunctionCalling与现有deepseek-flash。七个独立运行密钥已在本地生成，按角色分别绑定Dify秘密变量ROLE_API_KEY；引导创建运行的BOOTSTRAP key不会交给Dify。
 
-新机先配置 Git 忽略的 `.env.agents.local`。其 JDBC 凭据供本地管理员初始化独立查询账号及订单草稿表。首次部署从项目根目录执行以下命令，首次准备需要 MySQL 的建账号和授权权限。
+新电脑使用仓库根目录的新机配置入口。在已有、已完成业务迁移的 MES 数据库上，也可以从项目根目录单独运行以下初始化步骤。准备好本机 MySQL 的建账号及授权权限、明确授权的维护预览订单主键，以及日常聊天使用的千问 API 密钥。脚本生成独立的工作流角色密钥，创建订单草稿表，并核对四个只读账号。新配置中的 MySQL 管理员密码仅供本次初始化使用。
 
 ```powershell
-& .\backend\assistant\rag\.venv\Scripts\python.exe .\backend\assistant\deploy\Prepare-AssistantReadersLocal.py
+& .\backend\assistant\rag\.venv\Scripts\python.exe .\backend\assistant\deploy\Initialize-MesAssistant.py
 & .\backend\assistant\rag\.venv\Scripts\python.exe .\backend\assistant\deploy\Prepare-AssistantReadersLocal.py --verify-only
 ```
 
-脚本为 Agent 业务查询、工作台身份校验、订单图谱导出和历史经验检索分别创建限本机 TCP 使用的 SELECT 账号，凭据保存为本目录的 `.env.agent-read.local`、`.env.workbench-read.local`、`.env.trace-read.local` 和 `.env.history-read.local`。各启动器按用途加载，缺少文件时请先运行初始化命令。重复运行会核对现有权限，`--verify-only` 直接以四个查询账号验证授权、角色及限定表投影。工作台的订单草稿操作仍走 MES 接口，`Prepare-OrderDraftsLocal.py` 继续使用管理配置。已有本机安装可先准备账号，在下次正常启动时加载新凭据。
+脚本为 Agent 业务查询、工作台身份校验、订单图谱导出和历史经验检索分别创建限本机 TCP 使用的 SELECT 账号，凭据保存为本目录的 `.env.agent-read.local`、`.env.workbench-read.local`、`.env.trace-read.local` 和 `.env.history-read.local`。各启动器按用途加载，缺少文件时请先运行初始化命令。重复运行会核对现有权限，`--verify-only` 直接以四个查询账号验证授权、角色及限定表投影。工作台的订单草稿操作仍走 MES 接口。已有本机安装可先准备账号，在下次正常启动时加载新凭据。
 
 Java 读连接超时为 5 秒、套接字超时为 20 秒，默认查询超时为 15 秒。Python 历史读取使用只读一致性快照，连接超时为 3 秒、读取超时为 12 秒，单条 SELECT 的服务端预算为 8 秒。维修及不合格品经验账号只读取事实投影涉及的 9 张表的指定列。
 

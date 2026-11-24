@@ -59,7 +59,7 @@ $env:MES_KNOWLEDGE_API_KEY = [Net.NetworkCredential]::new('', (Read-Host '知识
 
 现有 MES 继续监听 `8088`；维护运行时监听 `18082`；新增网关只绑定 `127.0.0.1:18083`。启动网关不会重启 MES，也不会修改原助手或 Dify 应用。前端通过 Vite 同源 `/api/assistant-workbench` 代理访问网关 `/assistant-workbench`。
 
-1. 保留现有 `.env.agents.local` 中的 BOOTSTRAP 和订单白名单。新机先按第五阶段步骤运行 `Prepare-AssistantReadersLocal.py`。网关从 `.env.workbench-read.local` 加载身份核验专用账号，权限限于用户、角色、菜单及角色菜单映射的指定列。[只读账号初始化](STAGE5-AGENTS-SETUP.md)
+1. 保留现有 `.env.agents.local` 中的 BOOTSTRAP 和订单白名单。新机先按第五阶段步骤运行 `Initialize-MesAssistant.py`。网关从 `.env.workbench-read.local` 加载身份核验专用账号，权限限于用户、角色、菜单及角色菜单映射的指定列。[只读账号初始化](STAGE5-AGENTS-SETUP.md)
 2. 将 `.env.workbench.local.example` 复制为 `.env.workbench.local`，填入第五阶段 SUP 应用（`82cda4ca-f087-48c6-9f1b-f8004e55fd4d`）的**应用 API 密钥**。此文件已被 `backend/assistant/.gitignore` 忽略，不得提交。默认 Dify API 地址为 `http://127.0.0.1:18080/v1`。不要放入浏览器环境或聊天。
 3. 运行 `Build-AssistantRuntime.ps1`，构建输出位于 `assistant/rag/data/runtime-build/classes`，不覆盖正在运行的 MES 的 `target/classes`。仅在确认 PID 属于 `stage5-java.args` 对应的独立 JVM 后重启该 JVM，运行 `Start-AgentRuntimeLocal.ps1`；不要停止原 MES。
 4. 运行 `powershell -File backend/assistant/deploy/Start-WorkbenchLocal.ps1 -Build`。脚本隐藏启动窗口，拒绝占用端口，不会停止已有进程。密钥为空时网关可启动，已认证管理员访问 status 返回 `configured:false`。
@@ -141,6 +141,6 @@ QUALITY/AFTERSALES 的固定 research 节点调用 Java 运行时，运行时以
 本轮参考Element Plus X的执行链与内容区交互，在现有Vue组件内自行实现，无新UI依赖。刷新前端即可，无需新增API或重启Dify、MES与独立助手。实施及验证详见docs/ai-planning-2026-11-07/planning/26-conversational-results-ui.md。
 ### 日常问答与业务分流
 
-独立工作台网关启动时从进程环境读取 `DASHSCOPE_API_KEY`。已配置时，聊天页先使用千问 API 识别请求；日常对话由模型流式回答，业务查询进入原有 Dify 和授权工具，下单进入订单草稿流程。仅上一轮日常问答的文本会随日常追问传入，业务表格和订单草稿不会作为日常历史传入。缺少此变量时沿用原有业务入口。
+新机初始化会将千问密钥保存到本机私有的 `.env.daily-chat.local`。工作台启动脚本每次启动都从该文件读取 `DASHSCOPE_API_KEY` 并传给网关。已有部署也可以继续通过进程环境提供此变量。已配置时，聊天页先使用千问 API 识别请求；日常对话由模型流式回答，业务查询进入原有 Dify 和授权工具，下单进入订单草稿流程。仅上一轮日常问答的文本会随日常追问传入，业务表格和订单草稿不会作为日常历史传入。缺少此变量时沿用原有业务入口。
 
 天气查询使用 Open-Meteo 的地名和预报接口，先确认城市，按当地日期返回未来七天以内的单日预报。网关需要能够访问 DashScope、`geocoding-api.open-meteo.com` 与 `api.open-meteo.com`，可读取 HTTP 类型的 `HTTPS_PROXY`。天气数据未返回时会说明原因。修改环境变量后重新启动独立工作台网关。

@@ -4,6 +4,14 @@ $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'AgentRuntime.Common.ps1')
 $agentConfig = Read-AgentRuntimeConfig
 $config = Read-AssistantReaderConfig -Reader workbench
+$dailyConfig = Join-Path $PSScriptRoot '.env.daily-chat.local'
+if (Test-Path -LiteralPath $dailyConfig -PathType Leaf) {
+    $lines = [IO.File]::ReadAllLines($dailyConfig)
+    if ($lines.Length -ne 1 -or $lines[0] -cnotmatch '^DASHSCOPE_API_KEY=(\S+)$') {
+        throw 'Invalid daily chat configuration in .env.daily-chat.local.'
+    }
+    $config['DASHSCOPE_API_KEY'] = $matches[1]
+}
 foreach ($name in @('MES_AGENT_BOOTSTRAP_KEY','MES_AGENT_ALLOWED_ORDER_IDS')) {
     $config[$name] = $agentConfig[$name]
 }

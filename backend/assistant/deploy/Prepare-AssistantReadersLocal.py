@@ -6,6 +6,7 @@ import re
 import secrets
 import subprocess
 import sys
+import tempfile
 from urllib.parse import parse_qs, urlencode, urlparse
 
 import pymysql
@@ -86,12 +87,21 @@ def connect(config, select_schema=True):
 
 
 def write_private(path, content):
-    # Private values never enter arguments or console output. O_EXCL prevents clobbering local credentials.
-    with os.fdopen(os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600), 'w', encoding='utf-8') as file:
-        restrict_file(path)
-        file.write(content)
-        file.flush()
-        os.fsync(file.fileno())
+    # Publish a fully written private file without replacing an existing credential on a retry.
+    fd, name = tempfile.mkstemp(prefix=path.name + '.', suffix='.tmp', dir=path.parent)
+    temporary = Path(name)
+    try:
+        with os.fdopen(fd, 'w', encoding='utf-8') as file:
+            restrict_file(temporary)
+            file.write(content)
+            file.flush()
+            os.fsync(file.fileno())
+        if os.name == 'nt':
+            os.rename(temporary, path)  # Windows refuses to replace an existing file.
+        else:
+            os.link(temporary, path)
+    finally:
+        temporary.unlink(missing_ok=True)
 
 
 def restrict_file(path):

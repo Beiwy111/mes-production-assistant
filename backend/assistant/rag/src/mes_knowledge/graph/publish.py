@@ -25,7 +25,7 @@ def collect_chunks(vector, manifest):
     return chunks
 
 
-def publish_graph(vector, graph, bundle, manifest):
+def publish_graph(vector, graph, bundle, manifest, *, claims_hash=None):
     data_dir = vector.data_dir
     with FileLock(str(data_dir / '.graph-publish.lock'), timeout=1):
         if vector.active()['release_id'] != manifest['release_id']:
@@ -43,6 +43,8 @@ def publish_graph(vector, graph, bundle, manifest):
             'vector_release_id': manifest['release_id'], 'embedding_signature': manifest['embedding_signature'],
             'collection': manifest['collection'], 'domain': 'display_reference', 'status': 'READY',
             'counts': counts, 'entities': bundle['entities'], 'published_at': datetime.now(timezone.utc).isoformat()}
+        if claims_hash:
+            receipt['claims_sha256'] = claims_hash
         target = data_dir / 'graph-releases'
         target.mkdir(exist_ok=True)
         atomic_json(target / (generation + '.json'), receipt)

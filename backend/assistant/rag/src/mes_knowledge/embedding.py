@@ -13,19 +13,28 @@ from .corpus import sha256_file
 
 MODEL_NAME = 'intfloat/multilingual-e5-small'
 MODEL_REVISION = '614241f622f53c4eeff9890bdc4f31cfecc418b3'
-MODEL_FILES = ('onnx/model.onnx', 'tokenizer.json')
+MODEL_FILES = {
+    'onnx/model.onnx': 'ca456c06b3a9505ddfd9131408916dd79290368331e7d76bb621f1cba6bc8665',
+    'tokenizer.json': '0b44a9d7b51c3c62626640cda0e2c2f70fdacdc25bbbd68038369d14ebdf4c39',
+}
 
 
 def prepare_model(directory: Path) -> dict:
     directory.mkdir(parents=True, exist_ok=True)
     hashes = {}
-    for name in MODEL_FILES:
-        path = hf_hub_download(MODEL_NAME, filename=name, revision=MODEL_REVISION, local_dir=directory)
-        hashes[name] = sha256_file(Path(path))
+    for name, expected in MODEL_FILES.items():
+        path = directory / name
+        if not path.exists() or sha256_file(path) != expected:
+            downloaded = hf_hub_download(MODEL_NAME, filename=name, revision=MODEL_REVISION,
+                                         local_dir=directory, force_download=path.exists(), token=False)
+            if sha256_file(Path(downloaded)) != expected:
+                raise ValueError('Downloaded file differs from pinned E5 model: ' + name)
+        hashes[name] = expected
     metadata = {'name': MODEL_NAME, 'revision': MODEL_REVISION, 'files': hashes,
                 'dimension': 384, 'pooling': 'attention-mask-mean-l2',
                 'document_prefix': 'passage: ', 'query_prefix': 'query: ', 'max_tokens': 512}
-    (directory / 'model-manifest.json').write_text(json.dumps(metadata, indent=2), encoding='utf-8')
+    from .indexing import atomic_json
+    atomic_json(directory / 'model-manifest.json', metadata)
     return metadata
 
 
@@ -36,7 +45,7 @@ class E5Embedding:
         metadata = json.loads((directory / 'model-manifest.json').read_text(encoding='utf-8'))
         if metadata['name'] != MODEL_NAME or metadata['revision'] != MODEL_REVISION:
             raise ValueError('Embedding model revision differs from this implementation')
-        if set(metadata['files']) != set(MODEL_FILES):
+        if metadata['files'] != MODEL_FILES:
             raise ValueError('Model files differ from the pinned manifest')
         for name, expected in metadata['files'].items():
             if sha256_file(directory / name) != expected:

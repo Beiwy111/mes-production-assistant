@@ -1,5 +1,6 @@
 """Explicit commands; no import-time network calls or database mutations."""
 import argparse
+import hashlib
 import json
 from pathlib import Path
 
@@ -104,9 +105,10 @@ def main():
             vector = open_store(settings)
             if args.command == 'graph-build':
                 manifest = vector.active()
-                catalog = json.loads(args.claims.read_text(encoding='utf-8'))
+                raw_claims = args.claims.read_bytes()
+                catalog = json.loads(raw_claims)
                 bundle = prepare_graph(catalog, manifest, collect_chunks(vector, manifest))
-                result = publish_graph(vector, graph, bundle, manifest)
+                result = publish_graph(vector, graph, bundle, manifest, claims_hash=hashlib.sha256(raw_claims).hexdigest())
             else:
                 result = GraphSearch(vector, graph).trace(args.entity_id, 8)
             print(json.dumps(result, ensure_ascii=False, indent=2))
