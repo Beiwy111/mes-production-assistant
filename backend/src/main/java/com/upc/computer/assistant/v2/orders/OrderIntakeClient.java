@@ -2,6 +2,8 @@ package com.upc.computer.assistant.v2.orders;
 
 import com.fasterxml.jackson.databind.*;
 import com.upc.computer.common.BusinessException;
+import com.upc.computer.assistant.v2.chat.ChatMode;
+import com.upc.computer.assistant.v2.chat.WorkbenchModelChat;
 import org.springframework.stereotype.Component;
 import java.net.URI;
 import java.net.http.*;
@@ -12,7 +14,12 @@ import java.util.Map;
 public class OrderIntakeClient {
     private final ObjectMapper json;
     private final HttpClient http=HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build();
-    public OrderIntakeClient(ObjectMapper json){this.json=json;}
+    private final WorkbenchModelChat models;
+    public OrderIntakeClient(ObjectMapper json, WorkbenchModelChat models) { this.json=json; this.models=models; }
+
+    public JsonNode interpret(ChatMode mode, String text, Map<String,Object> context) {
+        return models.interpretOrder(mode, text, context);
+    }
     public JsonNode interpret(String authorization,String text,Map<String,Object> context) {
         try {
             String body=json.writeValueAsString(Map.of("text",text,"context",json.writeValueAsString(context)));

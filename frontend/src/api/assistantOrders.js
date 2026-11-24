@@ -18,7 +18,7 @@ async function request(token, path, data, { signal } = {}) {
   return body.code === 200 ? body.data : body
 }
 
-export const orderStatus = (token) => request(token, '/status')
+export const orderStatus = (token) => request(token, '/status', undefined, { signal: AbortSignal.timeout(6000) })
 export const orderTurn = (token, data, options) => request(token, '/turn', data, options)
 export const getOrderDraft = (token, id) => request(token, `/drafts/${encodeURIComponent(id)}`)
 export const reviseOrderDraft = (token, id, data, options) => request(token, `/drafts/${encodeURIComponent(id)}/revise`, data, options)

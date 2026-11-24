@@ -64,6 +64,14 @@ class OrderDraftServiceTest {
         when(intake.interpret(anyString(),eq("确认下单"),anyMap())).thenReturn(json.readTree("{\"action\":\"ORDER\",\"fields\":{},\"clearFields\":[],\"question\":\"\"}"));
         service.turn(user,"Bearer test","session","q2","确认下单");verifyNoInteractions(writer);assertThat(draft.status).isEqualTo("READY");
     }
+    @Test void selectedModelIsUsedBeforeAnyDraftWrite() throws Exception {
+        var mode = com.upc.computer.assistant.v2.chat.ChatMode.parse("LOCAL", true);
+        when(intake.interpret(eq(mode), eq("查订单"), anyMap())).thenReturn(json.readTree("{\"action\":\"QUERY\"}"));
+        assertThat(service.turn(user, "Bearer test", "session", "q-mode", "查订单", mode)).containsEntry("handled", false);
+        verify(intake).interpret(eq(mode), eq("查订单"), anyMap());
+        verify(intake, never()).interpret(anyString(), anyString(), anyMap());
+        verifyNoInteractions(writer);
+    }
     @Test void newOrderMergesQuantityThenProductWithoutSubmitting() throws Exception {
         when(intake.interpret(anyString(),anyString(),anyMap())).thenReturn(json.readTree("{\"action\":\"ORDER\",\"fields\":{\"quantity\":\"100\",\"productQuery\":\"显示器\"},\"clearFields\":[]}"));
         OrderDraftRepository.Draft fresh=new OrderDraftRepository.Draft();fresh.id=UUID.nameUUIDFromBytes("5:new-session".getBytes(java.nio.charset.StandardCharsets.UTF_8)).toString();fresh.owner=5;fresh.role="ADMIN";fresh.sessionId="new-session";fresh.expiresAt=LocalDateTime.now().plusHours(23);

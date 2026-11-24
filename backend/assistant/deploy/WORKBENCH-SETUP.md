@@ -15,6 +15,34 @@
 
 初始化会在部署目录生成 Git 忽略的 `.env.ingestion.local`。私有图使用本机 Bolt 端口 17688 和独立 Docker 卷，Qdrant 使用独立集合，原件与处理记录存放在知识服务的数据目录。初始化后需让已运行的 18081 知识服务重新启动一次，以加载本机凭据。此后沿用前后端的日常启动方式即可。私库的上传、原件下载和检索都通过 MES 管理员会话鉴权。
 
+## 在生产协作助手选择回答方式
+
+在 `/assistant` 输入框上方选择“API 模型”或“本地模型”，再决定是否开启“RAG 知识检索”。两种模型均由现有 MES 后端（8088）使用当前用户的登录会话调用。原有 Dify 多 Agent 的入口为“业务工作流”，仍使用独立网关及工作流内的检索策略。 模型运行在另一台电脑时，参见 [Windows 通过 Tailscale 连接 Ubuntu 模型](TAILSCALE-MODEL.md)。
+
+在**启动 MES 后端的同一个 PowerShell 窗口**配置所需的模型。后端读取环境变量或 Spring 私有配置。示例中的地址和模型名请替换成已部署服务的实际值。
+
+```powershell
+# API：默认复用 deepseek.api-url、deepseek.model、deepseek.api-key，也可单独指定。
+$env:MES_CHAT_API_BASE_URL = 'https://api.deepseek.com/v1'
+$env:MES_CHAT_API_MODEL = '你的 API 模型名'
+$env:MES_CHAT_API_KEY = [Net.NetworkCredential]::new('', (Read-Host 'API 模型密钥' -AsSecureString)).Password
+
+# 本地：支持 Ollama、llama.cpp 等提供 OpenAI 兼容 chat/completions 的服务。
+# 同机可使用 http://127.0.0.1:11434/v1；远程服务请填写 Windows 能访问的局域网地址或 Tailscale 转发地址。
+$env:MES_CHAT_LOCAL_BASE_URL = 'http://192.168.1.100:11434/v1'
+$env:MES_CHAT_LOCAL_MODEL = '你的本地模型名'
+# 本地推理服务启用认证时，设置 MES_CHAT_LOCAL_API_KEY。
+
+# 仅在启用 RAG 时需要。使用当前 MES 知识服务已配置的查询密钥。
+$env:MES_KNOWLEDGE_API_KEY = [Net.NetworkCredential]::new('', (Read-Host '知识服务查询密钥' -AsSecureString)).Password
+```
+
+配置后重启 MES 后端，进入助手页面点击“刷新连接状态”。“已配置”表示服务端已载入该模式的参数。RAG 开启时会实际访问 `127.0.0.1:18081/internal/knowledge/query`，将经过校验的文献片段连同问题送给选中的模型，并显示引用或无匹配结果。RAG 关闭时跳过知识服务。模型或知识服务故障时本轮会返回错误，由用户决定是否切换模式。
+
+普通模型问答无需启动 Dify、18083 或初始化订单草稿表。实时业务查询继续使用按角色和数据范围授权的只读工具；自然语言下单仍需订单草稿表、原角色权限和最后的显式确认。模型来源切换时不会向另一个模型转发上一种模式的对话历史；有订单草稿时切换来源会开启新会话，原草稿保留在原会话中。
+
+模型状态与普通问答通过 `GET /assistant-v2/chat/status` 和 `POST /assistant-v2/chat/turn` 访问。后者接收 `text`、`modelSource`（`API` 或 `LOCAL`）、布尔值 `ragEnabled` 和可选的同模式 `history`。订单的 `POST /assistant-v2/orders/turn` 支持同样的两个模式字段；省略两者保留原工作流协议。浏览器只使用 MES 令牌，模型地址和服务密钥保存在后端。
+
 自然语言下单已接入：详见 [CONVERSATIONAL-ORDER-SETUP.md](CONVERSATIONAL-ORDER-SETUP.md)。管理员和订单员可代录订单，客户可按自身绑定身份下单；旧有全域查询仍限管理员。新增下单分支与下述只读查询分支分别鉴权。
 
 ## 日常启动

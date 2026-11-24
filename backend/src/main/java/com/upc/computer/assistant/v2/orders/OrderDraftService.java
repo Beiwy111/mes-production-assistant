@@ -3,6 +3,7 @@ package com.upc.computer.assistant.v2.orders;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.*;
 import com.upc.computer.common.BusinessException;
+import com.upc.computer.assistant.v2.chat.ChatMode;
 import com.upc.computer.dto.LoginResponse;
 import com.upc.computer.entity.Material;
 import org.springframework.stereotype.Service;
@@ -25,10 +26,14 @@ public class OrderDraftService {
     public Map<String,Object> status(LoginResponse user){return Map.of("available",repository.ready(),"roles",List.of("ADMIN","ORDER","CUSTOMER"),"canQuery","ADMIN".equals(user.getRoleCode()),"message","下单流程需要确认后才提交业务订单");}
 
     public Map<String,Object> turn(LoginResponse user,String authorization,String sessionId,String requestId,String text) {
+        return turn(user, authorization, sessionId, requestId, text, null);
+    }
+
+    public Map<String,Object> turn(LoginResponse user,String authorization,String sessionId,String requestId,String text,ChatMode mode) {
         identifier(sessionId);identifier(requestId);
         if(text==null||text.isBlank()||text.length()>2000)throw bad("问题须为1至2000个字符");
         Draft before=repository.bySession(user.getUserId(),sessionId);
-        String hash=OrderProductCatalog.hash(text);
+        String hash=OrderProductCatalog.hash(mode == null ? text : mode.modelSource() + "\n" + mode.ragEnabled() + "\n" + text);
         if(before!=null) {
             owner(before,user);
             if(requestId.equals(before.lastRequest)) {sameHash(before,hash);return envelope(before,"已恢复本轮订单草稿。",steps("ORDER","恢复草稿","读取已保存的结果，没有重复执行"));}
@@ -36,7 +41,7 @@ public class OrderDraftService {
         Map<String,Object> context=new LinkedHashMap<>();context.put("currentDate",LocalDate.now(clock).toString());context.put("dateTimezone","Asia/Shanghai");
         context.put("draft",before==null?Map.of():Map.of("status",before.status,"fields",before.fields));
         context.put("customerIdentityLocked","CUSTOMER".equals(user.getRoleCode()));
-        JsonNode parsed=intake.interpret(authorization,text,context);
+        JsonNode parsed = mode == null ? intake.interpret(authorization, text, context) : intake.interpret(mode, text, context);
         String action=parsed.path("action").asText();
         if(!Set.of("ORDER","QUERY","CANCEL").contains(action))throw bad("未能识别需求，请说明要下单还是查询");
         if(action.equals("QUERY"))return Map.of("handled",false,"reply","","steps",List.of());

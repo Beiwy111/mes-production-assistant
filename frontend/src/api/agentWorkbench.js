@@ -47,11 +47,13 @@ async function readResponse(response, token) {
   }
   return body?.code === 200 ? body.data : body
 }
+export { readResponse as readWorkbenchResponse }
 export async function workbenchStatus(token) {
   return readResponse(
     await fetch(`${BASE}/status`, {
       headers: headers(token),
       cache: 'no-store',
+      signal: AbortSignal.timeout(6000),
     }),
     token,
   )
