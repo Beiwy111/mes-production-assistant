@@ -12,6 +12,8 @@ import com.upc.computer.mapper.NonconformingProductMapper;
 import com.upc.computer.mapper.QualityInspectionItemMapper;
 import com.upc.computer.mapper.QualityInspectionMapper;
 import com.upc.computer.service.MesWorkflowService;
+import com.upc.computer.service.InspectionRoundHistory;
+import com.upc.computer.service.InspectionRoundHistory.Event;
 import com.upc.computer.service.QualityService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -31,15 +33,37 @@ public class QualityServiceImpl implements QualityService {
     @Autowired private MaterialMapper materialMapper;
     @Autowired private WorkOrderMapper workOrderMapper;
     @Autowired private MesWorkflowService mesWorkflowService;
+    @Autowired private InspectionRoundHistory history;
 
     private static final DateTimeFormatter FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
     // ── CRUD ──────────────────────────────────────────────────
     @Override public ArrayList<QualityInspection> inspectionList() { return inspectionMapper.inspectionList(); }
     @Override public QualityInspection getInspectionById(Long id)  { return inspectionMapper.getInspectionById(id); }
-    @Override public void insertInspection(QualityInspection i)    { i.setCreatedAt(LocalDateTime.now()); i.setUpdatedAt(LocalDateTime.now()); inspectionMapper.insertInspection(i); }
-    @Override public void updateInspection(QualityInspection i)    { i.setUpdatedAt(LocalDateTime.now()); inspectionMapper.updateInspection(i); }
-    @Override public void deleteInspection(Long id)                { inspectionMapper.deleteInspection(id); }
+    @Override @Transactional
+    public void insertInspection(QualityInspection inspection) {
+        inspection.setCreatedAt(LocalDateTime.now());
+        inspection.setUpdatedAt(inspection.getCreatedAt());
+        inspectionMapper.insertInspection(inspection);
+        history.append(inspection.getInspectionId(), Event.OPENED, null);
+    }
+
+    @Override @Transactional
+    public void updateInspection(QualityInspection inspection) {
+        if (inspectionMapper.getInspectionById(inspection.getInspectionId()) == null) return;
+        history.beforeWrite(inspection.getInspectionId());
+        inspection.setUpdatedAt(LocalDateTime.now());
+        inspectionMapper.updateInspection(inspection);
+        history.append(inspection.getInspectionId(), Event.HEADER_UPDATED, null);
+    }
+
+    @Override @Transactional
+    public void deleteInspection(Long id) {
+        if (inspectionMapper.getInspectionById(id) == null) return;
+        history.beforeWrite(id);
+        history.append(id, Event.DELETED, null);
+        inspectionMapper.deleteInspection(id);
+    }
     @Override public ArrayList<NonconformingProduct> nonconformingList()  { return nonconformingMapper.nonconformingList(); }
     @Override public NonconformingProduct getNonconformingById(Long id)   { return nonconformingMapper.getNonconformingById(id); }
     @Override public void insertNonconforming(NonconformingProduct n)     { n.setCreatedAt(LocalDateTime.now()); n.setUpdatedAt(LocalDateTime.now()); nonconformingMapper.insertNonconforming(n); }
@@ -147,6 +171,8 @@ public class QualityServiceImpl implements QualityService {
     @Override
     @Transactional
     public void saveItems(Long inspectionId, List<QualityInspectionItem> items) {
+        QualityInspection inspection = history.beforeWrite(inspectionId);
+        Event event = history.itemSaveEvent(inspection, items);
         itemMapper.deleteByInspectionId(inspectionId);
         LocalDateTime now = LocalDateTime.now();
         for (int i = 0; i < items.size(); i++) {
@@ -160,13 +186,13 @@ public class QualityServiceImpl implements QualityService {
             item.setUpdatedAt(now);
             itemMapper.insert(item);
         }
+        history.append(inspectionId, event, null);
     }
 
     @Override
     @Transactional
     public List<QualityInspectionItem> generateDefaultItems(Long inspectionId) {
-        QualityInspection insp = inspectionMapper.getInspectionById(inspectionId);
-        if (insp == null) throw new BusinessException("质检单不存在");
+        QualityInspection insp = history.beforeWrite(inspectionId);
         itemMapper.deleteByInspectionId(inspectionId);
 
         // 获取物料规格信息，用于差异化标准值
@@ -191,6 +217,7 @@ public class QualityServiceImpl implements QualityService {
             item.setCreatedAt(now); item.setUpdatedAt(now);
             itemMapper.insert(item);
         }
+        history.append(inspectionId, Event.ITEMS_RESET, null);
         return defaults;
     }
 
@@ -275,8 +302,9 @@ public class QualityServiceImpl implements QualityService {
     @Override @Transactional
     public QualityInspection passInspection(Long id, String remark, String operator,
                                             Integer sampleQty, Integer qualifiedQty, Integer unqualifiedQty) {
-        QualityInspection i = requireInspection(id);
+        QualityInspection i = history.beforeWrite(id);
         if ("CLOSED".equals(i.getInspectionStatus())) throw new BusinessException("质检单已关闭");
+        Event decision = history.decisionEvent(i);
         applySamplingQuantities(i, sampleQty, qualifiedQty, unqualifiedQty, true);
         int unqual = i.getUnqualifiedQuantity() != null ? i.getUnqualifiedQuantity().intValue() : 0;
         if (unqual > 0) {
@@ -287,6 +315,7 @@ public class QualityServiceImpl implements QualityService {
         i.setInspectionStatus("PASSED"); i.setInspectionResult("QUALIFIED");
         i.setInspectedAt(LocalDateTime.now()); i.setRemark(remark); i.setUpdatedAt(LocalDateTime.now());
         inspectionMapper.updateInspection(i);
+        history.append(id, decision, operator);
         closeSupersededPendingInspections(i);
         mesWorkflowService.afterInspectionPassed(i, operator, "quality");
         return i;
@@ -295,8 +324,9 @@ public class QualityServiceImpl implements QualityService {
     @Override @Transactional
     public QualityInspection failInspection(Long id, String defectType, String defectReason,
                                             BigDecimal qty, String severity, String remark, String operator) {
-        QualityInspection i = requireInspection(id);
+        QualityInspection i = history.beforeWrite(id);
         if ("CLOSED".equals(i.getInspectionStatus())) throw new BusinessException("质检单已关闭");
+        Event decision = history.decisionEvent(i);
         BigDecimal defectQty = qty != null && qty.signum() > 0 ? qty : BigDecimal.ONE;
         if (i.getUnqualifiedQuantity() == null || i.getUnqualifiedQuantity().signum() <= 0) {
             i.setUnqualifiedQuantity(defectQty);
@@ -309,25 +339,28 @@ public class QualityServiceImpl implements QualityService {
         i.setInspectionStatus("FAILED"); i.setInspectionResult("UNQUALIFIED");
         i.setInspectedAt(LocalDateTime.now()); i.setRemark(remark); i.setUpdatedAt(LocalDateTime.now());
         inspectionMapper.updateInspection(i);
+        history.append(id, decision, operator);
         ensureNonconformingRegistered(i, defectType, defectReason, defectQty, severity, operator);
         return i;
     }
 
     @Override @Transactional
     public QualityInspection requireRecheck(Long id, String reason, String operator) {
-        QualityInspection i = requireInspection(id);
+        QualityInspection i = history.beforeWrite(id);
         if ("CLOSED".equals(i.getInspectionStatus())) throw new BusinessException("质检单已关闭");
         if (!List.of("PENDING", "RECHECK_REQUIRED", "FAILED").contains(i.getInspectionStatus())) {
             throw new BusinessException("当前质检状态不允许转复检");
         }
         i.setInspectionStatus("RECHECK_REQUIRED"); i.setInspectionType("RECHECK");
         i.setRemark(reason); i.setUpdatedAt(LocalDateTime.now());
-        inspectionMapper.updateInspection(i); return i;
+        inspectionMapper.updateInspection(i);
+        history.append(id, Event.RECHECK_REQUESTED, operator);
+        return i;
     }
 
     @Override @Transactional
     public QualityInspection recheckPass(Long id, String remark, String operator) {
-        QualityInspection i = requireInspection(id);
+        QualityInspection i = history.beforeWrite(id);
         if (!"RECHECK_REQUIRED".equals(i.getInspectionStatus()))
             throw new BusinessException("仅需复检状态可执行复检通过");
         int qualQty = resolveQualifiedQty(i);
@@ -336,6 +369,7 @@ public class QualityServiceImpl implements QualityService {
         i.setInspectionStatus("PASSED"); i.setInspectionResult("QUALIFIED");
         i.setInspectedAt(LocalDateTime.now()); i.setRemark(remark); i.setUpdatedAt(LocalDateTime.now());
         inspectionMapper.updateInspection(i);
+        history.append(id, Event.RECHECK_PASSED, operator);
         closeSupersededPendingInspections(i);
         completeNonconformingForInspection(i.getInspectionId(), "REWORK", remark);
         mesWorkflowService.afterInspectionPassed(i, operator, "quality");
@@ -345,12 +379,13 @@ public class QualityServiceImpl implements QualityService {
     @Override @Transactional
     public QualityInspection recheckFail(Long id, String defectType, String defectReason,
                                          BigDecimal qty, String severity, String remark, String operator) {
-        QualityInspection i = requireInspection(id);
+        QualityInspection i = history.beforeWrite(id);
         if (!"RECHECK_REQUIRED".equals(i.getInspectionStatus()))
             throw new BusinessException("仅需复检状态可执行复检不通过");
         i.setInspectionStatus("FAILED"); i.setInspectionResult("UNQUALIFIED");
         i.setInspectedAt(LocalDateTime.now()); i.setRemark(remark); i.setUpdatedAt(LocalDateTime.now());
         inspectionMapper.updateInspection(i);
+        history.append(id, Event.RECHECK_FAILED, operator);
         completeNonconformingForInspection(i.getInspectionId(), "SCRAP", remark);
         ensureNonconformingRegistered(i, defectType, defectReason, qty, severity, operator);
         return i;
@@ -358,10 +393,12 @@ public class QualityServiceImpl implements QualityService {
 
     @Override @Transactional
     public QualityInspection closeInspection(Long id, String remark, String operator) {
-        QualityInspection i = requireInspection(id);
+        QualityInspection i = history.beforeWrite(id);
         if ("CLOSED".equals(i.getInspectionStatus())) throw new BusinessException("质检单已关闭");
         i.setInspectionStatus("CLOSED"); i.setRemark(remark); i.setUpdatedAt(LocalDateTime.now());
-        inspectionMapper.updateInspection(i); return i;
+        inspectionMapper.updateInspection(i);
+        history.append(id, Event.CLOSED, operator);
+        return i;
     }
 
     @Override @Transactional
@@ -417,12 +454,13 @@ public class QualityServiceImpl implements QualityService {
         qi.setCreatedAt(LocalDateTime.now());
         qi.setUpdatedAt(LocalDateTime.now());
         inspectionMapper.insertInspection(qi);
+        history.append(qi.getInspectionId(), Event.OPENED, operator);
         return qi;
     }
 
     @Override @Transactional
     public QualityInspection updateSampling(Long inspectionId, int sampleQty, int qualifiedQty, int unqualifiedQty, String operator) {
-        QualityInspection i = requireInspection(inspectionId);
+        QualityInspection i = history.beforeWrite(inspectionId);
         if (!List.of("PENDING", "RECHECK_REQUIRED").contains(i.getInspectionStatus())) {
             throw new BusinessException("当前状态不可修改抽样数据");
         }
@@ -435,6 +473,7 @@ public class QualityServiceImpl implements QualityService {
         i.setUnqualifiedQuantity(BigDecimal.valueOf(unqualifiedQty));
         i.setUpdatedAt(LocalDateTime.now());
         inspectionMapper.updateInspection(i);
+        history.append(inspectionId, Event.SAMPLING_UPDATED, operator);
         if (unqualifiedQty > 0) {
             ensureNonconformingRegistered(i, "外观缺陷",
                     "成品质检抽检发现 " + unqualifiedQty + " 台不合格",
@@ -444,13 +483,6 @@ public class QualityServiceImpl implements QualityService {
     }
 
     // ── 内部工具 ──────────────────────────────────────────────
-    private QualityInspection requireInspection(Long id) {
-        if (id == null) throw new BusinessException("inspectionId 不能为空");
-        QualityInspection i = inspectionMapper.getInspectionById(id);
-        if (i == null) throw new BusinessException("质检单不存在: " + id);
-        return i;
-    }
-
     private int resolveQualifiedQty(QualityInspection inspection) {
         int qual = inspection.getQualifiedQuantity() != null
                 ? inspection.getQualifiedQuantity().intValue() : 0;
@@ -578,12 +610,17 @@ public class QualityServiceImpl implements QualityService {
             if (!"FINISHED_PRODUCT".equals(other.getInspectionCategory())) continue;
             String st = other.getInspectionStatus();
             if (!"PENDING".equals(st) && !"RECHECK_REQUIRED".equals(st)) continue;
+            other = history.beforeWrite(other.getInspectionId());
+            if (!Objects.equals(passed.getWorkOrderId(), other.getWorkOrderId())
+                    || !"FINISHED_PRODUCT".equals(other.getInspectionCategory())
+                    || !List.of("PENDING", "RECHECK_REQUIRED").contains(other.getInspectionStatus())) continue;
             String note = "同工单质检单 " + passed.getInspectionNo() + " 已通过，本单自动关闭";
             other.setInspectionStatus("CLOSED");
             other.setRemark(other.getRemark() != null && !other.getRemark().isBlank()
                     ? other.getRemark() + "；" + note : note);
             other.setUpdatedAt(now);
             inspectionMapper.updateInspection(other);
+            history.append(other.getInspectionId(), Event.AUTO_CLOSED, null);
         }
     }
 

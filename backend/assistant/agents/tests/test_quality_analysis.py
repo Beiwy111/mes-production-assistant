@@ -1,6 +1,23 @@
 import json
 from test_natural_planning import module, context, RUN
 
+def test_trace_conflict_cannot_publish_stale_rate_or_promote_later_save_to_recheck():
+    m=module('stage5_nodes')
+    trace={'status':'FOUND','inspection':[{'inspection_no':'QI-ABC','sample_quantity':10,'unqualified_quantity':0,
+            'inspection_status':'RECHECK_REQUIRED','inspection_result':'UNQUALIFIED'}],
+           'sampleRateStatus':'WITHHELD_CONFLICT','confirmedSampleRejectRate':'0%',
+           'legacyBaseline':{'kind':'DEMO_SEED_REFERENCE','unqualified_quantity':2},
+           'inspectionEvents':[{'event_type':'ITEMS_SAVED','recorded_at':'2026-08-01','items':[{'item_code':'FP-08','measured_value':'合格'}]}],
+           'items':[{'item_code':'FP-08','result':'PASSED','updated_at':'2026-08-01'}],
+           'defects':[{'nonconforming_no':'NC-C','quantity':1,'handle_method':'CONCESSION'}],
+           'sampleBindings':[{'binding_id':4,'nonconforming_no':'NC-C','sample_label':'AX'}],
+           'sampleMeasurements':[{'binding_id':4,'sample_label':'AX','step_name':'装配','metric_name':'色差','before_value':'1.3','after_value':None,'source_ref':'R1'}]}
+    packet=m.inspection_review({},trace)
+    assert packet['confirmed_sample_reject_rate'] is None and '不合格率待核实' in packet['first_verification']
+    assert packet['inspection_events']==trace['inspectionEvents'] and packet['seed_reference']['kind']=='DEMO_SEED_REFERENCE'
+    assert packet['recorded_checks'][0]['updated_at']=='2026-08-01' and packet['recorded_defects'][0]['handle_method']=='CONCESSION'
+    assert packet['sample_bindings'][0]['nonconforming_no']=='NC-C' and 'after_value' not in packet['sample_measurements'][0]
+
 def test_quality_and_aftersales_research_is_a_real_fixed_step():
     m=module('build_stage5'); providers={r:'11111111-1111-4111-8111-111111111111' for r in [*m.ROLE_NAMES,'KNOWLEDGE']}
     for role in ['QUALITY','AFTERSALES']:

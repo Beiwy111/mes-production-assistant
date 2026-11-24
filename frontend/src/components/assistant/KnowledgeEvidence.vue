@@ -6,7 +6,7 @@ const relation = (value) => ({ DETECTS: '检测', USES: '使用', CLASSIFIES: '�
 
 <template>
   <details v-for="(bundle, index) in bundles" :key="`${bundle.agentId}-${index}`" class="research-bundle">
-    <summary>{{ AGENTS[bundle.agentId].name }} · 公开资料 <span>{{ bundle.hits.length }} 条可核验来源</span></summary>
+    <summary>{{ AGENTS[bundle.agentId].name }} · 本轮公开资料检索 <span>{{ bundle.hits.length }} 个可核验片段</span></summary>
     <p>{{ bundle.modeLabel }} · {{ bundle.graphLabel }}</p>
     <p class="scope-note">论文观点不等于业务事实；图谱关系不证明本订单根因，也不构成验收规则。</p>
     <p v-if="bundle.notice" class="scope-note">{{ bundle.notice }}</p>
@@ -18,8 +18,9 @@ const relation = (value) => ({ DETECTS: '检测', USES: '使用', CLASSIFIES: '�
       <template v-if="bundle.graph_release_id"><dt>图谱版本</dt><dd>{{ bundle.graph_release_id }}</dd></template>
     </dl>
     <details v-for="(hit, hitIndex) in bundle.hits" :key="`${hit.evidence_ref}-${hitIndex}`" class="source">
-      <summary>{{ hit.title }} · 第 {{ hit.page_start }}{{ hit.page_end !== hit.page_start ? `–${hit.page_end}` : '' }} 页</summary>
+      <summary>{{ hit.title }} · {{ hit.location_type === 'document' ? '文档段落' : `第 ${hit.page_start}${hit.page_end !== hit.page_start ? '–' + hit.page_end : ''} 页` }}</summary>
       <p><a v-if="hit.url" :href="hit.url" target="_blank" rel="noopener noreferrer">打开公开原文</a><span v-else>未提供可安全打开的来源链接</span></p>
+      <p>{{ ({ PUBLIC_RESEARCH: '公开研究论文', PUBLIC_MANUAL: '公开操作手册', PUBLIC_STANDARD: '公开标准' })[hit.authority_type] }}</p>
       <p class="excerpt">{{ hit.text }}</p>
       <p>文档版本：{{ hit.document_version }}<br />引用：<code>{{ hit.evidence_ref }}</code></p>
     </details>

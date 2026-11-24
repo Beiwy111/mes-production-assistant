@@ -12,6 +12,11 @@ dist
 dist-ssr
 *.local
 
+# Vite's workflow catalog plugin is source code.
+!/build/
+/build/*
+!/build/workflowCatalog.js
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

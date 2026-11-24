@@ -16,11 +16,20 @@ public final class QualityEvidenceDetails {
         List<Map<String,Object>> rates=inspections.stream().map(i->object("inspectionId",i.get("inspection_id"),"samplePassRate",i.get("samplePassRate"),"status",i.get("sampleRateStatus"))).toList();
         return object("basis","PER_INSPECTION_RECORDS_NOT_UNIQUE_PRODUCTS","inspectionRecordCount",complete?inspections.size():null,
                 "validSampleRecordCount",complete?inspections.stream().filter(i->i.get("samplePassRate")!=null).count():null,
-                "failedInspectionRecordCount",complete?inspections.stream().filter(QualityEvidenceDetails::trustworthy).filter(i->"FAILED".equals(i.get("inspection_status"))||"UNQUALIFIED".equals(i.get("inspection_result"))).count():null,
+                "failedInspectionRecordCount",complete?inspections.stream().filter(QualityEvidenceDetails::trustworthy).filter(i->"UNQUALIFIED".equals(i.get("inspection_result"))).count():null,
+                "workflowStatusCounts",complete?counts(inspections,"inspection_status"):null,
+                "verdictCounts",complete?counts(inspections,"inspection_result"):null,
+                "conflictingSampleRecordCount",complete?inspections.stream().filter(i->"WITHHELD_CONFLICT".equals(i.get("sampleRateStatus"))).count():null,
                 "failedItemRecordCount",complete?items.stream().filter(QualityEvidenceDetails::trustworthy).filter(i->"FAILED".equals(i.get("result"))).count():null,
                 "nonconformingRecordCount",complete?defects.size():null,
                 "defectTypes",types.entrySet().stream().map(e->object("defectType",e.getKey(),"recordCount",complete?e.getValue():null)).toList(),
                 "sampleRates",rates,"batchPassRate",null,"complete",complete);
+    }
+    private static Map<String,Long> counts(List<Map<String,Object>> inspections,String field) {
+        Map<String,Long> counts=new TreeMap<>();
+        for(var row:inspections)if(trustworthy(row))
+            counts.merge(Objects.toString(row.get(field),"UNKNOWN"),1L,Long::sum);
+        return counts;
     }
     public static Map<String,Object> vision(Map<String,List<Map<String,String>>> tables,List<Map<String,Object>> inspections,List<Map<String,Object>> items) {
         Set<String> allowed=new HashSet<>(); inspections.stream().filter(QualityEvidenceDetails::trustworthy).forEach(i->allowed.add(String.valueOf(i.get("inspection_id"))));
@@ -47,13 +56,16 @@ public final class QualityEvidenceDetails {
         }
         long mockCount=records.stream().filter(r->Boolean.TRUE.equals(r.get("mock"))).count();
         if(mockCount>0)limitations.add("MOCK_RECORDS_EXCLUDED_FROM_REAL_IMAGE_COUNTS");
-        if(missing>0 || records.isEmpty())limitations.add("HISTORICAL_RAW_VISION_RESULTS_NOT_AVAILABLE_FOR_ALL_INSPECTIONS");
+        boolean noInspections=inspections.isEmpty();
+        if(!noInspections && (missing>0 || records.isEmpty()))limitations.add("HISTORICAL_RAW_VISION_RESULTS_NOT_AVAILABLE_FOR_ALL_INSPECTIONS");
         if(records.stream().anyMatch(r->"IMAGE_NOT_RETAINED".equals(r.get("imageRetention"))))limitations.add("IMAGE_NOT_RETAINED");
         if(records.stream().anyMatch(r->"PARTIAL_IMAGES".equals(r.get("imageRetention"))))limitations.add("PARTIAL_IMAGES");
-        limitations.add("MODEL_LABEL_AND_ALGORITHM_VERSION_DO_NOT_PROVE_WEIGHT_VERSION");
-        limitations.add("IMAGE_COUNT_IS_NOT_PRODUCT_SAMPLE_COUNT");
+        if(!noInspections){
+            limitations.add("MODEL_LABEL_AND_ALGORITHM_VERSION_DO_NOT_PROVE_WEIGHT_VERSION");
+            limitations.add("IMAGE_COUNT_IS_NOT_PRODUCT_SAMPLE_COUNT");
+        }
         records.sort(Comparator.comparing(r->String.valueOf(r.get("recordId"))));
-        return object("status",partial?"PARTIAL":!records.isEmpty()?"RECORDED":!summaries.isEmpty()?"RECORDED_SUMMARIES_ONLY":"SOURCE_RECORD_MISSING",
+        return object("status",noInspections?"NO_INSPECTIONS_IN_SCOPE":partial?"PARTIAL":!records.isEmpty()?"RECORDED":!summaries.isEmpty()?"RECORDED_SUMMARIES_ONLY":"SOURCE_RECORD_MISSING",
                 "records",records,"summaries",summaries,"limitations",List.copyOf(limitations),"imageCountBasis","IMAGES_NOT_PRODUCT_UNITS",
                 "recordCount",records.size(),"realImageRecordCount",records.size()-mockCount,"mockRecordCount",mockCount,
                 "realDefectImageRecordCount",records.stream().filter(r->!Boolean.TRUE.equals(r.get("mock"))&&Boolean.TRUE.equals(r.get("defect"))).count(),

@@ -80,6 +80,8 @@
           </el-descriptions>
         </div>
 
+        <DefectSampleEvidence v-if="selected.inspectionId" :key="selected.nonconformingId" :defect-id="selected.nonconformingId" />
+
         <div v-if="normHandleStatus(selected.handleStatus) === 'DONE'" class="qc-section">
           <el-tag type="success">已处置完毕</el-tag>
           <div v-if="selected.handleMethod" style="margin-top:8px;font-size:13px;color:#606266">
@@ -147,6 +149,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useUserStore } from '@/stores/user'
 import { fetchNonconformingViews, handleNonconforming } from '@/api/quality'
 import { normHandleStatus } from '@/composables/useQualityDashboard'
+import DefectSampleEvidence from '@/components/quality/DefectSampleEvidence.vue'
 
 const route = useRoute()
 const router = useRouter()

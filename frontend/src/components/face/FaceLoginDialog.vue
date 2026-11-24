@@ -1,6 +1,6 @@
 <template>
-  <el-dialog :model-value="modelValue" title="人脸登录 · 演示功能" width="min(520px, 94vw)" top="5vh" class="face-auth-dialog" destroy-on-close :close-on-click-modal="!busy" :close-on-press-escape="!busy" :show-close="!busy" @update:model-value="$emit('update:modelValue', $event)" @open="load">
-    <el-alert title="尚无可靠活体检测，照片或视频可能通过验证。仅限经授权的课程演示。" type="warning" :closable="false" show-icon />
+  <el-dialog :model-value="modelValue" title="人脸登录" width="min(520px, 94vw)" top="5vh" class="face-auth-dialog" destroy-on-close :close-on-click-modal="!busy" :close-on-press-escape="!busy" :show-close="!busy" @update:model-value="$emit('update:modelValue', $event)" @open="load">
+    <el-alert title="尚无可靠活体检测，照片或视频可能通过验证。请仅使用本人的人脸登录。" type="warning" :closable="false" show-icon />
     <div v-loading="loading">
       <p class="face-notice">{{ capabilities.notice }}</p>
       <el-alert v-if="error" :title="error" type="error" :closable="false" show-icon />
@@ -32,7 +32,7 @@ async function load() {
     const result = await faceCapabilities()
     if (current !== dialogGeneration) return
     capabilities.value = result
-    if (!capabilities.value.loginAllowed) error.value = '当前尚未开放人脸演示登录，请继续使用密码登录，或联系管理员配置服务。'
+    if (!capabilities.value.loginAllowed) error.value = '当前尚未开放人脸登录，请继续使用密码登录，或联系管理员配置服务。'
   } catch (err) { if (current === dialogGeneration) error.value = err.message || '无法获取人脸服务状态，请使用密码登录。' }
   finally { if (current === dialogGeneration) loading.value = false }
 }

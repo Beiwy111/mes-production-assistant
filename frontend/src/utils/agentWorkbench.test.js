@@ -125,6 +125,18 @@ test('old preview answers cannot continue natural runs or reveal an earlier natu
   assert.equal(buildNaturalRequest({ id: 's', messages: [legacy, natural] }, '继续', 'next').previousRunId, 'natural-run')
 })
 
+test('a follow-up does not reuse invalidated evidence', () => {
+  const older = { role:'assistant', status:'COMPLETED', runId:'earlier', result:{ queryMode:'NATURAL', reply:'Earlier reply' } }
+  for (const latest of [
+    { ...older, runId:'invalidated', evidenceInvalidated:true },
+    { ...older, runId:'invalidated', workflow:{ invalidated:true } },
+    { ...older, runId:'invalidated', result:{...older.result, verdict:'DATA_CHANGED'} },
+  ]) {
+    const request = buildNaturalRequest({id:'chat', messages:[older,latest]}, '再解释一下', 'next')
+    assert.equal(Object.hasOwn(request,'previousRunId'), false)
+  }
+})
+
 test('natural verdicts complete the answer and CLARIFY can be continued without inventing agents', () => {
   for (const verdict of ['CLARIFY', 'UNSUPPORTED', 'NOT_FOUND', 'EVIDENCE_READY', 'INSUFFICIENT_EVIDENCE']) {
     const message = createAssistantMessage()

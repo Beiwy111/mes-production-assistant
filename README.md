@@ -95,6 +95,11 @@ computer
 7. 根据需要启动微信小程序
 ```
 
+升级已有数据库时，在启动新版后端前，在业务库依次执行
+`sql/migrations/quality_inspection_rounds.sql` 和 `sql/migrations/quality_sample_measurements.sql`。
+这两份迁移从下一次实际操作开始留存检验版本、样机关联和实测记录。
+使用生产协作助手的本机部署还需运行 `python backend/assistant/deploy/Prepare-AssistantReadersLocal.py` 更新只读账号的表权限。
+
 ### 启动 YOLOv8 服务
 
 ```bash

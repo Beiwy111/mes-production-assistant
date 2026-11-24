@@ -64,6 +64,8 @@ class KnowledgeStore:
         keys = ('document_id', 'document_version', 'chunk_id', 'title', 'text', 'page_start',
                 'page_end', 'source_url', 'license', 'authority_type')
         hit = {key: payload[key] for key in keys}
+        if payload.get('location_type') == 'document':
+            hit['location_type'] = 'document'
         hit.update(release_id=release_id,
                    evidence_ref=f"{release_id}:{payload['document_id']}:{payload['chunk_id']}",
                    evidence_path=f"/internal/knowledge/evidence/{release_id}/{payload['chunk_id']}")

@@ -21,6 +21,15 @@ class QualityTrendMetricsTest {
         assertNull(QualityTrendMetrics.summarize(List.of(row("3","1","0","0","0","2026-11-01")),true).get(0).get("sample_pass_percent"));
         assertNull(QualityTrendMetrics.summarize(List.of(row("3","1","10","10","0","2026-11-01")),false).get(0).get("sample_pass_percent"));
     }
+    @Test void reinspectionAndOriginalSamplesDoNotShareARateDenominator(){
+        var initial=new HashMap<>(row("8","1","12","9","3","2026-11-01"));
+        var repeated=new HashMap<>(row("9","1","4","4","0","2026-11-01"));
+        initial.put("inspection_type","FINAL");repeated.put("inspection_type","RECHECK");
+        var rates=QualityTrendMetrics.summarize(List.of(initial,repeated),true);
+        assertEquals(2,rates.size());
+        assertEquals("25.00",rates.get(0).get("sample_fail_percent"));
+        assertEquals("4",rates.get(1).get("valid_sample_quantity"));
+    }
     @Test void duplicateAndUnknownDateRecordsAreVisibleButNotInventedMeasurements() {
         var row=row("1","1","10","9","1","not-a-date");
         var result=QualityTrendMetrics.summarize(List.of(row,row),true).get(0);

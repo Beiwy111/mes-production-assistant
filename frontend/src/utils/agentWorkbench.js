@@ -188,7 +188,9 @@ export function observedSteps(value) {
   if (!Array.isArray(value)) return []
   const ids = new Set(['BUSINESS_READ', 'VISION_REVIEW', 'KNOWLEDGE_RETRIEVAL', 'ANALYSIS',
     'E1', 'E2', 'E3', 'E4', 'Q1', 'D1', 'A1',
-    'RESOURCE_MATERIAL', 'RESOURCE_CAPACITY',
+    'RESOURCE_MATERIAL', 'RESOURCE_CAPACITY', 'EXPERIENCE_RETRIEVAL',
+    'PROCESS_ROUTE', 'INSPECTION_TRACE', 'INSPECTION_HEADER', 'INSPECTION_DETAILS', 'INSPECTION_BATCH',
+    'INSPECTION_PRODUCTION', 'INSPECTION_EQUIPMENT', 'INSPECTION_GRAPH', 'INSPECTION_VISION', 'INSPECTION_HISTORY', 'SOP_LOOKUP',
     ...['INVENTORY', 'PRODUCTION', 'QUALITY', 'ORDER', 'EQUIPMENT', 'AFTERSALES', 'MAINTENANCE', 'ALARMS', 'STOCK_MOVEMENT'].map(domain => `OVERVIEW_${domain}`)])
   const seen = new Set()
   return value.filter((step) => step && ids.has(step.id) && !seen.has(step.id) &&
@@ -198,10 +200,11 @@ export function observedSteps(value) {
 }
 
 function invalidateEvidence(result) {
-  return { ...result, facts: {}, queryRefs: [], knowledgeEvidence: [], analyses: [] }
+  return { ...result, facts: {}, queryRefs: [], knowledgeEvidence: [], experienceEvidence: [], approvedSopEvidence: [], analyses: [] }
 }
 function clearWorkbenchEvidence(message, hasWorkflow = Boolean(message.workflow)) {
   message.evidenceInvalidated = true
+  delete message.photoComparison
   if (hasWorkflow) message.workflow = { runId: message.runId, invalidated: true, plan: null, events: [] }
   if (message.result) {
     message.result = invalidateEvidence(message.result)
@@ -227,10 +230,11 @@ export const canSubmitNaturalQuestion = ({ admin, connection, busy, text }) =>
 // This is only a continuation reference. The server validates its owner and session.
 export function buildNaturalRequest(session, text, requestId) {
   const previous = [...(session.messages || [])].reverse().find((message) =>
-    message.role === 'assistant' && !message.modelSource && !message.orderFlow && message.status === 'COMPLETED' &&
-    typeof message.result?.reply === 'string',
+    message.role === 'assistant' && !message.modelSource && (message.imageQuestion || (!message.orderFlow && message.status === 'COMPLETED' &&
+    typeof message.result?.reply === 'string')),
   )
-  const canContinue = previous &&
+  const canContinue = previous && (!previous.imageQuestion || previous.photoComparison) && !previous.evidenceInvalidated &&
+    !previous.workflow?.invalidated && previous.result?.verdict !== 'DATA_CHANGED' &&
     (previous.result.queryMode === 'NATURAL' || previous.result.workflowProfile === 'AUTO') &&
     typeof previous.runId === 'string' && previous.runId.trim()
   return {
@@ -384,6 +388,7 @@ export function restoreSessions(raw) {
         title: clip(s.title, 80),
         modelSource: ['API', 'LOCAL'].includes(s.modelSource) ? s.modelSource : 'WORKFLOW',
         ragEnabled: s.ragEnabled === true,
+        renamed: s.renamed === true,
         updatedAt: Number(s.updatedAt) || 0,
         orderPk: clip(s.orderPk, 20),
         profile: s.profile === 'AUTO' || PROFILES.some((p) => p.id === s.profile)
@@ -392,7 +397,7 @@ export function restoreSessions(raw) {
         messages: s.messages
           .filter((m) => m && ['user', 'assistant'].includes(m.role))
           .slice(-40)
-          .map((m) => {
+          .map((m, index, messages) => {
             const agents = Array.isArray(m.agents)
               ? m.agents
                   .filter(
@@ -420,7 +425,8 @@ export function restoreSessions(raw) {
             const item = {
               id: clip(m.id, 160) || uniqueId(),
               role: m.role,
-              text: clip(m.text, 64000),
+              text: m.role === 'user' && messages[index + 1]?.imageUpload
+                ? clip(m.text, 64000).replace(/\n📎 [^\r\n]+\.(?:jpe?g|png)$/i, '') : clip(m.text, 64000),
               status: STATES.has(m.status) ? m.status : 'INTERRUPTED',
               agents,
               runId: clip(m.runId, 160),
@@ -434,6 +440,15 @@ export function restoreSessions(raw) {
                   ? m.result
                   : null,
             }
+            if (m.imageUpload === true) {
+              item.imageUpload = true
+              if (Number.isSafeInteger(m.frameCount) && m.frameCount >= 0) item.frameCount = m.frameCount
+            }
+            if (m.directChat === true) item.directChat = true
+            if (typeof m.imageRef === 'string') item.imageRef = clip(m.imageRef, 80)
+            if (m.photoObservation) item.photoObservation = clip(m.photoObservation, 2000)
+            if (m.photoComparison && !m.evidenceInvalidated && !m.workflow?.invalidated) item.photoComparison = clip(m.photoComparison, 8000)
+            if (m.imageQuestion === true) item.imageQuestion = true
             if (m.orderMessage === true) item.orderMessage = true
             if (['API', 'LOCAL'].includes(m.modelSource)) {
               item.modelSource = m.modelSource
@@ -479,7 +494,7 @@ export function restoreSessions(raw) {
 export function serializeWorkbenchSessions(sessions) {
   const budget = 1_800_000
   const saved = sessions.slice(0, 20).map((session) => ({ ...session,
-    title: session.messages.some((m) => m.orderMessage || m.orderFlow) ? '订单会话' : session.title,
+    title: !session.renamed && session.messages.some((m) => m.orderMessage || m.orderFlow) ? '订单会话' : session.title,
     messages: session.messages.slice(-40).map((message) => message.orderMessage || message.orderFlow ? {
       id: message.id, role: message.role, status: message.status, profile: 'AUTO',
       ...(message.modelSource ? { modelSource: message.modelSource, ragEnabled: message.ragEnabled === true } : {}),
@@ -505,7 +520,7 @@ export function serializeWorkbenchSessions(sessions) {
       summary: '历史证据未保存，请重新查询。', evidence: [], steps: [] }))
     if (message.result) message.result = { reply: message.result.reply, verdict: message.result.verdict,
       queryMode: message.result.queryMode, workflowProfile: message.result.workflowProfile,
-      facts: {}, queryRefs: [], knowledgeEvidence: [], analyses: [], historyEvidenceOmitted: true }
+      facts: {}, queryRefs: [], knowledgeEvidence: [], experienceEvidence: [], approvedSopEvidence: [], analyses: [], historyEvidenceOmitted: true }
     encoded = JSON.stringify(saved)
   }
   while (encoded.length > budget && messages.length > 1) {

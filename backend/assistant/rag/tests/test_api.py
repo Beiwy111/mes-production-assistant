@@ -14,6 +14,27 @@ class Store:
         raise LookupError()
 
 
+def test_experience_endpoint_has_its_own_credential_and_fixed_domain():
+    from unittest.mock import Mock
+    import pytest
+    public, private = 'public-test-key-over-24-chars', 'private-test-key-over-24-chars'
+    engine = Mock()
+    engine.query.return_value = {'status':'NO_MATCHES','hits':[]}
+    client = TestClient(create_app(Store(), public, experience=engine, experience_key=private))
+    path = '/internal/experience/query'
+    request = {'query':'历史维修经验','domain':'MAINTENANCE'}
+    public_auth, private_auth = ({'Authorization': 'Bearer '+k} for k in (public, private))
+    assert client.post(path, json=request, headers=public_auth).status_code == 401
+    assert client.post('/internal/knowledge/query', json={'query':'x'}, headers=private_auth).status_code == 401
+    for extra in ({'domain':'ALL'}, {'role':'ADMIN'}, {'cypher':'anything'}, {'top_k':50}):
+        assert client.post(path, json={**request,**extra},headers=private_auth).status_code == 422
+    engine.query.assert_not_called()
+    assert client.post(path, json=request, headers=private_auth).status_code == 200
+    engine.query.assert_called_once_with(request['query'],5,kinds=['MAINTENANCE'])
+    with pytest.raises(ValueError):
+        create_app(Store(),public,experience_key=public)
+
+
 def test_document_parse_requires_service_auth_and_never_persists():
     import base64
     client=TestClient(create_app(Store(), 'local-service-key-not-a-model-key'))

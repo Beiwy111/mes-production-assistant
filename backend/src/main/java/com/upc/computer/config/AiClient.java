@@ -45,39 +45,34 @@ public class AiClient {
      * @return 模型回复文本
      */
     public String callVision(byte[] imageBytes, String mimeType, String systemPrompt) throws IOException, InterruptedException {
-        String base64Image = Base64.getEncoder().encodeToString(imageBytes);
-        String dataUrl = "data:" + mimeType + ";base64," + base64Image;
+        return callVision(imageBytes,mimeType,systemPrompt,props.getApiKey(),props.getModel());
+    }
 
-        String requestBody = MAPPER.writeValueAsString(new java.util.LinkedHashMap<String, Object>() {{
-            put("model", props.getModel());
-            put("max_tokens", 4096);
-            put("messages", new Object[]{
-                new java.util.LinkedHashMap<String, Object>() {{
-                    put("role", "user");
-                    put("content", new Object[]{
-                        new java.util.LinkedHashMap<String, Object>() {{
-                            put("type", "text");
-                            put("text", systemPrompt);
-                        }},
-                        new java.util.LinkedHashMap<String, Object>() {{
-                            put("type", "image_url");
-                            put("image_url", new java.util.LinkedHashMap<String, Object>() {{
-                                put("url", dataUrl);
-                            }});
-                        }}
-                    });
-                }}
-            });
-        }});
+    public String callWorkbenchVision(byte[] imageBytes,String mimeType,String prompt) throws IOException,InterruptedException {
+        return callVision(imageBytes,mimeType,prompt,visionKey(),visionModel());
+    }
 
-        HttpRequest request = HttpRequest.newBuilder()
-                .uri(URI.create(props.getBaseUrl() + "/chat/completions"))
-                .timeout(Duration.ofSeconds(props.getTimeoutSeconds()))
-                .header("Content-Type", "application/json")
-                .header("Authorization", "Bearer " + props.getApiKey())
-                .POST(HttpRequest.BodyPublishers.ofString(requestBody))
-                .build();
+    private String visionKey() throws IOException {
+        String key=props.getApiKey();
+        if("https://dashscope.aliyuncs.com/compatible-mode/v1".equals(props.getBaseUrl())){
+            String providerKey=System.getenv("DASHSCOPE_API_KEY");
+            if(providerKey!=null&&!providerKey.isBlank())key=providerKey;
+        }
+        if(key==null||key.isBlank())throw new IOException("Vision credential unavailable");
+        return key;
+    }
+    private String visionModel(){
+        String model=System.getenv("MES_CHAT_VISION_MODEL");
+        if(model==null||model.isBlank()){
+            model=props.getModel();
+            if("qwen-vl-plus".equals(model)&&"https://dashscope.aliyuncs.com/compatible-mode/v1".equals(props.getBaseUrl()))
+                model="qwen3-vl-plus";
+        }
+        return model;
+    }
 
+    private String callVision(byte[] imageBytes,String mimeType,String systemPrompt,String apiKey,String model) throws IOException,InterruptedException {
+        HttpRequest request=visionRequest(imageBytes,mimeType,systemPrompt,apiKey,model,false);
         HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
 
         if (response.statusCode() != 200) {
@@ -93,6 +88,36 @@ public class AiClient {
             throw new IOException("AI 接口返回格式异常，无 choices 字段");
         }
         return choices.get(0).path("message").path("content").asText("");
+    }
+
+    private HttpRequest visionRequest(byte[] bytes,String mime,String prompt,String key,String model,boolean stream) throws IOException {
+        var image=java.util.Map.of("type","image_url","image_url",java.util.Map.of("url","data:"+mime+";base64,"+Base64.getEncoder().encodeToString(bytes)));
+        var content=java.util.List.of(java.util.Map.of("type","text","text",prompt),image);
+        var body=java.util.Map.of("model",model,"stream",stream,"max_tokens",4096,"messages",java.util.List.of(java.util.Map.of("role","user","content",content)));
+        return HttpRequest.newBuilder(URI.create(props.getBaseUrl()+"/chat/completions"))
+            .timeout(Duration.ofSeconds(props.getTimeoutSeconds())).header("Content-Type","application/json")
+            .header("Authorization","Bearer "+key).POST(HttpRequest.BodyPublishers.ofString(MAPPER.writeValueAsString(body))).build();
+    }
+
+    @FunctionalInterface public interface VisionText {void accept(String text) throws IOException;}
+
+    public void streamWorkbenchVision(byte[] image,String mime,String question,VisionText sink) throws IOException,InterruptedException {
+        var response=httpClient.send(visionRequest(image,mime,question,visionKey(),visionModel(),true),HttpResponse.BodyHandlers.ofInputStream());
+        try(var lines=new java.io.BufferedReader(new java.io.InputStreamReader(response.body(),java.nio.charset.StandardCharsets.UTF_8))){
+            if(response.statusCode()!=200)throw new IOException("Vision service unavailable");
+            boolean produced=false;
+            for(String line;(line=lines.readLine())!=null;){
+                if(!line.startsWith("data:"))continue;
+                String payload=line.substring(5).trim();
+                if(payload.equals("[DONE]")&&produced)return;
+                if(payload.isEmpty())continue;
+                var event=MAPPER.readTree(payload);
+                if(event.has("error"))throw new IOException("Vision stream failed");
+                String delta=event.path("choices").path(0).path("delta").path("content").asText("");
+                if(!delta.isEmpty()){sink.accept(delta);produced=true;}
+            }
+            throw new IOException("Incomplete vision stream");
+        }
     }
 
     /**

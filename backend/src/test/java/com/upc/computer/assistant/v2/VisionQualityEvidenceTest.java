@@ -9,6 +9,13 @@ import java.util.*;
 import static org.assertj.core.api.Assertions.*;
 
 class VisionQualityEvidenceTest {
+    @Test void emptyInspectionScopeIsNotEvidenceOfMissingVisionArchives() {
+        var facts=com.upc.computer.assistant.v2.vision.QualityEvidenceAnalysis.overview(List.of(),true);
+        var vision=(Map<?,?>)facts.get("visionEvidence");
+        assertThat(vision.get("status")).isEqualTo("NO_INSPECTIONS_IN_SCOPE");
+        assertThat(vision.get("missingInspectionArchiveCount")).isEqualTo(0);
+        assertThat((List<?>)vision.get("limitations")).isEmpty();
+    }
     @TempDir Path dir;
     private Object archive() throws Exception {
         return Class.forName("com.upc.computer.assistant.v2.vision.VisionEvidenceArchive")

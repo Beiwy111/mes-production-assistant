@@ -120,3 +120,20 @@ export async function streamWorkbench(token, input, { onEvent, signal } = {}) {
     signal?.removeEventListener('abort', cancel)
   }
 }
+
+export async function continueImage(token, input, {signal, onDelta}) {
+  const response = await fetch('/api/assistant-v2/images/continue', {
+    method: 'POST', headers: headers(token), body: JSON.stringify(input), signal,
+  })
+  if (!response.ok || !response.headers.get('content-type')?.includes('application/x-ndjson'))
+    return readResponse(response, token)
+  return consumeAssistantStream(response.body, { signal, onDelta })
+}
+
+export async function chatEntry(token, input, {signal, onDelta}) {
+  const response = await fetch(`${BASE}/chat-entry`, {
+    method: 'POST', headers: headers(token), body: JSON.stringify(input), signal,
+  })
+  if (!response.ok) return readResponse(response, token)
+  return consumeAssistantStream(response.body, {signal, onDelta})
+}

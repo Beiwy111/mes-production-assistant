@@ -46,8 +46,8 @@ function Test-LocalHttp {
         $response = Invoke-WebRequest -Uri $Url -UseBasicParsing -TimeoutSec 5
         return ([int]$response.StatusCode -eq $Expected -and (!$BodyPattern -or $response.Content -match $BodyPattern))
     } catch {
-        # Anonymous 401 checks gateway readiness, not MES login or model availability.
-        return ($Expected -eq 401 -and $null -ne $_.Exception.Response -and [int]$_.Exception.Response.StatusCode -eq 401)
+        # A known response to an anonymous request can also confirm upstream readiness.
+        return ($Expected -ge 400 -and $null -ne $_.Exception.Response -and [int]$_.Exception.Response.StatusCode -eq $Expected)
     }
 }
 
@@ -73,6 +73,50 @@ function Start-LocalRuntime {
         else { & (Join-Path $PSScriptRoot $Starter) }
     }
     Wait-LocalService $Name { (Get-OwnedListener $Port $CommandMarker) -and (Test-LocalHttp $Url $Expected $BodyPattern) }
+}
+
+function Resume-LocalContainers {
+    param([string[]]$Names, [string]$ReadinessLabel)
+    foreach ($name in $Names) {
+        if ((Invoke-LocalDocker @('inspect','--format','{{.State.Running}}',$name)) -eq 'true') { Write-Host "[SKIP] $name" }
+        else { Write-Host "[START] $name"; Invoke-LocalDocker @('start',$name) | Out-Null }
+    }
+    Wait-LocalService $ReadinessLabel {
+        foreach ($name in $Names) {
+            $state = Invoke-LocalDocker @('inspect','--format','{{.State.Running}}|{{if .State.Health}}{{.State.Health.Status}}{{end}}',$name)
+            if ($state -notin @('true|','true|healthy')) { return $false }
+        }
+        return $true
+    }
+}
+
+function Start-InstalledFaceService {
+    $project = 'mes-compreface-face-isolated'
+    $installed = (Invoke-LocalDocker @('ps','-a','--filter',"label=com.docker.compose.project=$project",'--format','{{.Names}}')) -split '\r?\n'
+    $settings = Join-Path $PSScriptRoot '..\..\deploy\compreface\mes-face.local.yaml'
+    if (!$installed[0] -and !(Test-Path -LiteralPath $settings)) {
+        Write-Host '[SKIP] Local CompreFace is not installed.'
+        return
+    }
+    $names = foreach ($service in @('compreface-postgres-db','compreface-core','compreface-admin','compreface-api','compreface-fe')) {
+        $name = "$project-$service-1"
+        if ($name -notin $installed) { throw "CompreFace container missing: $name. Restore the existing deployment and its data volume." }
+        $name
+    }
+    $mounts = (Invoke-LocalDocker @('inspect','--format','{{json .Mounts}}',$names[0])) | ConvertFrom-Json
+    $data = @($mounts | Where-Object { $_.Destination -eq '/var/lib/postgresql/data' })
+    if ($data.Count -ne 1 -or $data[0].Type -ne 'volume' -or $data[0].Name -cne "${project}_postgres-data") {
+        throw 'Unexpected CompreFace data volume. Check the existing enrollment storage.'
+    }
+    $bindings = (Invoke-LocalDocker @('inspect','--format','{{json .HostConfig.PortBindings}}',$names[-1])) | ConvertFrom-Json
+    $http = @($bindings.'80/tcp')
+    if ($http.Count -ne 1 -or $http[0].HostIp -ne '127.0.0.1' -or $http[0].HostPort -ne '8001') {
+        throw 'Expected the local CompreFace endpoint on 127.0.0.1:8001.'
+    }
+    Resume-LocalContainers $names 'CompreFace containers'
+    Wait-LocalService 'CompreFace HTTP (8001)' { Test-LocalHttp 'http://127.0.0.1:8001/' }
+    # CompreFace 1.2 returns 400 for a missing API key; nginx may serve the UI earlier.
+    Wait-LocalService 'CompreFace recognition API' { Test-LocalHttp 'http://127.0.0.1:8001/api/v1/recognition/subjects' 400 }
 }
 
 function Start-AssistantServices {
@@ -101,6 +145,11 @@ function Start-AssistantServices {
             try { return !!(Invoke-LocalDocker @('info','--format','{{.ServerVersion}}')) } catch { return $false }
         }
     }
+    try { Start-InstalledAssistantStack }
+    finally { Start-InstalledFaceService }
+}
+
+function Start-InstalledAssistantStack {
     # Resume the installed stack only. Do not rerun completed init-permissions jobs.
     $groups = [ordered]@{
         'mes-dify-local' = @('db_postgres','redis','weaviate','sandbox','local_sandbox','ssrf_proxy','agent_ssrf_proxy','plugin_daemon','agent_backend','api','api_websocket','worker','worker_beat','web','nginx')
@@ -116,16 +165,10 @@ function Start-AssistantServices {
             $containers += $name
         }
     }
-    foreach ($name in $containers) {
-        if ((Invoke-LocalDocker @('inspect','--format','{{.State.Running}}',$name)) -eq 'true') { Write-Host "[SKIP] $name" }
-        else { Write-Host "[START] $name"; Invoke-LocalDocker @('start',$name) | Out-Null }
-    }
-    Wait-LocalService 'Docker container readiness' {
-        foreach ($name in $containers) {
-            $state = Invoke-LocalDocker @('inspect','--format','{{.State.Running}}|{{if .State.Health}}{{.State.Health.Status}}{{end}}',$name)
-            if ($state -notin @('true|','true|healthy')) { return $false }
-        }
-        return $true
+    Resume-LocalContainers $containers 'Docker container readiness'
+    if (Test-Path -LiteralPath (Join-Path $PSScriptRoot '.env.ingestion.local')) {
+        try { & (Join-Path $PSScriptRoot 'Initialize-IngestionLocal.ps1') }
+        catch { Write-Warning 'Private upload graph unavailable; starting the remaining services.' }
     }
     Wait-LocalService 'Dify API (18080)' { Test-LocalHttp 'http://127.0.0.1:18080/console/api/setup' 200 '"step"\s*:\s*"finished"' }
     Wait-LocalService 'Neo4j HTTP (17474)' { Test-LocalHttp 'http://127.0.0.1:17474/' }

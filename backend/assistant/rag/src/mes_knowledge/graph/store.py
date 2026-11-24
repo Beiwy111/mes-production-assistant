@@ -70,6 +70,27 @@ class GraphStore:
                           'RETURN count(r) AS n', g=generation, v=vector_release)
         return {**rows[0], 'evidence_links': links[0]['n']} if rows else {}
 
+    def catalog_claims(self, generation, vector_release, allowed_documents):
+        if not self.readonly():
+            raise RuntimeError('Graph is in a maintenance window')
+        rows = self._read(
+            'MATCH (:GraphRelease {id:$g, vector_release:$v, status:"READY", domain:"display_reference"}) '
+            'MATCH (s:Entity {graph_release:$g, domain:"display_reference"})-[:SUBJECT_OF]->'
+            '(c:Claim {graph_release:$g, vector_release:$v, domain:"display_reference", '
+            'review_status:"SOURCE_VERIFIED", authority_type:"PUBLIC_RESEARCH", scope:"RESEARCH_ONLY"})'
+            '-[:OBJECT]->(o:Entity {graph_release:$g, domain:"display_reference"}) '
+            'WHERE c.document_id IN $docs '
+            'MATCH (c)-[:SUPPORTED_BY]->(ch:Chunk {graph_release:$g, vector_release:$v, domain:"display_reference"}) '
+            'WHERE ch.document_id=c.document_id AND ch.document_version=c.document_version AND ch.page=c.page '
+            'RETURN c.id AS claim_id, c.statement AS statement, c.relation AS relation, c.quote AS quote, '
+            'c.document_id AS document_id, c.document_version AS document_version, c.page AS page, '
+            's.entity_id AS subject_id, s.name AS subject_name, o.entity_id AS object_id, o.name AS object_name, '
+            'collect(DISTINCT ch.chunk_id) AS evidence_chunk_ids ORDER BY claim_id LIMIT 201',
+            g=generation, v=vector_release, docs=sorted(allowed_documents))
+        if len(rows) > 200 or not self.readonly():
+            raise RuntimeError('Invalid graph release or maintenance window')
+        return rows
+
     def claims(self, generation, vector_release, roots, allowed_documents, max_paths=8):
         if not self.readonly():
             raise RuntimeError('Graph is in a maintenance window')

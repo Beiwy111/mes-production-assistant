@@ -10,6 +10,7 @@ import com.upc.computer.service.QualityService;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 
 import java.math.BigDecimal;
@@ -121,6 +122,7 @@ public class QualityController {
     }
 
     @PostMapping("/inspection/fail")
+    @Transactional
     public Result<QualityInspection> fail(@RequestBody QualityActionRequest req) {
         validate(req.getInspectionId(), "inspectionId");
         if (req.getSampleQuantity() != null && req.getSampleQuantity() > 0) {

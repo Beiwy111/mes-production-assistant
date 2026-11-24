@@ -8,6 +8,19 @@ import java.util.regex.*;
 public record BusinessDateRange(LocalDate start, LocalDate endExclusive, String remainingText) {
     private static final Pattern ISO=Pattern.compile("(?<!\\d)(\\d{4}-\\d{2}-\\d{2})(?:\\s*(?:至|到|~|～)\\s*(\\d{4}-\\d{2}-\\d{2}))?(?!\\d)");
     private static final Pattern RELATIVE=Pattern.compile("昨天|前天|上周|上个月|上月|(?:最近|近|过去)\\s*(\\d+|七)\\s*天");
+    /** Two user-specified calendar ranges for a comparison. Never infer a missing comparison period. */
+    static java.util.List<BusinessDateRange> comparison(String text, LocalDate today){
+        var dates=ISO.matcher(text);var periods=new java.util.ArrayList<BusinessDateRange>();
+        while(dates.find())periods.add(parse(dates.group(),today));
+        if(periods.size()<2)return java.util.List.of();
+        if(periods.size()!=2||RELATIVE.matcher(text).find())throw new IllegalArgumentException("Need exactly two date ranges");
+        periods.sort(java.util.Comparator.comparing(BusinessDateRange::start));
+        if(periods.get(0).endExclusive().isAfter(periods.get(1).start()))throw new IllegalArgumentException("Overlapping periods");
+        var rest=ISO.matcher(text).replaceAll(" ");
+        if(Pattern.compile("昨天|今天|本月|上月|本周|上周|截至|截止|\\d{4}年|\\d+月\\d+日").matcher(rest).find())
+            throw new IllegalArgumentException("Additional time constraint");
+        return periods.stream().map(p->new BusinessDateRange(p.start(),p.endExclusive(),rest)).toList();
+    }
     public static BusinessDateRange parse(String query,LocalDate today) {
         Matcher date=ISO.matcher(query);LocalDate from=null,to=null;String remaining=query;
         if(date.find()) {

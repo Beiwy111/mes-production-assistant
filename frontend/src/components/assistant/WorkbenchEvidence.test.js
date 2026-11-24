@@ -227,6 +227,9 @@ test('quality metrics and vision preserve real sample basis and summaries withou
       detections: [{ className: '<img>', confidence: 0.9, box: [1, 2, 3, 4] }] }] } } } })
   for (const value of ['record-1', 'hash-1', '模拟记录', '不计为真实缺陷', '图像数不等于产品数', '&lt;img&gt;', '1, 2, 3, 4']) assert.ok(recorded.includes(value), value)
   assert.match(await render({ result: null, facts: { quality: { visionEvidence: { status: 'SOURCE_RECORD_MISSING' } } } }), /未保存原始视觉记录/)
+  const noInspections = await render({ result: null, facts: { quality: { visionEvidence: { status: 'NO_INSPECTIONS_IN_SCOPE' } } } })
+  assert.match(noInspections, /本次范围内无检验单/)
+  assert.doesNotMatch(noInspections, /原始记录缺失|未保存原始视觉记录/)
 })
 
 test('history evidence omission is visible without pretending saved rows are complete', async () => {
@@ -240,6 +243,18 @@ const imageRecord = () => ({ inspectionId: '68', recordId: '5c0cc43c-90b8-4f6b-8
   imageRetention: 'PARTIAL_IMAGES', images: { original: { status: 'AVAILABLE', width: 2400, height: 1800 },
     input: { status: 'AVAILABLE', width: 1280, height: 960 }, annotated: { status: 'MISSING', reason: 'NO_RESULT_IMAGE' } } })
 const imageResult = () => ({ facts: { quality: { visionEvidence: { status: 'RECORDED', records: [imageRecord()] } } } })
+
+test('scoped inspection images are available only while verified evidence is present', () => {
+  const message = { result: { verdict: 'EVIDENCE_READY', facts: {
+    inspection_trace: { visionStatus: 'RECORDED', boundImages: [imageRecord()] }
+  } } }
+  const [image] = helpers.inspectionImageRecords(message)
+  assert.equal(image.recordId, imageRecord().recordId)
+  assert.equal(image.imageEntries.find(entry => entry.variant === 'original').status, 'AVAILABLE')
+  assert.deepEqual(helpers.inspectionImageRecords({ ...message, evidenceInvalidated: true }), [])
+  message.result.historyEvidenceOmitted = true
+  assert.deepEqual(helpers.inspectionImageRecords(message), [])
+})
 
 test('image evidence exposes saved variants and missing states while old/changed history cannot open images', async () => {
   const current = await render(imageResult())

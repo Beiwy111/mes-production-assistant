@@ -206,38 +206,45 @@ const knownAgent = (id) => ['SUP', 'ORDER', 'SUPPLY', 'PRODUCTION', 'QUALITY', '
 
 export function knowledgeEvidence(result) {
   if (result?.verdict === 'DATA_CHANGED' || result?.historyEvidenceOmitted) return []
-  return rowsOf(result?.knowledgeEvidence).filter((bundle) => knownAgent(bundle.agentId)).map((bundle) => {
-    const originalHits = rowsOf(bundle.hits)
-    const hits = bundle.status === 'MATCHES' ? originalHits.filter((hit) =>
-      hit.authority_type === 'PUBLIC_RESEARCH' && typeof bundle.release_id === 'string' && !!bundle.release_id &&
-      hit.release_id === bundle.release_id && typeof hit.document_id === 'string' && !!hit.document_id &&
-      typeof hit.chunk_id === 'string' && !!hit.chunk_id && typeof hit.document_version === 'string' && !!hit.document_version &&
-      hit.evidence_ref === `${bundle.release_id}:${hit.document_id}:${hit.chunk_id}` &&
-      Number.isInteger(hit.page_start) && hit.page_start > 0 && Number.isInteger(hit.page_end) && hit.page_end >= hit.page_start &&
-      !!textValue(hit.text).trim() && !!textValue(hit.title).trim(),
-    ).map((hit) => ({ ...hit, url: safeSourceUrl(hit.source_url) })) : []
-    const refs = new Map(hits.map((hit) => [hit.evidence_ref, hit]))
-    const originalPaths = rowsOf(bundle.graph_paths)
-    const paths = bundle.mode_used === 'graph_assisted' && bundle.graph_status === 'MATCHES'
-      ? originalPaths.filter((path) => path.scope === 'RESEARCH_ONLY' && path.authority_type === 'PUBLIC_RESEARCH' &&
-        path.review_status === 'SOURCE_VERIFIED' && !!bundle.graph_release_id && path.graph_release_id === bundle.graph_release_id &&
-        ['DETECTS', 'USES', 'CLASSIFIES'].includes(path.relation) && !!normalizedQuote(path.quote) &&
-        Array.isArray(path.evidence_refs) && path.evidence_refs.length > 0 && path.evidence_refs.every((ref) => {
-          const hit = refs.get(ref)
-          return hit && path.document_id === hit.document_id && path.document_version === hit.document_version &&
-            path.page === hit.page_start && normalizedQuote(hit.text).includes(normalizedQuote(path.quote))
-        })) : []
-    return { ...bundle, hits, paths,
-      omitted: originalHits.length - hits.length + originalPaths.length - paths.length,
-      limitations: strings(bundle.limitations), missing: strings(bundle.missing_information),
-      modeLabel: bundle.mode_used === 'graph_assisted' && paths.length ? '图谱辅助检索' : bundle.mode_used === 'vector' ? '向量检索' : '未确认检索模式',
-      graphLabel: ({ MATCHES: '图谱有匹配', NO_MATCHES: '图谱未命中', NO_ENTITY_MATCH: '图谱未匹配到概念',
-        UNAVAILABLE_OR_STALE: '图谱不可用或已过期，已降级' })[bundle.graph_status] || '未提供图谱状态',
-      notice: bundle.status === 'NO_MATCHES' ? '公开资料未命中，不能据此判断不存在相关研究。'
-        : bundle.status !== 'MATCHES' ? '知识检索不可用，本次没有可引用的公开资料。'
-          : !hits.length ? '没有通过引用核验的公开资料。' : '',
-    }
-  })
+  return rowsOf(result?.knowledgeEvidence).filter((bundle) => knownAgent(bundle.agentId)).map(verifiedPublicBundle)
+}
+
+export function verifiedPublicRecords(bundle, includeHits, includePaths) {
+  const originalHits = rowsOf(bundle.hits)
+  const hits = includeHits ? originalHits.filter((hit) =>
+    ['PUBLIC_RESEARCH','PUBLIC_MANUAL','PUBLIC_STANDARD'].includes(hit.authority_type) && typeof bundle.release_id === 'string' && !!bundle.release_id &&
+    hit.release_id === bundle.release_id && typeof hit.document_id === 'string' && !!hit.document_id &&
+    typeof hit.chunk_id === 'string' && !!hit.chunk_id && typeof hit.document_version === 'string' && !!hit.document_version &&
+    hit.evidence_ref === `${bundle.release_id}:${hit.document_id}:${hit.chunk_id}` &&
+    Number.isInteger(hit.page_start) && hit.page_start > 0 && Number.isInteger(hit.page_end) && hit.page_end >= hit.page_start &&
+    !!textValue(hit.text).trim() && !!textValue(hit.title).trim(),
+  ).map((hit) => ({ ...hit, url: safeSourceUrl(hit.source_url) })) : []
+  const refs = new Map(hits.map((hit) => [hit.evidence_ref, hit]))
+  const originalPaths = rowsOf(bundle.graph_paths)
+  const paths = includePaths
+    ? originalPaths.filter((path) => path.scope === 'RESEARCH_ONLY' && path.authority_type === 'PUBLIC_RESEARCH' &&
+      path.review_status === 'SOURCE_VERIFIED' && !!bundle.graph_release_id && path.graph_release_id === bundle.graph_release_id &&
+      ['DETECTS', 'USES', 'CLASSIFIES'].includes(path.relation) && !!normalizedQuote(path.quote) &&
+      Array.isArray(path.evidence_refs) && path.evidence_refs.length > 0 && path.evidence_refs.every((ref) => {
+        const hit = refs.get(ref)
+        return hit?.authority_type === 'PUBLIC_RESEARCH' && path.document_id === hit.document_id && path.document_version === hit.document_version &&
+          path.page === hit.page_start && normalizedQuote(hit.text).includes(normalizedQuote(path.quote))
+      })) : []
+  return { hits, paths, omitted: originalHits.length - hits.length + originalPaths.length - paths.length }
+}
+
+export function verifiedPublicBundle(bundle) {
+  const records = verifiedPublicRecords(bundle, bundle.status === 'MATCHES',
+    bundle.mode_used === 'graph_assisted' && bundle.graph_status === 'MATCHES')
+  return { ...bundle, ...records,
+    limitations: strings(bundle.limitations), missing: strings(bundle.missing_information),
+    modeLabel: bundle.mode_used === 'graph_assisted' && records.paths.length ? '图谱辅助检索' : bundle.mode_used === 'vector' ? '向量检索' : '未确认检索模式',
+    graphLabel: ({ NOT_REQUESTED: '本次查询使用向量索引', MATCHES: '图谱有匹配', NO_MATCHES: '图谱未命中', NO_ENTITY_MATCH: '图谱未匹配到概念',
+      UNAVAILABLE_OR_STALE: '图谱不可用或已过期，已降级' })[bundle.graph_status] || '未提供图谱状态',
+    notice: bundle.status === 'NO_MATCHES' ? '公开资料未命中，不能据此判断不存在相关研究。'
+      : bundle.status !== 'MATCHES' ? '知识检索不可用，本次没有可引用的公开资料。'
+        : !records.hits.length ? '没有通过引用核验的公开资料。' : '',
+  }
 }
 
 export function analysisEvidence(result) {
@@ -247,6 +254,10 @@ export function analysisEvidence(result) {
   return rowsOf(result?.analyses).filter((analysis) => knownAgent(analysis.agentId)).map((analysis) => {
     const allowed = new Set([...businessRefs, ...knowledge.filter((bundle) => bundle.agentId === analysis.agentId)
       .flatMap((bundle) => bundle.hits.map((hit) => hit.evidence_ref))])
+    for (const bundle of rowsOf(result?.experienceEvidence).filter(b => b.agentId === analysis.agentId && b.status === 'MATCHES')) {
+      for (const h of rowsOf(bundle.hits)) if (/^experience:[a-f0-9-]{36}:[a-f0-9]{64}$/.test(h.evidence_ref) &&
+          h.evidence_ref.endsWith(':' + h.record_hash) && /^[a-f0-9]{64}$/.test(h.record_hash)) allowed.add(h.evidence_ref)
+    }
     let omitted = 0
     const validated = (items) => rowsOf(items).filter((item) => {
       const valid = !!textValue(item.text).trim() && Array.isArray(item.evidenceRefs) && item.evidenceRefs.length > 0 &&
@@ -275,9 +286,9 @@ export function qualityResearchEvidence(facts) {
     metricFields: fields(metrics, { inspectionRecordCount: '检验记录数', validSampleRecordCount: '可计算抽检比例的记录数',
       failedInspectionRecordCount: '不合格检验记录数', failedItemRecordCount: '不合格项目记录数', nonconformingRecordCount: '不合格品记录数' }),
     defectTypes: rowsOf(metrics?.defectTypes), sampleRates: rowsOf(metrics?.sampleRates),
-    visionLabel: ({ SOURCE_RECORD_MISSING: '原始记录缺失', RECORDED_SUMMARIES_ONLY: '仅历史文字摘要',
+    visionLabel: ({ NO_INSPECTIONS_IN_SCOPE: '本次范围内无检验单', SOURCE_RECORD_MISSING: '原始记录缺失', RECORDED_SUMMARIES_ONLY: '仅历史文字摘要',
       RECORDED: '有归档记录', PARTIAL: '归档记录不完整' })[vision?.status] || '状态未确认',
-    visionNotice: ({ SOURCE_RECORD_MISSING: '未保存原始视觉记录，无法核验原图、检测框或模型版本。',
+    visionNotice: ({ NO_INSPECTIONS_IN_SCOPE: '没有可核对视觉归档的检验单。', SOURCE_RECORD_MISSING: '未保存原始视觉记录，无法核验原图、检测框或模型版本。',
       RECORDED_SUMMARIES_ONLY: '历史记录仅有文字摘要，无法提供原始框或模型版本。',
       RECORDED: '以下仅展示已绑定检验单的归档检测结果。',
       PARTIAL: '部分归档记录缺失或不可读取，以下证据不完整。' })[vision?.status] || '未提供可确认的视觉来源状态。',
@@ -298,4 +309,15 @@ export function qualityResearchEvidence(facts) {
     })) : [],
     summaries: rowsOf(vision?.summaries), limitations: strings(vision?.limitations).map(evidenceWarning),
   }
+}
+
+export function inspectionImageRecords(message) {
+  const result = message?.result
+  if (!result || message.evidenceInvalidated || message.workflow?.invalidated || result.historyEvidenceOmitted ||
+      !['EVIDENCE_READY', 'INSUFFICIENT_EVIDENCE'].includes(result.verdict)) return []
+  const trace = result.facts?.inspection_trace
+  if (!trace?.boundImages?.length) return []
+  const visionEvidence = { status: trace.visionStatus, records: trace.boundImages }
+  return qualityResearchEvidence({ quality: { visionEvidence } }).records.filter(record =>
+    record.imageEntries.some(entry => entry.status === 'AVAILABLE'))
 }

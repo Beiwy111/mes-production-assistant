@@ -1,0 +1,22 @@
+# Private upload graph. Keep the curated read-only Neo4j instance independent.
+services:
+  neo4j:
+    image: neo4j:5.26.32-community
+    restart: unless-stopped
+    mem_limit: 896m
+    cpus: 1
+    ports:
+      - "127.0.0.1:17688:7687"
+    environment:
+      NEO4J_AUTH: neo4j/${MES_INGEST_GRAPH_PASSWORD:?Missing private graph credential}
+      NEO4J_server_http_enabled: "false"
+      NEO4J_server_memory_heap_initial__size: 128m
+      NEO4J_server_memory_heap_max__size: 256m
+      NEO4J_server_memory_pagecache_size: 64m
+      NEO4J_server_bolt_advertised__address: localhost:17688
+      NEO4J_dbms_usage__report_enabled: "false"
+    volumes:
+      - private_knowledge:/data
+volumes:
+  private_knowledge:
+

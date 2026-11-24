@@ -128,7 +128,20 @@ class WorkbenchGatewayServerTest {
         assertEquals(409,request("POST","/runs/stream","owner",followup.replace("\"chat\"","\"different\"")).statusCode());
         assertEquals(200,request("POST","/runs/stream","owner",followup).statusCode());
         assertEquals(run,services.previousRun);
+        assertNull(services.previousGeneralAnswer);
         assertTrue(json.readTree(request("GET","/status","owner",null).body()).path("naturalLanguage").asBoolean());
+    }
+    @Test void onlyServerSuppliedGeneralAnswerTravelsToNextTurn() throws Exception {
+        services.general=true;
+        String first=json.writeValueAsString(Map.of("text","写一条活动标题","requestId","g1","sessionId","s1"));
+        var packet=request("POST","/runs/stream","owner",first);
+        String ref=json.readTree(packet.body().lines().filter(s->!s.isBlank()).findFirst().orElseThrow()).path("runId").asText();
+        var msg=new LinkedHashMap<String,Object>(Map.of("text","改成疑问句","requestId","g2","sessionId","s1","previousRunId",ref));
+        msg.put("previousGeneralAnswer","forged");
+        assertEquals(400,request("POST","/runs/stream","owner",json.writeValueAsString(msg)).statusCode());
+        msg.remove("previousGeneralAnswer");
+        assertEquals(200,request("POST","/runs/stream","owner",json.writeValueAsString(msg)).statusCode());
+        assertEquals("Final answer",services.previousGeneralAnswer);
     }
     @Test void restartContinuationStillRequiresSameOwnerAndSession(@org.junit.jupiter.api.io.TempDir java.nio.file.Path directory) throws Exception {
         Clock clock=Clock.fixed(now.get(),ZoneOffset.UTC);
@@ -322,6 +335,19 @@ class WorkbenchGatewayServerTest {
         assertTrue(services.cancelled.get()); assertTrue(services.stopped.get());
         assertTrue(body.contains("\"type\":\"error\"")); assertFalse(body.contains("SECRET"));
     }
+    @Test void finalObservationCannotReleaseAResultPastTheOverallDeadline() throws Exception {
+        server.close();
+        server=new WorkbenchGatewayServer(services,Set.of("100"),Clock.systemUTC(),Duration.ofMillis(700),0);
+        server.start();base="http://127.0.0.1:"+server.port()+"/assistant-workbench";
+        services.blockFinalObservation=true;
+        var response=http.sendAsync(builder("POST","/runs/stream","owner",input("slow-final-observe")),HttpResponse.BodyHandlers.ofString());
+        try{
+            assertTrue(services.finalObservation.await(2,TimeUnit.SECONDS));
+            String body=response.get(2,TimeUnit.SECONDS).body();
+            assertTrue(body.contains("RUN_TIMED_OUT"),body);
+            assertFalse(body.contains("\"type\":\"result\""));
+        }finally{services.releaseFinalObservation.countDown();}
+    }
     @Test void activeCapacityRejectsThirdRunWithoutStartingIt() throws Exception {
         services.block=true;
         var a=http.sendAsync(builder("POST","/runs/stream","owner",input("a")),HttpResponse.BodyHandlers.ofString());
@@ -370,9 +396,13 @@ class WorkbenchGatewayServerTest {
         final AtomicInteger intakes=new AtomicInteger();
         public long authenticateOrderIntake(String authorization){return 1;}
         public JsonNode orderIntake(long owner,String text,String context){intakes.incrementAndGet();return new ObjectMapper().valueToTree(Map.of("action","ORDER","fields",Map.of("quantity",100),"clearFields",List.of(),"question",""));}
-        String naturalQuery,previousRun;
+        String naturalQuery,previousRun,previousGeneralAnswer;
+        boolean general;
         public boolean naturalLanguage(){return true;}
         public String createNatural(long owner,String text,String previous)throws Exception {naturalQuery=text;previousRun=previous;return create(owner,"","AUTO");}
+        public String createNatural(long owner,String text,String previous,String generalAnswer)throws Exception {
+            previousGeneralAnswer=generalAnswer;return createNatural(owner,text,previous);
+        }
         final AtomicInteger created=new AtomicInteger(),streamed=new AtomicInteger(),observations=new AtomicInteger();
         final AtomicBoolean cancelled=new AtomicBoolean(),stopped=new AtomicBoolean();
         final CountDownLatch started=new CountDownLatch(1),release=new CountDownLatch(1);
@@ -430,6 +460,7 @@ class WorkbenchGatewayServerTest {
             if(dependencyFailure)throw new WorkbenchGatewayServer.Failure(502,"DIFY_EVENT_LIMIT");
             if(finishDuringFirstObservation)assertTrue(firstObservation.await(2,TimeUnit.SECONDS));
             JsonNode result=new ObjectMapper().valueToTree(Map.of("reply","Final answer","facts",dataChanged?Map.of():Map.of("count",7),"verdict",dataChanged?"DATA_CHANGED":"EVIDENCE_READY"));
+            if(general) result=new ObjectMapper().valueToTree(Map.of("reply","Final answer","facts",Map.of(),"verdict","EVIDENCE_READY","queryMode","NATURAL","intents",List.of("GENERAL")));
             workflowReturning.countDown();return result;
         }
         public void cancel(String id){cancelled.set(true);}

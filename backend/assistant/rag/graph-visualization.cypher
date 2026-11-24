@@ -1,6 +1,19 @@
-// Neo4j Browser: run statements separately. Set graphRelease from rag/data/graph-active.json.
-// Current initial public release; update the parameter after each graph rebuild.
-:param graphRelease => 'c3730754df73482f9ae14cf4c7015d09';
+// From PowerShell at the project root, print the Browser command for the active graph:
+// $g = (Get-Content -Raw backend/assistant/rag/data/graph-active.json | ConvertFrom-Json).graph_release_id
+// ":param graphRelease => '$g'"
+// Run the printed :param in Neo4j Browser, followed by one query at a time.
+
+// Reconcile the same four public node types as the workbench. Historical releases are excluded.
+MATCH (n:GraphNode {graph_release:$graphRelease, domain:'display_reference'})
+RETURN count(CASE WHEN n:Document THEN 1 END) AS documents,
+       count(CASE WHEN n:Chunk THEN 1 END) AS chunks,
+       count(CASE WHEN n:Entity THEN 1 END) AS entities,
+       count(CASE WHEN n:Claim THEN 1 END) AS claims;
+
+// Every published chunk has a PART_OF link, including chunks without a reviewed semantic claim.
+MATCH p=(ch:Chunk {graph_release:$graphRelease, domain:'display_reference'})
+        -[:PART_OF]->(d:Document {graph_release:$graphRelease, domain:'display_reference'})
+RETURN p;
 
 // Public conceptual claims only: subject -> source-supported claim -> object.
 MATCH p=(s:Entity {graph_release:$graphRelease,domain:'display_reference'})

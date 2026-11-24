@@ -87,9 +87,10 @@ class RagflowClient:
     def __exit__(self, *args):
         self.http.close()
 
-    def _request(self, method, path, **kwargs):
+    def _request(self, method, path, *, dataset_collection=False, **kwargs):
+        endpoint = '/api/v1/datasets' if dataset_collection else self.prefix + path
         try:
-            with self.http.stream(method, self.prefix + path, **kwargs) as response:
+            with self.http.stream(method, endpoint, **kwargs) as response:
                 if response.status_code != 200:
                     raise RagflowError(f'RAGFlow HTTP failure ({response.status_code})')
                 body = bytearray()
@@ -105,6 +106,17 @@ class RagflowClient:
         if not isinstance(result, dict) or type(result.get('code')) is not int or result['code'] != 0:
             raise RagflowError('RAGFlow API rejected operation')
         return result.get('data')
+
+    def datasets(self):
+        """List the configured dataset for the operator, including its real indexing status."""
+        result = self._request('GET', '', dataset_collection=True, params={
+            'id': self.config.dataset_id, 'page': 1, 'page_size': 1, 'include_parsing_status': 'true'})
+        if not isinstance(result, list) or len(result) > 1:
+            raise RagflowError('Unexpected dataset listing')
+        fields = ('id', 'name', 'document_count', 'chunk_count', 'unstart_count', 'running_count', 'done_count', 'fail_count')
+        if any(not isinstance(row, dict) or row.get('id') != self.config.dataset_id for row in result):
+            raise RagflowError('RAGFlow returned a different dataset')
+        return [{key: row[key] for key in fields if key in row} for row in result]
 
     def upload(self, pdf: Path, expected_sha256: str):
         # Snapshot local bytes: hash check and upload use the same bytes, no path/URL supplied by content.

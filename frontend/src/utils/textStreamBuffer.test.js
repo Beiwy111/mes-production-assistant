@@ -7,11 +7,14 @@ function harness() {
  const buffer=createTextStreamBuffer({request:fn=>{frames.set(++id,fn);return id},cancel:key=>frames.delete(key),now:()=>now,onChange:(text,pending)=>seen.push({text,pending,now})})
  return {buffer,seen,frames,tick(ms=22){now+=ms;const callbacks=[...frames.values()];frames.clear();callbacks.forEach(fn=>fn(now))}}
 }
-test('native bursts display progressively and completion drains within240ms without losing characters',()=>{
+test('first frame reveals a character, normal deltas read slowly, and completion preserves the full text',()=>{
  const h=harness(),text='已查询到以下库存信息：'
  h.buffer.update(text,{live:true});assert.equal(h.seen.at(-1)?.text||'','')
- h.tick();h.tick();assert.ok(h.seen.at(-1).text.length>0&&h.seen.at(-1).text.length<text.length)
- h.buffer.update(text,{live:false});for(let i=0;i<12;i++)h.tick()
+ h.tick(16);assert.equal(h.seen.at(-1).text,'已')
+ h.tick(16);assert.equal(h.seen.at(-1).text,'已')
+ h.buffer.update(text,{live:false});for(let i=0;i<10;i++)h.tick()
+ assert.ok(h.seen.at(-1).text.length<text.length)
+ for(let i=0;i<50;i++)h.tick()
  assert.equal(h.seen.at(-1).text,text);assert.equal(h.frames.size,0);assert.equal(h.seen.at(-1).pending,false)
 })
 test('graphemes split across deltas never expose broken emoji or accents',()=>{

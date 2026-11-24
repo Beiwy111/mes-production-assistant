@@ -43,6 +43,8 @@ public class MesWorkflowService {
     @Autowired
     private QualityInspectionMapper qualityInspectionMapper;
     @Autowired
+    private InspectionRoundHistory inspectionHistory;
+    @Autowired
     private NonconformingProductMapper nonconformingProductMapper;
     @Autowired
     private MaterialMapper materialMapper;
@@ -1650,6 +1652,7 @@ public class MesWorkflowService {
         qi.setCreatedAt(now);
         qi.setUpdatedAt(now);
         qualityInspectionMapper.insertInspection(qi);
+        inspectionHistory.append(qi.getInspectionId(), InspectionRoundHistory.Event.OPENED, operator);
 
         d.setStatus("QC_PENDING");
         d.setUpdatedAt(now);
@@ -1729,12 +1732,16 @@ public class MesWorkflowService {
         String qcNo = str(p, "qcId");
         Map<String, Object> payload = (Map<String, Object>) p.getOrDefault("payload", p);
         QualityInspection qi = findInspectionByNo(qcNo);
-        if (qi == null || !List.of("PENDING", "RECHECK_REQUIRED").contains(qi.getInspectionStatus())) {
+        if (qi == null) throw new BusinessException("质检状态不允许提交");
+        qi = inspectionHistory.beforeWrite(qi.getInspectionId());
+        if (!List.of("PENDING", "RECHECK_REQUIRED").contains(qi.getInspectionStatus())) {
             throw new BusinessException("质检状态不允许提交");
         }
         LocalDateTime now = LocalDateTime.now();
         User inspector = findUserByUsername(operator);
         String result = str(payload, "result");
+        boolean recheck = "RECHECK_REQUIRED".equals(qi.getInspectionStatus()) || "RECHECK".equals(qi.getInspectionType());
+        InspectionRoundHistory.Event decision = inspectionHistory.decisionEvent(qi);
         qi.setInspectionType(inspectionTypeToDb(str(payload, "qcType", qi.getInspectionType())));
         qi.setSampleQuantity(decimal(payload.get("sampleQty")));
         qi.setQualifiedQuantity(decimal(payload.get("qualifiedQty")));
@@ -1750,6 +1757,13 @@ public class MesWorkflowService {
         qi.setRemark(str(payload, "remark"));
         qi.setUpdatedAt(now);
         qualityInspectionMapper.updateInspection(qi);
+        if ("PASSED".equals(qi.getInspectionStatus()) || "FAILED".equals(qi.getInspectionStatus())) {
+            if (recheck) decision = "PASSED".equals(qi.getInspectionStatus())
+                    ? InspectionRoundHistory.Event.RECHECK_PASSED : InspectionRoundHistory.Event.RECHECK_FAILED;
+            inspectionHistory.append(qi.getInspectionId(), decision, operator);
+        } else {
+            inspectionHistory.append(qi.getInspectionId(), InspectionRoundHistory.Event.HEADER_UPDATED, operator);
+        }
 
         WorkOrder wo = workOrderMapper.getWorkOrderById(qi.getWorkOrderId());
         MesRuntimeState runtime = mesRuntimeStore.load();

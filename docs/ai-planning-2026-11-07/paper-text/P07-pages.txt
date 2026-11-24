@@ -1,0 +1,1402 @@
+===== PDF PAGE 1 =====
+Academic Editor: Michel Voué
+Received: 18 March 2026
+Revised: 3 April 2026
+Accepted: 7 April 2026
+Published: 8 April 2026
+Copyright: © 2026 by the authors.
+Licensee MDPI, Basel, Switzerland.
+This article is an open access article
+distributed under the terms and
+conditions of the Creative Commons
+Attribution (CC BY) license.
+Article
+Surface Defect Detection in Liquid Crystal Display
+Polariser Coating Manufacturing Based on an Enhanced
+YOLOv10-N Approach
+Jiayue Zhang 1, Shanhui Liu 1,*
+, Minghui Chen 2, Kezhan Zhang 1, Yinfeng Li 2, Ming Peng 3 and Yeting Teng 1
+1
+Faculty of Printing, Packaging Engineering and Digital Media Technology, Xi’an University of Technology,
+Xi’an 710048, China; jiayuexaut@163.com (J.Z.); 18836110389@163.com (K.Z.); tengyeting@163.com (Y.T.)
+2
+Shaanxi Beiren Printing Machinery Co., Ltd., Weinan 714000, China; chenminghui@shaanxibeiren.com (M.C.);
+wnlyf7910@163.com (Y.L.)
+3
+China Printing Science and Technology Research Institute Co., Ltd., Beijing 100036, China;
+pengming@keyin.cn
+*
+Correspondence: shanhuiliu@xaut.edu.cn
+Abstract
+To address the issues of uneven grayscale distribution, weak defect features, and small
+target scales on the coating surface of LCD polarizers during manufacturing, an improved
+YOLOv10-N-based method is proposed for surface defect detection. First, a polarizer
+coating defect dataset is constructed based on the LCD polarizer coating process and
+the characteristics of coating defects. Adaptive median filtering is then employed for
+image denoising, while a particle-swarm-optimization-based improved histogram equal-
+ization method is adopted for image enhancement. Next, the Scale-aware Pyramid Pooling
+(SCPP) module is introduced into the C2f module of the backbone network to construct
+the C2f_SCPP feature extraction module, thereby improving the model’s ability to detect
+coating defects with different morphologies through multi-scale semantic feature fusion. In
+addition, rotation-equivariant convolution PreCM is incorporated into the SPPF module of
+the backbone network to build the SPPF_PreCM module, which effectively suppresses fea-
+ture redundancy and scale conflicts while strengthening the representation of tiny defects.
+Finally, while retaining the original Distribution Focal Loss (DFL) branch of YOLOv10,
+WIoU is used to replace CIoU as the IoU loss term in bounding box regression, thereby
+improving localization accuracy and accelerating model convergence during training. Ex-
+perimental results show that, compared with YOLOv10-N, the proposed method improves
+mAP@0.5 and mAP@0.5:0.95 by 1.8 and 2.8 percentage points, respectively, demonstrating
+its effectiveness for polarizer coating defect detection. However, its generalization capabil-
+ity under diverse production environments, varying illumination conditions, and complex
+noise scenarios still requires further investigation.
+Keywords: polarizer surface; defect detection; feature extraction; YOLOv10; cross-scale
+feature fusion
+1. Introduction
+As a core component of modern display technology, liquid crystal display (LCD)
+devices have witnessed sustained growth in market demand [1]. In recent years, China’s
+display panel industry chain has been continuously improved, forming one of the world’s
+most important production and supply bases. Relevant research reports indicate that
+Coatings 2026, 16, 451
+https://doi.org/10.3390/coatings16040451
+
+===== PDF PAGE 2 =====
+Coatings 2026, 16, 451
+2 of 25
+China’s LCD panel production accounted for approximately 78% of the global total in 2025,
+with the industrial scale and international influence continuously rising [2]. However, dur-
+ing the manufacturing process of LCD polarizers, defects generated in the coating process
+are easily affected by processing, transportation, storage and other factors. Surface defects
+such as scratches, cracks, white spots, light leakage, damage and film rupture frequently
+occur, resulting in degraded product performance and reduced yield, which has become
+a pressing issue in the industry. Therefore, researching and developing high-precision
+and high-efficiency detection technologies for polarizer coating defects has become a key
+direction for LCD manufacturers to improve product quality and production efficiency.
+In the early stage, the detection of coating defects on polarizers mainly relied on
+manual visual inspection, which was susceptible to human factors, leading to missed
+detection and false detection. Such methods could not meet the requirements of contin-
+uous optimization and upgrading of polarizer coating production lines. To improve the
+detection performance of polarizer coating defects, many scholars have gradually applied
+machine vision-based detection methods to production lines. Defect detection is real-
+ized by extracting artificial features such as threshold segmentation [3], edge contours [4],
+and texture statistics [5], combined with classifiers such as support vector machines and
+random forests, which have improved the detection efficiency to a certain extent [6].
+Jian et al. [7] proposed an improved MPSG algorithm for defect recognition and seg-
+mentation detection by introducing a multi-scale feature fusion mechanism. Ho et al. [8]
+developed an automatic optical inspection system to detect the cross-sectional profile and
+surface of cut thin-film-transistor liquid-crystal display panels. However, such methods
+still rely on feature engineering in essence. When dealing with weak defects on polarizers,
+it is difficult to balance missed detection and false alarms simultaneously. Against this
+background, deep learning methods can adaptively extract multi-scale defect features from
+a large number of samples with their end-to-end automatic feature learning capability.
+Tien et al. [9] proposed an effective method for micro-defect detection and classification of
+optical films based on improved YOLOv7.Joseph Redmon et al. [10] proposed the YOLO
+series, which performs object localization and classification simultaneously using a sin-
+gle neural network, greatly improving the detection speed. Wang et al. [11] proposed a
+method for detecting and identifying LBE coating defects based on an improved binary
+tree support vector machine (BT-SVM). Sheng [12] proposed an improved algorithm for
+inkjet character detection on polarizer surfaces based on YOLOv8-N. DCNv3 was used to
+replace the standard convolution in the C2f module of the backbone network, and the EMA
+attention mechanism was incorporated to construct the DEC2f feature extraction module.
+Liu et al. [13] proposed a lightweight neural network based on deep learning, which meets
+the requirements of accuracy and real-time performance for industrial polarizer defect
+detection. The model achieved an accuracy of 93.4% on the test set. Xia et al. [14] proposed
+an improved Faster-RCNN-based network for polarizer surface defect detection to improve
+the detection ability for small defects.
+Although existing algorithms for polarizer coating defect detection have achieved
+certain performance improvements, they remain vulnerable to challenges such as low
+grayscale contrast and blurred defect boundaries. Consequently, the detection accuracy
+for low-contrast defects, such as scratches, white spots, and cracks, still needs to be further
+improved. To address these issues, this paper proposes an improved YOLOv10-N-based
+method for surface defect detection in liquid crystal display polarizer coating manufac-
+turing. The proposed approach is developed from three perspectives, namely image
+preprocessing, enhanced feature extraction, and optimized bounding box regression.
+The rest of this paper is organized as follows. Section 2 describes the construction of
+a polarizer dataset based on the coating process and defect characteristics, followed by
+https://doi.org/10.3390/coatings16040451
+
+===== PDF PAGE 3 =====
+Coatings 2026, 16, 451
+3 of 25
+preprocessing of the acquired images. Section 3 presents the proposed improved YOLOv10-
+N method for polarizer coating defect detection. Specifically, the scale-aware pyramid
+pooling (SCPP) module is incorporated into the C2f module to develop the C2f_SCPP
+feature extraction module, which enhances the representation of multi-scale defect features.
+In parallel, the rotation-equivariant convolution module PreCM is embedded into the SPPF
+module to build the SPPF_PreCM module, thereby improving the extraction of features
+associated with direction-varying and small defects. Furthermore, WIoU is introduced to
+replace CIoU as the IoU loss term in bounding box regression, with the aim of improving
+target localization accuracy. Section 4 provides experimental validation of the proposed
+denoising and enhancement algorithms, as well as the defect detection method. Section 5
+concludes the paper and discusses possible future research directions.
+2. Materials and Methods
+2.1. Polarizer Coating Image Acquisition and Preprocessing
+2.1.1. Polarizer Coating Process Analysis and Image Acquisition
+As one of the key functional components of liquid crystal displays (LCDs), the polar-
+izer is produced at the front end of the display module manufacturing process and has a
+direct impact on subsequent lamination and display quality. The production process of the
+LCD polarizer is shown in Figure 1. This figure was drawn using Microsoft Visio 2019. The
+general procedure is as follows: optical functional materials are formulated into a coating
+solution, which is uniformly applied onto the surface of the base film through precision
+coating. The film then enters the drying stage to remove solvents and volatile components,
+followed by the curing section to complete cross-linking, solidification, and film formation.
+Finally, the finished film is wound up into a continuous roll [15].
+Figure 1. Schematic of the Manufacturing Process of LCD Polarizer Films.
+The production process of polarizer coating includes feeding, unwinding, coating,
+drying, and winding [15], as shown in Figure 2. This figure was drawn using Microsoft
+Visio 2019. Many factors affect the coating quality, such as the manufacturing precision of
+coating equipment, operation stability, dynamic tension control, air volume during drying,
+and temperature control profile.
+ 
+Figure 2. Schematic Diagram of LCD Polarizer Coating Equipment.
+https://doi.org/10.3390/coatings16040451
+
+===== PDF PAGE 4 =====
+Coatings 2026, 16, 451
+4 of 25
+Affected by these factors, various coating defects may appear on the polarizer surface
+during production, including huahen (SC), liewen (CR), baidian (WH), louguang (LI),
+bengque (DA), pomo (RU), and wuzi (TY), as shown in Figure 3. This figure was drawn
+using Microsoft Visio 2019. In the manufacturing process of polarizers, defects generated
+in the coating stage not only degrade display quality and user experience but also seriously
+impair product performance [16].
+ 
+Figure 3. Classification of Polarizer Coating Defects (all subfigures share the same scale bar of 1 mm).
+Therefore, improving the accuracy of polarizer coating defect detection and recognition
+is an effective way to ensure product quality and production efficiency. It enables real-
+time acquisition of sample data during the coating process, allowing timely detection and
+removal of defective products. At the same time, defect recognition helps manufacturers
+analyze the causes of defects, so that corresponding process adjustments can be made to
+fundamentally reduce or even avoid defects and reduce economic losses.
+Combined with the actual production scenario of polarizer coating, the image ac-
+quisition and dataset construction of polarizer coating surface defects are realized by the
+automatic optical acquisition system shown in Figure 4. The system is mainly composed
+of a camera imaging unit, lighting equipment, transmission system, photoelectric sensor,
+industrial computer, and programmable logic controller (PLC). The camera continuously
+images the polarizer coating surface under stable illumination provided by the lighting
+equipment and transmits the collected image data to the industrial computer in real time
+for preprocessing, such as caching, cropping, and labeling to form raw samples for dataset
+construction. At the same time, the photoelectric sensor provides a trigger signal to the PLC,
+and the PLC outputs Trigger/Strobe to realize synchronous control of camera exposure
+and light flashing, so as to ensure image clarity and consistency under high-speed move-
+ment. Subsequently, the industrial computer performs position association and traceability
+management on the samples according to the corresponding timestamps or position codes
+of the images. After image quality screening, samples containing typical defects such as
+huahen, liewen, baidian, louguang, bengque, pomo, and wuzi are classified and annotated.
+Finally, the polarizer coating surface defect image dataset is constructed, providing data
+support for the subsequent training and evaluation of defect detection algorithms.
+https://doi.org/10.3390/coatings16040451
+
+===== PDF PAGE 5 =====
+Coatings 2026, 16, 451
+5 of 25
+Figure 4. Polarizer Coating Surface Defect Detection System.
+2.1.2. Polarizer Coating Image Preprocessing
+A.
+Image Denoising Based on Adaptive Median Filtering
+During the coating and imaging process of liquid crystal display (LCD) polarizers,
+they are susceptible to interference from the acquisition environment, random noise, and
+surface impurities. This not only degrades image quality but also negatively impacts
+the accuracy of subsequent coating defect detection [17,18]. Therefore, adaptive median
+filtering is employed to denoise the extracted polarizer coating region. Adaptive median
+filtering can dynamically adjust the size of the filtering window according to the local
+statistical characteristics of the signal. While effectively suppressing salt-and-pepper noise
+and pulse interference, it preserves the defect edges and detailed information well. Its
+mathematical formula is shown in Equation (1):
+Z′
+xy =
+
+
+
+
+
+
+
+Zxy,
+i f Zmin < Zmed < Zmax and Zmin < Zxy < Zmax,
+Zmed,
+i f Zmin < Zmed < Zmaxand (Zmin ≤ZxyorZxy ≥Zmax),
+Zmed,
+i f the window size reaches Smax.
+(1)
+where the following notations are used: Z′
+xy denotes the output pixel value of the polarizer
+coating defect image after adaptive median filtering; Zxy denotes the gray value of the
+pixel at coordinates (x, y) in the original image; Zmin, Zmed and Zmax represent the mini-
+mum, maximum, and median gray values of pixels within the current filtering window,
+respectively; Smax denotes the maximum allowable expansion size of the filtering window.
+B.
+Improved
+Histogram
+Equalization
+Image
+Enhancement
+Based
+on
+Particle
+Swarm Optimization
+Although traditional histogram equalization can expand the dynamic range of image
+grayscale to a certain extent, it tends to cause the loss of local details and excessive amplifi-
+cation of noise, which is not conducive to preserving the information of tiny defects on the
+polarizer surface [19]. To address this problem, this paper first adopts an image enhance-
+ment method that combines Contrast Limited Adaptive Histogram Equalization (CLAHE)
+and Gamma correction. Furthermore, the particle swarm optimization algorithm is used to
+adaptively optimize the relevant parameters to achieve better enhancement performance.
+First, the input color image is converted from the RGB color space to the LAB color
+space, and the luminance component is extracted. Then, Contrast Limited Adaptive
+https://doi.org/10.3390/coatings16040451
+
+===== PDF PAGE 6 =====
+Coatings 2026, 16, 451
+6 of 25
+Histogram Equalization (CLAHE) is used to perform local enhancement on the luminance
+component, whose expression is shown in Equation (2):
+Lc(x, y) = CLAHE(L(x, y); β, M × M)
+(2)
+where the following notations are used: L(x, y) denotes the luminance component of
+the original image at position (x, y); Lc(x, y) denotes the luminance value after CLAHE
+processing; β denotes the contrast limit parameter; M × M denotes the window size of the
+local sub-blocks.
+To further adjust the overall brightness and darkness of the image, Gamma correction
+is introduced, whose expression is shown in Equation (3):
+Lg(x, y) = 255 ∗(Lc(x, y)/255)(1/γ)
+(3)
+where the following notations are used: Lg(x, y) denotes the luminance value after Gamma
+correction; γ is the Gamma correction coefficient.
+To avoid the instability caused by manual parameter setting, the particle swarm
+optimization algorithm is further adopted in this paper to jointly optimize the contrast
+limit parameter of CLAHE and the Gamma correction parameter. The position of a particle
+can be expressed as Equation (4):
+Xi = [βi, γi]
+(4)
+where the following notations are used: Xi denotes the position vector of the i-th particle;
+βi and γi represent the CLAHE contrast limit parameter and Gamma correction parameter
+corresponding to the current particle, respectively.
+During the particle swarm optimization process, the velocity and position update
+formulas of the particles are shown in Equation (5) and Equation (6), respectively:
+V(t+1)
+i
+= wVt
+i + c1r1(Pt
+i −Xt
+i) + c2r2(Gt −Xt
+i)
+(5)
+X(t+1)
+i
+= Xt
+i + V(t+1)
+i
+(6)
+where the following notations are used: Vt
+i and Xt
+i represent the velocity and position of
+the i-th particle at the t-th iteration, respectively; w is the inertia weight; c1 and c2 are the
+individual learning factor and social learning factor, respectively; r1 and r2 are random
+numbers in the range [0, 1]; Pt
+i is the personal best position of the i-th particle; Gt is the
+global best position of the particle swarm.
+2.2. Polarizer Coating Defect Detection
+To improve the accuracy and efficiency of coating defect detection in liquid crystal
+display devices, this study proposes a surface defect detection method for polarizer coating
+manufacturing based on an improved YOLOv10-N architecture. Specifically, the C2f_SCPP
+feature extraction module is constructed by incorporating the Scale-Aware Pyramid Pooling
+(SCPP) module, the rotation-equivariant convolution module PreCM is embedded into
+the backbone SPPF module, and WIoU is adopted to replace CIoU as the loss term for
+bounding box regression. The overall framework is shown in Figure 5.
+2.2.1. Network Structure of YOLOv10 Algorithm
+YOLOv10 is a new-generation model developed on the basis of the YOLO series of
+one-stage object detection algorithms [20]. Compared with YOLOv8, while maintaining
+real-time detection capability, YOLOv10 places more emphasis on end-to-end detection
+and collaborative efficiency–accuracy design, and further advances toward an NMS-Free
+https://doi.org/10.3390/coatings16040451
+
+===== PDF PAGE 7 =====
+Coatings 2026, 16, 451
+7 of 25
+end-to-end detection framework. The overall network is shown in Figure 6a, which can be
+divided into three parts: Backbone, Neck, and Head [21].
+Figure 5. Polarizer Coating Defect Detection Process.
+Figure 6. Comparison of YOLOv10 Network Before and After Improvements.
+YOLOv10 introduces spatial-channel decoupled downsampling, CIB, large-kernel
+convolution, and the PSA module in the Backbone [22], adopts PAN-FPN for multi-scale
+feature fusion in the Neck [23], and employs a decoupled head and lightweight classification
+head in the Head combined with a consistent dual label assignment strategy to achieve
+end-to-end detection [5].
+Therefore, compared with YOLOv8, the main advantages of YOLOv10 are as follows:
+First, it reduces the reliance on NMS post-processing, thereby enabling a more end-to-end
+detection pipeline. Second, it focuses more on the collaborative optimization of efficiency
+and accuracy, with lower inference latency. Third, while maintaining high detection
+accuracy, it has better real-time deployment capability. In this paper, improvements are
+made based on the YOLOv10 network, and the improved structure is shown in Figure 6b.
+2.2.2. Improved Network Based on YOLOv10-N
+(1)
+Scale-Aware Pyramid Pooling (SCPP)
+To address the problems of multi-scale distribution and strong background inter-
+ference of coating defects on polarizer surfaces, this paper introduces the SCPP module.
+The structure of the module is shown in Figure 7. It extracts multi-scale features through
+parallel dilated convolutions and enhances the response to critical defects combined with
+the SE attention mechanism [24], thereby improving the network’s representation abil-
+https://doi.org/10.3390/coatings16040451
+
+===== PDF PAGE 8 =====
+Coatings 2026, 16, 451
+8 of 25
+ity and detection robustness for complex defects. The overall process can be expressed
+as Equation (7):
+Y = SE(
+n
+∑
+(i=1)
+αiFi)
+(7)
+where the following notations are used: Fi denotes the feature extracted by the i-th scale
+branch, αi denotes the adaptive weight coefficient of the corresponding branch, SE(·)
+denotes the channel recalibration operation on the fused feature, and Y is the final output
+feature of the module.
+Figure 7. Comparison of YOLOv10 Network Before and After Improvements.
+(2)
+C2f_SCPP Module
+To enhance the feature representation capability and localization accuracy of the
+backbone network for complex-shaped defects, an improved C2f_SCPP module is designed
+by integrating SCPP and SE mechanisms into the C2f module, whose structure is shown in
+Figure 8b.
+Figure 8. Feature Extraction Module Comparison Diagram.
+First, the SCPP structure is embedded into the bottleneck branch of the C2f module.
+Features with different receptive fields are extracted via parallel multi-scale convolution
+paths and adaptively fused, thereby enhancing the network’s representation capability
+for tiny and irregular defects. Let the output features of different scale branches be F1,
+F2, . . ., Fn, respectively. Then the multi-scale fusion process of SCPP can be expressed as
+Equation (8):
+Fs =
+n
+∑
+(i=1)
+αiFi
+(8)
+where the following notations are used: αi denotes the adaptive weight corresponding to
+the i-th scale branch, satisfying:
+n
+∑
+(i=1)
+αi = 1
+(9)
+where the following notations are used: Fs is the fused feature output by the SCPP module,
+and n is the number of multi-scale branches.
+https://doi.org/10.3390/coatings16040451
+
+===== PDF PAGE 9 =====
+Coatings 2026, 16, 451
+9 of 25
+Second, the SE attention mechanism is introduced after concatenation and before the
+1 × 1 convolution to perform channel recalibration on the fused features, so as to enhance
+the response of defect-related features and suppress background noise and redundant
+information. For the fused feature Fs ∈RC×H×W, the channel description vector is first
+obtained via global average pooling, whose calculation process is given by Equation (10):
+zc = 1/(H × W)
+H
+∑
+(i=1)
+W
+∑
+(j=1)
+Fc
+s (i, j)
+(10)
+Subsequently, the weight coefficients of each channel are generated through two fully
+connected layers, namely:
+s = σ(W2δ(W1z))
+(11)
+Finally, the output features after channel recalibration are obtained as:
+Yc = sc · Fc
+s
+(12)
+where the following notations are used: H and W denote the height and width of the
+feature map, respectively, and C denotes the number of channels; zc represents the global
+statistical feature of the c-th channel; W1 and W2 are the weight parameters of the two fully
+connected layers, respectively; δ(·) denotes the ReLU activation function; σ(·) denotes the
+Sigmoid function; sc is the attention weight corresponding to the c-th channel; and Yc is the
+enhanced output feature.
+Finally, a new feature extraction module C2f_SCPP is formed after convolutional
+integration, and its overall process can be further expressed as Equation (13):
+Y = Conv(SE(Concat(F 0, Fs)))
+(13)
+where the following notations are used: F0 denotes the skip branch feature in the C2f
+module, Concat(·) denotes the feature concatenation operation, SE(·) denotes channel
+attention enhancement, and Conv(·) denotes the convolutional integration operation.
+(3)
+Rotating Equilateral Convolution PreCM Module
+To enhance the network’s ability to model directionally varying information, this
+paper introduces the Rotating Equivariant Convolution (PreCM) module, whose structure
+is shown in Figure 9.
+The PreCM module enhances the network’s ability to model directionally variant
+information through multi-directional feature extraction [25], reorganization, and aggre-
+gation. While maintaining directional sensitivity, it improves the consistency of feature
+representation under rotation transformation, thereby boosting the model’s representa-
+tion capability and detection robustness for complex defects. Its overall process can be
+expressed as Equation (14):
+Y = Φ(
+R
+∑
+(r=1)
+αrTr(X))
+(14)
+where the following notations are used: X denotes the input feature map, Tr(·) denotes
+the feature transformation operation under the r-th preset rotation direction, αr denotes
+the weight coefficient corresponding to the directional response, R denotes the number
+of rotation directions, Φ(·) denotes the operation of reorganizing and aggregating multi-
+directional features, and Y is the final output feature of the module.
+https://doi.org/10.3390/coatings16040451
+
+===== PDF PAGE 10 =====
+Coatings 2026, 16, 451
+10 of 25
+ 
+Figure 9. Schematic Diagram of Rotation-Equivalent Convolution.
+(4)
+SPPF_PreCM Module
+To enhance the backbone network’s capacity for modeling direction-sensitive features,
+we introduce the rotation-equivariant convolution module, PreCM, into the original SPPF
+framework (Figure 10a), thereby constructing the improved SPPF_PreCM module, whose
+architecture is depicted in Figure 10b. Specifically, the PreCM structure is embedded at the
+module input to perform direction-sensitive modeling on the input features. This design
+effectively enhances the network’s representation capability for edges, textures, and local
+structures of rotated defects, with the entire process formalized in Equation (15):
+P = Conv(PreCM(X))
+(15)
+where the following notations are used: X denotes the input feature map, PreCM(·) denotes
+the rotation-equivariant convolution operation, Conv(·) denotes the convolution mapping
+operation, and P is the intermediate feature.
+Figure 10. Structural Comparison Diagram of SPPF Module Before and After Improvement.
+Second, the features enhanced by PreCM are used to achieve multi-scale context
+aggregation through serial max pooling and are output after feature concatenation and
+convolutional integration. The process can be expressed as Equation (16):
+Y = Conv(Concat(P, M(P), M2(P), M3(P)))
+(16)
+https://doi.org/10.3390/coatings16040451
+
+===== PDF PAGE 11 =====
+Coatings 2026, 16, 451
+11 of 25
+where the following notations are used: M(·) denotes the max-pooling operation, Concat(·)
+denotes the feature concatenation operation, and Y is the final output feature of the module.
+2.2.3. Improvement of the Loss Function
+YOLOv10 adopts the joint optimization of IoU loss and DFL in bounding box regres-
+sion, where CIoU serves as the default IoU term. To address the problems of irregular
+morphology and unbalanced sample quality in polarizer surface defects, this paper intro-
+duces WIoU to replace CIoU while retaining the original DFL branch, thereby improving
+the accuracy and convergence performance of bounding box regression.
+First, WIoU applies adaptive weighting to samples of different qualities through the
+IoU basic loss and a dynamic focusing mechanism, so as to reduce the interference of
+low-quality samples on bounding box regression. For the i-th positive sample, its IoU basic
+loss can be expressed as Equation (17):
+LIoU(i) = 1 −IoUi
+(17)
+Second, in terms of sample weight allocation, WIoU reweights regression samples of
+different qualities by introducing a dynamic focusing mechanism. Let R(i)
+WIoU denote the
+dynamic focusing coefficient corresponding to the i-th sample; then the WIoU loss term
+can be expressed as Equation (18):
+L(i)
+WIoU = R(i)
+WIoU · L(i)
+WIoU
+(18)
+where the following notations are used: R(i)
+WIoU is dynamically adjusted according to the
+sample regression quality.
+Finally, in the bounding box regression loss of YOLOv10, the original CIoU term
+is replaced with the WIoU term, while the DFL branch remains unchanged. Thus, the
+improved bounding box loss can be expressed as Equation (19):
+Lbox = 1/(
+∑
+(i∈Ω)wi)) ∑
+(i∈Ω)
+wiLW IoU(i) + λDFLLDFL)
+(19)
+where the following notations are used: Ωdenotes the set of positive samples, wi denotes
+the matching weight of the i-th positive sample, λDFL denotes the weight coefficient of the
+distribution focal loss, and LDFL is the distribution focal loss.
+As shown in Figure 11, WIoU first calculates the basic IoU loss based on the overlap
+between the predicted box and the ground-truth box and then introduces a dynamic
+focusing mechanism to weight and modulate samples of different qualities to obtain
+the final bounding box regression loss. This mechanism can effectively suppress the
+interference of low-quality samples and enhance the contribution of ordinary-quality
+samples to bounding box optimization.
+Figure 11. Schematic Diagram of the WIoU Bounding Box Regression Loss Mechanism.
+Different from existing studies that improve YOLOv8/YOLOv10 by directly incorpo-
+rating generic attention modules or employing a single convolution replacement strategy,
+https://doi.org/10.3390/coatings16040451
+
+===== PDF PAGE 12 =====
+Coatings 2026, 16, 451
+12 of 25
+the present study develops coordinated improvements from the perspectives of multi-scale
+feature fusion, direction-sensitive feature modeling, and bounding box regression opti-
+mization, targeting the distinctive characteristics of polarizer coating-surface defects with
+respect to scale variation, directional variation, and boundary localization.
+3. Results
+3.1. Experimental Setup and Details
+3.1.1. Experimental Platform and Software Environment
+The experimental environment in this study comprised both a software develop-
+ment environment and a model training environment. For software development, the
+hardware used for both development and deployment was equipped with a 12th Gen
+Intel(R) Core(TM) i5-12400F processor (Intel Corporation, Santa Clara, CA, USA) running
+at 2.50 GHz, with Windows 10 Professional as the operating system. The software tools
+and development environment included Python 3.8.20, Qt 5.15.9, PyQt 5.15.2, and OpenCV
+4.11.0. For model training, an NVIDIA GeForce RTX 3060 Ti GPU was employed, and the
+deep learning environment consisted of CUDA 11.8, PyTorch 2.0.1 + cu118, Torchvision
+0.15.2 + cu118, and Torchaudio 2.0.2 + cu118. The proposed detection model was imple-
+mented within the Ultralytics framework and developed based on YOLOv10-N. To ensure
+fairness and reproducibility, all comparative experiments were conducted under identical
+hardware and software conditions.
+3.1.2. Dataset Construction and Division
+Considering the balance between preserving defect details and reducing computa-
+tional cost, the original polarizer surface defect images with a resolution of 1500 × 1000
+were uniformly cropped to 640 × 640 in this study. Based on defect types commonly ob-
+served in actual production, seven categories, including scratches, cracks, white spots, light
+leakage, damage, stains, and film rupture, were selected to construct a polarizer coating
+surface defect dataset. The dataset comprises 4834 images in total. As multiple defect
+targets may coexist in a single image, the total number of annotated instances across all
+categories exceeds the total number of images. The distribution of samples in each defect
+category is shown in Table 1. Since defects from different categories exhibit variations in
+morphology and scale, both the number of images and the number of annotated instances
+in each category were statistically analyzed to reflect the true distribution characteristics of
+the dataset. The dataset was split into training, validation, and test sets in a ratio of 70%,
+15%, and 15%, respectively, corresponding to 3384, 725, and 725 images, respectively.
+Table 1. Sample Distribution of Each Category in the Dataset.
+Class ID
+Defect Category
+Number of Images
+Number of Annotated Instances
+SC
+huahen
+850
+1280
+LI
+louguang
+650
+980
+RU
+pomo
+580
+870
+DA
+bengque
+700
+1060
+TY
+wuzi
+620
+930
+CR
+liewen
+760
+1160
+WH
+baidian
+674
+1015
+Total
+——
+4834
+7295
+Figure 12 shows representative examples of the seven typical defect categories in the
+dataset, with the red boxes marking the corresponding defect targets. In terms of data
+annotation, rectangular bounding boxes were used to label defect regions, where each
+https://doi.org/10.3390/coatings16040451
+
+===== PDF PAGE 13 =====
+Coatings 2026, 16, 451
+13 of 25
+bounding box was defined as the minimum enclosing rectangle that fully covered the
+main defect area. When multiple independent defects appeared in the same image, each
+defect instance was annotated separately. For defect regions with ambiguous boundaries,
+the annotation was determined based on the principal range of grayscale abnormality.
+Extremely small noise points that could not be reliably identified were excluded from
+valid defect annotations. All sample annotations were completed by two annotators,
+one responsible for the initial annotation and the other for verification. Samples with
+annotation discrepancies were further reviewed manually to unify the final annotation
+results, thereby ensuring annotation quality and consistency. To prevent potential data
+leakage caused by consecutive acquisition of industrial images, the dataset was split on
+the basis of acquisition batches or consecutive frame groups. Images from the same batch
+or consecutive frame group were assigned exclusively to one of the training, validation,
+or test subsets, thus avoiding the distribution of highly similar samples across different
+subsets and ensuring the objectivity and reliability of the experimental evaluation.
+ 
+Figure 12.
+The seven defect types in the polarizer coating surface dataset: (a) huahen (SC),
+(b) louguang (LI), (c) pomo (RU), (d) bengque (DA), (e) wuzi (TY), (f) liewen (CR), (g) baidian
+(WH) (all subfigures share the same scale bar of 1 mm).
+3.1.3. Training Parameter Settings
+To ensure a fair comparison, all models were trained under the same parameter
+settings. The input image size was set to 640 × 640, the batch size to 16, and the number
+of training epochs to 200. The initial learning rate was set to 0.008, with the final learning
+rate factor specified as 0.01. SGD was adopted as the optimizer, with a momentum of
+0.937 and a weight decay of 0.0005. To improve training stability during the early stage, the
+number of warm-up epochs was set to 5, while the warm-up momentum and warm-up
+bias learning rate were set to 0.8 and 0.1, respectively.
+Regarding the training strategy, pretrained weights were adopted for model initial-
+ization, the random seed was fixed at 0, and deterministic training mode was enabled to
+minimize the influence of random factors on the experimental results. Automatic mixed
+precision training was disabled throughout the training process. The confidence threshold
+and IoU threshold were set to 0.001 and 0.7, respectively, and the maximum number of
+detected objects per image was set to 300. Except for the architectural modifications, the
+baseline and improved models were trained under identical settings, including input size,
+number of training epochs, learning rate parameters, and data augmentation strategies,
+thereby ensuring the fairness and reproducibility of the experimental results.
+For data augmentation, HSV color perturbation, random translation, random scaling,
+random horizontal flipping, and Mosaic augmentation were applied during the training
+https://doi.org/10.3390/coatings16040451
+
+===== PDF PAGE 14 =====
+Coatings 2026, 16, 451
+14 of 25
+stage. The HSV parameters were set to 0.015, 0.7, and 0.4, respectively, while the translation
+factor, scaling factor, horizontal flipping probability, and Mosaic augmentation probability
+were set to 0.1, 0.5, 0.5, and 1.0, respectively. Mosaic augmentation was disabled in the
+final 10 epochs of training. No data augmentation was applied to the validation or test set.
+During the training process, model performance was evaluated on the validation set at
+the end of each epoch, and the weights corresponding to the highest mAP@0.5:0.95 on the
+validation set were selected as the final model for subsequent evaluation on the test set.
+3.1.4. Evaluation Metrics and Model Selection Criteria
+To comprehensively assess the detection performance of the model, Precision, Recall,
+mAP@0.5, and mAP@0.5:0.95 were adopted as the primary evaluation metrics in this
+study. Precision measures the proportion of true positives among all samples predicted
+as positive, whereas Recall indicates the proportion of actual defects that are correctly
+identified by the model. mAP@0.5 refers to the mean average precision over all categories at
+an IoU threshold of 0.5, while mAP@0.5:0.95 denotes the mean average precision computed
+over IoU thresholds ranging from 0.5 to 0.95 with an interval of 0.05. Compared with
+mAP@0.5, mAP@0.5:0.95 requires higher localization accuracy and therefore provides a
+more comprehensive evaluation of the overall detection performance of the model.
+In addition to detection accuracy metrics, the number of parameters (Parameters),
+computational cost (GFLOPs), and inference speed (FPS) were further evaluated to compre-
+hensively assess the model complexity and real-time detection capability, thereby analyzing
+the trade-off between detection accuracy and deployment efficiency of the improved model.
+For model selection, the performance of the model was evaluated on the validation set
+after each training epoch, and the weights corresponding to the highest mAP@0.5:0.95 were
+selected as the final model for subsequent testing. The same selection criterion was adopted
+for both the baseline and improved models to ensure the fairness and comparability of the
+experimental results.
+3.2. Results and Analysis of Image Preprocessing Algorithms
+3.2.1. Results and Analysis of Filtering Algorithms
+To verify the denoising effect of adaptive median filtering, comparative experiments
+are conducted with median filtering, Gaussian filtering and bilateral filtering, and the
+results are shown in Figure 13. It can be seen that Gaussian filtering and bilateral filtering
+tend to blur defect edges while smoothing the image. Although median filtering can
+suppress part of the noise, it still suffers from detail loss and noise residue. In contrast,
+adaptive median filtering can adaptively adjust the filtering window according to the
+information distribution, which effectively removes noise while preserving defect edges
+and texture details, making the defect targets clearer.
+To objectively evaluate the denoising performance of different filtering algorithms,
+peak signal-to-noise ratio (PSNR) was adopted as the evaluation metric in this study. A
+higher PSNR value indicates that the filtered image is closer to the original image, implying
+better denoising performance. As shown in Figure 14, adaptive median filtering generally
+achieves higher PSNR values than conventional median filtering, Gaussian filtering, and
+mean filtering, demonstrating a certain advantage in terms of image similarity. Combined
+with the subjective comparison results presented in Figure 13, adaptive median filtering
+not only suppresses background noise effectively but also preserves defect edges and
+texture details relatively well. It should be noted that PSNR serves primarily as an auxiliary
+indicator for evaluating denoising methods from the perspective of image quality. In
+practical industrial defect imaging scenarios, however, its explanatory power is limited
+to some extent because completely reliable noise-free reference images are difficult to
+https://doi.org/10.3390/coatings16040451
+
+===== PDF PAGE 15 =====
+Coatings 2026, 16, 451
+15 of 25
+obtain. Therefore, adaptive median filtering was selected as the denoising method in
+the subsequent preprocessing stage, and its actual contribution to final defect detection
+performance will be further validated through detection-level ablation experiments.
+Figure 13. Comparison of Filtering Results for Polarizer Coating Images: (a1–a7) Original sample;
+(b1–b7) Median filtering; (c1–c7) Gaussian filtering; (d1–d7) Bilateral filtering; (e1–e7) Adaptive
+median filtering (all subfigures share the same scale bar of 1 mm).
+3.2.2. Results and Analysis of Enhancement Algorithms
+To verify the enhancement performance of the improved histogram equalization
+method based on particle swarm optimization, comparative experiments are conducted
+with histogram equalization, Gamma correction and Retinex enhancement, and the results
+are shown in Figure 15. It can be observed that histogram equalization easily causes local
+over-enhancement, Gamma correction has limited enhancement for weak defect details,
+and Retinex can improve uneven illumination but tends to amplify noise. In contrast, the
+proposed method can effectively suppress local over-enhancement while improving image
+contrast, better preserving defect edges and texture details, and making defect targets
+more prominent.
+https://doi.org/10.3390/coatings16040451
+
+===== PDF PAGE 16 =====
+Coatings 2026, 16, 451
+16 of 25
+Figure 14. PSNR Values of Polarizer Coating Images under Different Filtering Methods.
+Figure 15. Comparison of Enhancement Results for Polarizer Coating Images (a1–a7) Original sample;
+(b1–b7) HE; (c1–c7) Gamma; (d1–d7) Retinex; (e1–e7) PSO-Improved HE (all subfigures share the
+same scale bar of 1 mm).
+https://doi.org/10.3390/coatings16040451
+
+===== PDF PAGE 17 =====
+Coatings 2026, 16, 451
+17 of 25
+To more objectively evaluate the effect of image enhancement, information entropy (IE)
+and average gradient (AG) were adopted as evaluation metrics in this study. By comparing
+the same metrics for defect images processed by different enhancement algorithms, it can
+be seen from Figure 16a that the proposed method achieves the highest information entropy,
+indicating that the enhanced image retains the greatest amount of detailed information. As
+shown in Figure 16b, the proposed method also exhibits a relatively large average gradient,
+suggesting more pronounced local grayscale variations and more salient edge and texture
+features in defect regions. It should be emphasized that although information entropy and
+average gradient can reflect, to some extent, the richness of image details and local grayscale
+variation characteristics, improvements in these metrics do not necessarily translate directly
+into better subsequent defect detection performance. Therefore, they are employed only
+as auxiliary indicators for assessing image enhancement effectiveness. Considering both
+the subjective visual results and the auxiliary evaluation results based on IE and AG,
+the particle-swarm-optimization-based improved histogram equalization method was
+adopted for subsequent detection experiments, as it improves overall image contrast
+while preserving defect edges and texture details relatively well. Its actual contribution
+to final detection performance will be further verified through subsequent detection-level
+ablation experiments.
+Figure 16. Evaluation Metrics of Polarizer Coating Images Processed by Different Enhancement Methods.
+Figure 17 presents the three-dimensional brightness distribution maps of the original
+image and the polarizer coating image processed by the improved PSO-Improved HE
+algorithm. It can be observed that the brightness over both the horizontal and vertical
+dimensions of the image is significantly improved, indicating that the proposed method
+has a positive effect on image enhancement.
+Figure 17. Comparison of 3D Brightness Distribution Maps of Polarizer Coating Images.
+https://doi.org/10.3390/coatings16040451
+
+===== PDF PAGE 18 =====
+Coatings 2026, 16, 451
+18 of 25
+In summary, the proposed preprocessing method exhibits certain advantages in terms
+of visual image quality and auxiliary evaluation metrics. Nevertheless, improvements at
+the image level do not necessarily correspond directly to enhanced performance in defect
+detection tasks. Therefore, ablation experiments on preprocessing and structural improve-
+ments were further conducted at the detection level. By comparing the baseline detection
+model, the model with preprocessing only, the model with structural improvements only,
+and the complete proposed method, the actual contribution of the preprocessing stage to
+the final detection performance was systematically validated.
+3.3. Results and Analysis of Defect Detection
+3.3.1. Ablation Experiments on Preprocessing and Structural Improvements
+To further validate the practical contribution of the preprocessing module to subse-
+quent defect detection tasks and to investigate its synergistic effect with the model improve-
+ment modules, ablation experiments on preprocessing and structural improvements were
+conducted on the polarizer surface defect dataset.
+P1 represents the baseline detection model, namely YOLOv10-N with the original
+images as input.
+P2 represents the model with only the preprocessing module, in which denoised
+and enhanced images are used as input, while the detection model remains the original
+YOLOv10-N.
+P3 represents the model with only the structural improvement modules, in which the
+original images are used as input and the proposed SCPP, PreCM, and WIoU modifications
+are incorporated into YOLOv10-N.
+P4 represents the complete proposed method, in which both the preprocessed images
+and the improved detection model are employed. To ensure the fairness of the comparison,
+all experiments were conducted using the same dataset split, training parameter settings,
+and model selection criteria. The results are shown in Table 2.
+Table 2. Ablation Results on Preprocessing and Structure Optimization.
+Model
+Original
+Images
+Preprocessed
+Images
+YOLOv10-N
+Improved
+YOLOv10-N
+Precision/%
+Recall/%
+mAP@0.5/%
+mAP@0.5:0.95/%
+Parameters/106
+GFLOPs
+P1
+√
+×
+√
+×
+91.3
+95.8
+95.0
+48.8
+2.300
+6.700
+P2
+×
+√
+√
+×
+92.7
+96.4
+95.6
+49.5
+2.300
+6.700
+P3
+√
+×
+×
+√
+93.2
+97.8
+96.2
+50.9
+2.536
+7.281
+P4
+×
+√
+×
+√
+94.1
+98.2
+96.8
+51.6
+2.536
+7.281
+As shown in Table 2, compared with the baseline model P1, P2 achieves consis-
+tent improvements in Precision, Recall, mAP@0.5, and mAP@0.5:0.95, indicating that the
+preprocessing module can improve the quality of the input images and enhance the dis-
+tinguishability of defect regions to a certain extent, thereby contributing positively to
+subsequent defect detection. In comparison, P3 shows more pronounced improvements
+over P1, demonstrating that the proposed model enhancement modules can effectively
+strengthen the network’s representation capability for complex defects, small-scale defects,
+and boundary details. Furthermore, P4 outperforms both P2 and P3 across all evaluation
+metrics, suggesting that the preprocessing module and the model enhancement modules
+exhibit a favorable synergistic effect, and that their combination can further improve the
+detection performance for polarizer surface defects.
+Therefore, the role of the preprocessing stage is manifested not only in the enhance-
+ment of image-level visual quality, but also in its capacity to yield actual performance gains
+in the defect detection task. Building on this, further ablation experiments on the structural
+modules were carried out to investigate the independent contribution of each proposed
+structural improvement module.
+https://doi.org/10.3390/coatings16040451
+
+===== PDF PAGE 19 =====
+Coatings 2026, 16, 451
+19 of 25
+3.3.2. Ablation Experiments on Structural Modules
+After verifying that the preprocessing module and the overall structural improvements
+yield actual performance gains in defect detection, stepwise ablation experiments were
+further conducted on the proposed SCPP, PreCM, and WIoU modules with YOLOv10-N as
+the baseline network, so as to investigate the independent contribution of each structural
+improvement module. The results are shown in Table 3.
+Table 3. Ablation experiment.
+Model
+Base
+SCPP
+PreCM
+WIoU
+mAP@0.5/%
+mAP@0.5:0.95/%
+Parameters/106
+GFLOPs
+M1
+√
+×
+×
+×
+95.0
+48.8
+2.300
+6.700
+M2
+√
+√
+×
+×
+95.8 (+0.8)
+49.9 (+1.1)
+2.421
+7.034
+M3
+√
+√
+√
+×
+96.4 (+0.6)
+50.8 (+0.9)
+2.536
+7.281
+M4
+√
+√
+√
+√
+96.8 (+0.4)
+51.6 (+0.8)
+2.536
+7.281
+M1 denotes the experimental results of the original YOLOv10-N, which serves as
+the baseline for the improved model in this paper. It has 2.300 × 106 parameters and a
+computational cost of 6.700 GFLOPs.
+M2 represents the model obtained by integrating SCPP into the C2f module of the
+backbone network based on M1, forming the C2f_SCPP feature extraction module. By
+fusing multi-scale semantic information, the network’s representation ability for coating de-
+fects with various shapes is enhanced. With only a slight increase in parameters and FLOPs,
+the detection accuracy is significantly improved, where mAP@0.5 and mAP@0.5:0.95 are
+increased by 0.8 and 1.1 percentage points, respectively.
+M3 represents the model obtained by integrating rotation-equivariant convolution
+PreCM into SPPF based on M2, forming the SPPF_PreCM module. This further strengthens
+the network’s representation ability for direction-varying and tiny defects. With a small
+increase in parameters and GFLOPs, mAP@0.5 and mAP@0.5:0.95 are further improved by
+0.6 and 0.9 percentage points, respectively, effectively enhancing the detection performance
+for complex defects.
+M4 represents the model obtained by replacing CIoU with WIoU as the IoU loss
+term in bounding box regression on the basis of M3, while retaining the original DFL
+branch of YOLOv10. This accelerates network training convergence. With parameters and
+GFLOPs unchanged, the bounding box regression ability of the model is enhanced, and
+both mAP@0.5 and mAP@0.5:0.95 are further improved by 0.4 and 0.8 percentage points.
+The experimental results demonstrate that, under the present experimental condi-
+tions, the proposed improvements effectively enhance the model’s ability to characterize
+and localize coating-surface defects in polarizers, thereby leading to improved overall
+detection performance.
+3.3.3. Comparison Experiments
+To evaluate the effectiveness of the proposed algorithm, comparison experiments are
+conducted on the established polarizer surface defect dataset between our algorithm and
+several typical object detection algorithms, including lightweight YOLO-series algorithms
+such as YOLOv5-N, YOLOv7-Tiny, YOLOv8-N, as well as ATSS, RetinaNet, and FSAF. All
+experiments are performed under the same hardware and software conditions, and the
+experimental results are shown in Table 4.
+https://doi.org/10.3390/coatings16040451
+
+===== PDF PAGE 20 =====
+Coatings 2026, 16, 451
+20 of 25
+Table 4. Comparison Results of Different Detection Algorithms on the Polarizer Coating Surface
+Defect Dataset.
+Network
+Method
+Backbone
+Network
+AP50/%
+mAP@0.5/%
+mAP@0.5:0.95/%
+F1
+Parameters/106
+GFLOPs
+FPS
+SC
+CR
+WH
+TY
+LI
+DA
+RU
+ATSS
+ResNet-50
+87.4
+82.6
+90.8
+80.3
+84.5
+78.9
+81.9
+88.3
+46.2
+87.2
+41.369
+42.022
+32
+RetinaNet
+ResNet-50
+85.8
+80.7
+89.4
+78.4
+82.9
+76.7
+76.5
+86.7
+45.3
+85.8
+32.028
+38.572
+27
+FSAF
+ResNet-50
+86.7
+85.4
+85.7
+79.9
+84.3
+75.4
+79.9
+84.5
+45.1
+85.6
+32.719
+37.004
+29
+Cascade RCNN
+ResNet-50
+89.5
+85.7
+87.9
+81.3
+86.3
+79.9
+81.4
+87.3
+45.8
+87.6
+36.413
+40.454
+25
+YOLOv5-N
+CSPDarknet
+89.7
+84.2
+91.3
+82.6
+86.9
+80.4
+82.7
+88.6
+46.0
+88.9
+1.900
+4.500
+158
+YOLOv7-Tiny
+YOLOv7backbone
+90.1
+86.5
+92.1
+82.9
+87.1
+82.5
+84.6
+90.3
+46.2
+90.1
+6.026
+13.200
+148
+YOLOv8-N
+CSPDarknet
+91.6
+90.2
+85.5
+95.1
+94.6
+95.2
+95.9
+93.5
+47.6
+92.8
+3.200
+8.700
+121
+YOLOv10-N
+YOLOv10backbone
+91.3
+95.8
+86.4
+96.5
+98.3
+97.4
+98.4
+95.0
+48.8
+93.5
+2.300
+6.700
+136
+This paper
+My backbone
+93.9
+98.3
+88.0
+100.0
+100.0
+100.0
+100.0
+96.8
+51.6
+96.0
+2.536
+7.281
+98
+As can be seen from Table 4, the proposed model achieves superior performance on
+the seven-class defect detection task, with mAP@0.5 and mAP@0.5:0.95 reaching 89.1% and
+51.6%, respectively, both outperforming other comparison methods. Compared with the
+baseline YOLOv10-N, the mAP@0.5 and mAP@0.5:0.95 of the proposed model are improved
+by 1.8 and 2.8 percentage points, respectively. The proposed improved algorithm effectively
+improves the detection accuracy of YOLOv10-N for coating-surface defect detection in
+polarizer films.
+As can be seen from the AP50 column in Table 4, the proposed algorithm achieves
+the optimal detection accuracy for four types of defects: TY, LI, DA, and RU. In particular,
+the detection accuracy is improved by 2.0 percentage points for both TY and DA defects,
+showing a significant enhancement. This demonstrates that the proposed algorithm is
+effective for defect detection with multi-scale and complex morphologies. Figure 18 shows
+the precision–recall curves of polarizer coating defect detection.
+Figure 18. Precision–Recall Curve for Polarizer Coating Defect Detection.
+As can be seen from the Parameters, GFLOPs, and FPS indicators in Table 4, af-
+ter introducing SCPP, PreCM, and WIoU, the parameters and computational cost of the
+proposed algorithm increase slightly compared with the baseline YOLOv10-N, reaching
+2.536 × 106 and 7.281 GFLOPs, respectively, with an FPS of 98. Compared with the base-
+line model, the parameters increase by 2.36 × 105 and the computational cost rises by
+0.581 GFLOPs, leading to a slight drop in detection speed. The main reason is that the
+multi-scale feature extraction module SCPP and rotation-equivariant convolution PreCM
+introduce extra feature branches and direction-sensitive computations, which increase the
+computational overhead in the forward inference process. Despite these limitations, the
+proposed algorithm still maintains a relatively high inference speed and exhibits favor-
+able overall performance compared with most conventional object detection algorithms,
+https://doi.org/10.3390/coatings16040451
+
+===== PDF PAGE 21 =====
+Coatings 2026, 16, 451
+21 of 25
+suggesting that it achieves a good balance between model lightweightness and detection
+performance. However, its practical applicability in diverse production environments and
+under complex operating conditions remains to be further validated.
+3.3.4. Repeated Experiments and Stability Analysis
+Considering that the training outcomes of deep learning models are affected by ran-
+dom factors such as parameter initialization, sample shuffling, and data augmentation
+sampling, the results of a single run are insufficient to comprehensively reflect the stability
+of performance improvement. To further evaluate the reliability and robustness of the
+proposed method, five independent repeated experiments were conducted for both the
+baseline model YOLOv10-N and the proposed method under identical dataset splits, train-
+ing parameter settings, and model selection criteria. In these experiments, only the random
+seed was varied, with values set to 0, 10, 20, 30, and 40, while all other training conditions
+were kept unchanged. The mean and standard deviation of Precision, Recall, mAP@0.5,
+and mAP@0.5:0.95 on the test set were then calculated for each model. The results are
+presented in Table 5.
+Table 5. Results of repeated experiments (mean ± standard deviation).
+Model
+Precision/%
+F1
+Recall/%
+mAP@0.5/%
+mAP@0.5:0.95/%
+YOLOv10-N
+91.3 ± 0.35
+93.5 ± 0.27
+95.8 ± 0.26
+95.0 ± 0.22
+48.8 ± 0.31
+This paper
+94.1 ± 0.23
+96.0 ± 0.18
+98.2 ± 0.17
+96.8 ± 0.15
+51.6 ± 0.16
+As shown in Table 5, the proposed method yields higher mean values than the baseline
+model across all evaluation metrics over multiple repeated experiments, indicating that the
+observed performance improvement is stable rather than attributable to the randomness of
+a single run. Meanwhile, the relatively small standard deviations of the proposed method
+on the main evaluation metrics suggest that the model exhibits limited variation under
+different random seed settings, with good convergence stability and result consistency
+during training. In particular, the proposed method maintains stable and consistent advan-
+tages in mAP@0.5 and mAP@0.5:0.95, further demonstrating that the combined use of the
+preprocessing module and the model improvement modules can effectively improve the
+detection accuracy of polarizer surface defects.
+3.3.5. Comparison and Analysis of Detection Results
+To further investigate the confusion among different defect categories and assess the
+model’s recognition capability for each defect type, confusion matrices and visualizations
+of representative examples are provided in addition to the overall quantitative comparisons,
+thereby enabling a more comprehensive analysis of the detection performance.
+Figure 19 shows the normalized confusion matrices of YOLOv8-N, YOLOv10-N,
+and the proposed method on the polarizer surface defect test set. In general, all models
+achieve relatively concentrated recognition results for categories such as louguang, bengque,
+wuzi, and pomo, as reflected by the generally high diagonal values, indicating that these
+categories exhibit comparatively strong discriminative characteristics. By contrast, for
+defect categories such as huahen, liewen, and baidian, all models suffer from varying
+degrees of false positives and missed detections, suggesting that such defects are more
+susceptible to confusion with the background or other categories due to low contrast,
+blurred boundaries, and small target scales.
+https://doi.org/10.3390/coatings16040451
+
+===== PDF PAGE 22 =====
+Coatings 2026, 16, 451
+22 of 25
+Figure 19. Normalized confusion matrices for different models on the polarizer surface defect test set.
+As shown in Figure 19a,b, YOLOv10-N achieves higher recognition accuracy than
+YOLOv8-N for most defect categories, particularly for huahen, liewen, and louguang,
+as reflected by the higher diagonal values in the confusion matrix, indicating an overall
+enhancement in detection performance. Further comparison between Figure 19b,c reveals
+that the proposed method further improves the recognition results for easily confused
+categories such as huahen, liewen, and baidian, while reducing the proportion of back-
+ground confusion in some categories. This indicates that the improved model exhibits
+superior capability in discriminating complex defect features and distinguishing confusing
+categories. Specifically, the preprocessing module improves input image quality, SCPP
+and PreCM enhance the representation of multi-scale and direction-sensitive features, and
+WIoU further improves bounding box localization accuracy, thereby jointly contributing to
+the overall improvement of detection performance.
+To provide a more intuitive demonstration of the effectiveness of the improved algo-
+rithm, the detection results of YOLOv8-N, YOLOv10-N, and the proposed model on multi-
+ple polarizer coating surface defect images are further compared, as shown in Figure 20.
+In the single-defect scenario shown in Figure 20a, the proposed model can more
+accurately focus on the defect region. For the composite defect scenarios containing
+cracks, white spots, and breakages simultaneously, as shown in Figure 20b,c, YOLOv8-
+N exhibits low detection confidence for white spot defects, while YOLOv10-N shows
+improved detection performance. In comparison, our model achieves more complete
+identification of multiple defects and more precise target coverage, demonstrating stronger
+feature representation capability. As can be observed from Figure 20d, when multiple
+dense small-target defects exist in the image, the proposed model can effectively reduce
+duplicate detection and lower the risk of missed detection. In the small-size defect scenario
+in the edge region shown in Figure 20e, the proposed model can not only accurately detect
+the main defect targets but also identify the accompanying scratch defects, demonstrating
+stronger feature extraction and target discrimination capabilities.
+In summary, compared with YOLOv8-N and YOLOv10-N, both the confusion matrix
+analysis and the visualization of representative detection results indicate that the proposed
+method not only achieves better overall evaluation performance than the comparative
+models, but also shows clear advantages in category discrimination, adaptability to complex
+scenarios, and the recognition of small defects.
+https://doi.org/10.3390/coatings16040451
+
+===== PDF PAGE 23 =====
+Coatings 2026, 16, 451
+23 of 25
+Figure 20. Detection Result Comparison of Different Models. (a–e) Detection accuracy for each defect
+type obtained by YOLOv8-N, YOLOv10-N, and My model, respectively.
+4. Discussion
+In summary, the results of this study show that, in the current experimental setting,
+collaborative optimization from image preprocessing, feature modeling, and bounding
+box regression can improve polarizer coating surface defect detection performance. The
+experimental results confirm that multi-scale feature fusion, direction-sensitive modeling,
+and loss optimization all contribute positively to detection accuracy. From the broader
+perspective of industrial vision inspection research, this work provides a useful reference
+for the application of lightweight object detection models to industrial surface defect
+detection. Nevertheless, the present study is based on a single dataset collected from one
+practical production scenario, and therefore, the cross-scene generalization of the proposed
+method has not been sufficiently verified. Future work will further investigate robustness
+and generalization under different production environments, illumination conditions, and
+complex noise scenarios.
+5. Conclusions
+Aiming at the problems of complex morphologies, large-scale variations, and easy
+missed detection of small targets in polarizer coating surface defects, this paper proposes
+an improved defect detection method based on YOLOv10-N. The main conclusions are
+as follows:
+(1)
+Adaptive median filtering and an improved histogram equalization method based
+on particle swarm optimization were adopted for image denoising and enhancement,
+respectively. The results show that, at the image level, the proposed preprocessing
+method effectively suppresses noise, improves grayscale distribution, and preserves
+https://doi.org/10.3390/coatings16040451
+
+===== PDF PAGE 24 =====
+Coatings 2026, 16, 451
+24 of 25
+defect edges and texture details, thereby providing more informative inputs for
+subsequent defect detection. In addition, ablation experiments at the detection level
+further confirm that the preprocessing module contributes, to some extent, to an
+improvement in the model’s detection performance.
+(2)
+By incorporating the scale-aware pyramid pooling module (SCPP) into the C2f mod-
+ule, a C2f_SCPP feature extraction module was constructed to enhance the model’s
+capability to represent defects with complex morphologies. Meanwhile, the rotation-
+equivariant convolution module PreCM was embedded into the SPPF module to
+build the SPPF_PreCM module, thereby strengthening the modeling of direction-
+sensitive features and improving the detection of small defects. Experimental results
+show that all the proposed model enhancement modules make positive contributions
+to detection performance, thus further improving the model’s ability to recognize
+coating-surface defects in polarizer films.
+(3)
+While preserving the original Distribution Focal Loss (DFL) branch in YOLOv10,
+WIoU was introduced to replace CIoU as the IoU loss term for bounding box re-
+gression, thereby improving the target localization process. Experimental results
+demonstrate that the proposed method achieves satisfactory detection performance
+on the polarizer coating-surface defect dataset under the current experimental con-
+ditions. Specifically, compared with YOLOv10-N, the proposed method improves
+mAP@0.5 and mAP@0.5:0.95 by 1.8 and 2.8 percentage points, respectively, thus
+improving overall detection performance while preserving model lightweightness.
+Author Contributions: Conceptualization, S.L.; methodology, S.L. and M.C.; software, K.Z.; for-
+mal analysis, M.C., J.Z., Y.L. and M.P.; investigation, J.Z.; resources, M.P.; data curation, J.Z.;
+writing—original draft preparation, J.Z. and K.Z.; writing—review and editing, J.Z., Y.T. and Y.L. All
+authors have read and agreed to the published version of the manuscript.
+Funding: The Key Research and Development Program of Shaanxi Province, grant number
+2024QY2-GJHX-28; The Key Research and Development Program of Weinan City, grant number:
+202525ZDYFGY-03; University Students’ Innovation and Entrepreneurship Training Program, grant
+number: 202510700007.
+Institutional Review Board Statement: Not applicable.
+Informed Consent Statement: Not applicable.
+Data Availability Statement: The raw image dataset used in this study was collected from a real
+industrial production environment and is subject to certain confidentiality restrictions, so it cannot be
+fully disclosed publicly. To improve the transparency and reproducibility of this work, the authors
+can provide the annotation files, source code, training configuration files, and part of the benchmark
+data upon reasonable request. The main experimental settings and implementation details required
+to reproduce the reported results are described in the article. Further inquiries can be directed to the
+corresponding author.
+Conflicts of Interest: Author Minghui Chen was employed by Shaanxi Beiren Printing Machinery
+Co., Ltd. Author Yinfeng Li was employed by Shaanxi Beiren Printing Machinery Co., Ltd. Author
+Ming Peng was employed by China Printing Science and Technology Research Institute Co., Ltd.
+The remaining authors declare that the research was conducted in the absence of any commercial or
+financial relationships that could be construed as a potential conflict of interest.
+References
+1.
+Zhang, W. High-Quality Development Index of China’s New Display Industry. China High-Tech Industry Herald, 10 November 2025.
+2.
+Xin, L.; Yang, J.; Li, Z.; Deng, Y.; Geng, Y.X.; Li, P.; Sun, Z.D.; Huang, Z.H.; Min, T.Y.; Su, Y.N. Analysis of Key Influencing Factors
+and Improvement Schemes for Ambient Light Contrast of LCD Panels. Chin. J. Liq. Cryst. Disp. 2025, 40, 1782–1791.
+https://doi.org/10.3390/coatings16040451
+
+===== PDF PAGE 25 =====
+Coatings 2026, 16, 451
+25 of 25
+3.
+Sun, Z.; Huang, X.; Wei, B.; Li, Y.P. SDD-RT-DETR: A Lightweight and Efficient Printed Circuit Board Surface Defect Detection
+Method Based on an Improved RT-DETR Toward Sustainable Manufacturing. Sustainability 2026, 18, 2518. [CrossRef]
+4.
+Li, J.X.; Luo, W.P.; Zou, Y.F.; Zhang, Y.P. Few-Shot Surface Defect Detection Algorithm for Industrial Products Based on Feature
+Recall. Sci. Technol. Eng. 2025, 25, 15615–15621.
+5.
+Meng, Y.; Shao, W.; Zhang, Y.; Dang, Z.; Du, J. OFDN-YOLO: An optical film defect detection method based on improved
+YOLOv10. Eng. Res. Express 2025, 7, 0452a1. [CrossRef]
+6.
+Park, K.; Lee, J. Novel industrial surface-defect detection using deep nested convolutional network with attention and guidance
+modules. J. Comput. Des. Eng. 2022, 9, 2466–2482. [CrossRef]
+7.
+Jian, C.; Gao, J.; Ao, Y. Automatic surface defect detection for mobile phone screen glass based on machine vision. Appl. Soft
+Comput. 2017, 52, 348–358. [CrossRef]
+8.
+Ho, C.; Wang, H.; Chiao, Y. Machine vision-based cutting process for LCD glass defect detection system. Int. J. Adv. Manuf.
+Technol. 2022, 123, 1477–1498. [CrossRef]
+9.
+Tien, C.L.; Tsai, H.H.; Shih, H.F.; Yen, C.C. Automatic Detection and Classification of Microscopic Defects in Optical Thin-Film
+Coatings Based on Deep Learning. Coatings 2025, 15, 1390. [CrossRef]
+10.
+Redmon, J.; Divvala, S.; Girshick, R.; Farhadi, A. You only look once: Unified, real-time object detection. In Proceedings of the
+IEEE Conference on Computer Vision and Pattern Recognition, Las Vegas, NV, USA, 27–30 June 2016; pp. 779–788.
+11.
+Wang, X.J.; Liu, S.H.; Kou, X.Y.; Jiao, Y.; Li, Y.F. Detection and identification of coating defects in lithium battery electrodes based
+on improved bt-svm. Coatings 2024, 14, 1592. [CrossRef]
+12.
+Sheng, W. Research on Surface Quality Detection Algorithm of Polarizer Based on YOLO. Master’s Thesis, China Jiliang University,
+Hangzhou, China, 2024.
+13.
+Liu, R.Z.; Sun, Z.Y.; Wang, A.H.; Yang, K.; Wang, Y.; Sun, Q.L. Real-time defect detection network for polarizer based on deep
+learning. J. Intell. Manuf. 2020, 31, 1813–1823. [CrossRef]
+14.
+Xia, Y.; Xiao, J.Q.; Weng, Y.S. Surface Defect Detection of Polarizer Based on Improved Faster-RCNN. Opt. Tech. 2021, 47, 695–702.
+15.
+Lei, H.; Wang, B.; Wu, H.; Wang, A. Defect Detection for Polymeric Based on Faster R-CNN. J. Inf. Hiding Multimed. Signal Process.
+2018, 9, 1414–1420.
+16.
+Zhang, F. Image LCD pixel defect detection algorithm based on improved YOLOV8. Comput. Sci. 2024, 51, 245–251.
+17.
+Lin, S.Y.; Wu, Y.Q. Review of Vision-Based Defect Detection Methods for LCD/OLED Screens. J. Image Graph. 2024, 29, 1321–1345.
+18.
+Meng, J.; Liu, J. Entropic nonlocal TV with learnable self-similarity in multi-scale deep feature space for image denoising. Appl.
+Math. Model. 2026, 157, 116836. [CrossRef]
+19.
+Wang, Y.; Du, X.J.; Luo, W.J.; Hou, Y.F. Feature-preserving underwater image enhancement for visual measurement via dynamic
+graph and low-rank attention. Meas. Sci. Technol. 2026, 37, 096002. [CrossRef]
+20.
+Huu, N.P.; Trung, H.K.; Minh, T.Q. Distinguish Traffic Condition Based on YOLOv10 Model and Region of Interest (ROI). Int.
+J. Intell. Syst. 2026, 2026, 4252938. [CrossRef]
+21.
+Jin, Y.L.; Sun, L.W. YOLOv10-MTP: Autopilot Multi-Task Perception System Based on YOLOv10. Ind. Control Comput. 2026, 39,
+68–69+72.
+22.
+Shang, J.L.; Zhang, H.Y.; Zhang, T. PCB Surface Defect Detection Based on Improved YOLOv10n. Mach. Des. Manuf. Eng. 2025,
+54, 94–98.
+23.
+Chen, W.; Ke, X.; Meng, S. Small defect detection in printed circuit boards based on the multiscale edge strengthening and an
+improved YOLOv10. Sci. Rep. 2025, 15, 36445. [CrossRef]
+24.
+Mishra, R.; Agrawal, K.R.; Kirar, S.J. Msst-eegnet: Multi-scale spatio-temporal feature extraction using inception and temporal
+pyramid pooling for motor imagery classification. Cogn. Neurodyn. 2025, 19, 150. [CrossRef]
+25.
+Xu, J.X.; Huo, H.; Kang, S.L.; Mei, A.K.; Zhang, C. Rotation-Sensitive Feature Enhancement Network for Oriented Object Detection
+in Remote Sensing Images. Sensors 2026, 26, 381. [CrossRef]
+Disclaimer/Publisher’s Note: The statements, opinions and data contained in all publications are solely those of the individual
+author(s) and contributor(s) and not of MDPI and/or the editor(s). MDPI and/or the editor(s) disclaim responsibility for any injury to
+people or property resulting from any ideas, methods, instructions or products referred to in the content.
+https://doi.org/10.3390/coatings16040451

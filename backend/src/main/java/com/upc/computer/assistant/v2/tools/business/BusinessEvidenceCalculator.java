@@ -26,18 +26,25 @@ public final class BusinessEvidenceCalculator {
 
     private void quality(Map<String,List<Map<String,String>>> tables, boolean complete, Map<String,Object> result, List<String> warnings) {
         var inspections=records(tables,"quality_inspection","inspection_id",warnings,
-                "inspection_id inspection_no work_order_id work_report_id material_id batch_no inspection_category inspection_type sample_quantity qualified_quantity unqualified_quantity inspection_result inspection_status inspected_at updated_at relation_status remark");
-        for(var inspection:inspections) {
-            BigDecimal samples=number(inspection.get("sample_quantity")), qualified=number(inspection.get("qualified_quantity")), unqualified=number(inspection.get("unqualified_quantity"));
-            boolean valid=samples!=null && qualified!=null && unqualified!=null && samples.signum()>0 && qualified.signum()>=0 && unqualified.signum()>=0 && qualified.add(unqualified).compareTo(samples)==0
-                    && !"CONTRADICTORY".equals(inspection.get("relation_status")) && !Boolean.TRUE.equals(inspection.get("conflictingDuplicate"));
-            inspection.put("samplePassRate",valid ? qualified.divide(samples,6,RoundingMode.HALF_UP).toPlainString() : null);
-            inspection.put("sampleRateStatus",valid ? "PER_INSPECTION_RECORDED_SAMPLE" : "UNAVAILABLE_INVALID_OR_EMPTY_SAMPLE");
-        }
+                "inspection_id inspection_no work_order_id work_report_id material_id batch_no inspection_category inspection_type sample_quantity qualified_quantity unqualified_quantity inspection_result inspection_status inspected_at updated_at relation_status detail_count_conflict remark");
         var items=records(tables,"quality_inspection_item","inspection_item_id",warnings,
                 "inspection_item_id inspection_id item_code item_name standard_value measured_value unit result defect_level sort_order updated_at remark");
         var defects=records(tables,"nonconforming_product","nonconforming_id",warnings,
                 "nonconforming_id inspection_id work_order_id work_report_id material_id batch_no defect_type quantity severity handle_method handle_status registered_at handled_at updated_at relation_status");
+        var byInspection=java.util.stream.Collectors.groupingBy((Map<String,Object> r)->string(r.get("inspection_id")));
+        var itemsByInspection=items.stream().collect(byInspection);
+        var defectsByInspection=defects.stream().collect(byInspection);
+        for(var inspection:inspections) {
+            var id=string(inspection.get("inspection_id"));
+            var conflicts=InspectionSampleCheck.conflicts(inspection,itemsByInspection.getOrDefault(id,List.of()),defectsByInspection.getOrDefault(id,List.of()));
+            BigDecimal samples=number(inspection.get("sample_quantity")), qualified=number(inspection.get("qualified_quantity")), unqualified=number(inspection.get("unqualified_quantity"));
+            boolean valid=complete && conflicts.isEmpty() && !"PENDING".equals(inspection.get("inspection_status")) && !"PENDING".equals(inspection.get("inspection_result"))
+                    && samples!=null && qualified!=null && unqualified!=null && samples.signum()>0 && qualified.signum()>=0 && unqualified.signum()>=0 && qualified.add(unqualified).compareTo(samples)==0
+                    && !"CONTRADICTORY".equals(inspection.get("relation_status")) && !Boolean.TRUE.equals(inspection.get("conflictingDuplicate"));
+            inspection.put("samplePassRate",valid ? qualified.divide(samples,6,RoundingMode.HALF_UP).toPlainString() : null);
+            inspection.put("sampleRateStatus",valid ? "PER_INSPECTION_RECORDED_SAMPLE" : conflicts.isEmpty()?"UNAVAILABLE_INVALID_OR_EMPTY_SAMPLE":"WITHHELD_CONFLICT");
+            if(!conflicts.isEmpty())inspection.put("sampleConflicts",conflicts);
+        }
         result.putAll(object("inspections",inspections,"inspectionItems",items,"nonconformingProducts",defects,
                 "inspectionCount",count(inspections,complete),"inspectionItemCount",count(items,complete),"nonconformingRecordCount",count(defects,complete),
                 "batchReleaseStatus","NOT_DERIVED_FROM_SAMPLING","visionEvidence",QualityEvidenceDetails.vision(tables,inspections,items),

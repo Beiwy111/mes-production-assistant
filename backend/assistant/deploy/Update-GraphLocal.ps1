@@ -1,7 +1,7 @@
 # Explicit maintenance window. Vector retrieval stays available while graph reads degrade.
 [CmdletBinding()]
 param(
-    [ValidateSet('Public', 'Business')][string]$Kind = 'Public',
+    [ValidateSet('Public', 'Business', 'Experience')][string]$Kind = 'Public',
     [string]$ExportFile,
     [string]$ExpectedOrder,
     [switch]$Synthetic
@@ -17,6 +17,9 @@ foreach ($required in @($pythonPath, $config, $compose, $overlay)) {
     if (-not (Test-Path -LiteralPath $required -PathType Leaf)) { throw 'Missing graph maintenance prerequisite.' }
 }
 $cliArguments = @('-m', 'mes_knowledge.cli', 'graph-build')
+if ($Kind -eq 'Experience') {
+    $cliArguments = @('-m', 'mes_knowledge.experience', 'sync')
+}
 if ($Kind -eq 'Business') {
     if (-not $ExportFile -or -not (Test-Path -LiteralPath $ExportFile -PathType Leaf) -or $ExpectedOrder -notmatch '^[1-9][0-9]{0,18}$') {
         throw 'Business import requires an existing export file and explicit expected order primary key.'

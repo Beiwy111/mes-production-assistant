@@ -59,7 +59,7 @@
           </button>
         </form>
 
-        <button type="button" class="auth-face-entry" @click="faceVisible = true">人脸登录 · 演示</button>
+        <button type="button" class="auth-face-entry" @click="faceVisible = true">人脸登录</button>
 
         <p class="auth-panel__welcome">欢迎使用 {{ APP_TITLE }}</p>
         <div class="auth-panel__links">
@@ -67,7 +67,7 @@
           <span class="auth-panel__sep">|</span>
           <a @click.prevent="$router.push('/register')">注册账号</a>
           <span class="auth-panel__sep">|</span>
-          <a @click.prevent="fillDemo">演示账号</a>
+          <a @click.prevent="fillDemo">示例账号</a>
         </div>
       </div>
     </div>
@@ -104,11 +104,11 @@ const form = reactive({
 function fillDemo() {
   form.username = 'li_manager'
   form.password = '123456'
-  ElMessage.info('已填入演示账号 li_manager，点击登录即可')
+  ElMessage.info('已填入示例账号 li_manager，点击登录即可')
 }
 
 function faceLoggedIn() {
-  ElMessage.success('人脸演示登录成功')
+  ElMessage.success('人脸登录成功')
   const redirect = typeof route.query.redirect === 'string' ? route.query.redirect : ''
   router.push(redirect || userStore.dashboardPath || getHomePath(userStore.roleKey))
 }

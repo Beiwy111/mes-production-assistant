@@ -21,10 +21,8 @@ public final class Stage5RuntimeMain {
             Clock clock=Clock.systemUTC();
             var factory=createFactory(env);
             var knowledge=KnowledgeEvidenceClient.fromEnvironment(env,clock);
-            var natural=new NaturalLanguageRuntime(clock,new ReadOnlyNaturalAccess(factory,clock),new NaturalLanguageRuntime.Research() {
-                public Map<String,Object> retrieve(String role,List<Map<String,Object>> evidence) {return knowledge.retrieve(role,evidence);}
-                public Map<String,Object> retrieveQuestion(String query) {return knowledge.retrieveQuestion(query);}
-            },new ConversationScopeStore(java.nio.file.Path.of("backend/assistant/rag/data/conversation-context"),"runtime",clock,env.get("MES_AGENT_BOOTSTRAP_KEY")));
+            var natural=new NaturalLanguageRuntime(clock,new ReadOnlyNaturalAccess(factory,clock),knowledge,
+                new ConversationScopeStore(java.nio.file.Path.of("backend/assistant/rag/data/conversation-context"),"runtime",clock,env.get("MES_AGENT_BOOTSTRAP_KEY")));
             var runtime=new Stage5RuntimeServer(env,clock,new ReadOnlyDeliveryAccess(factory,clock),natural,port);
             Runtime.getRuntime().addShutdownHook(new Thread(runtime::close,"stage5-shutdown"));
             runtime.start();

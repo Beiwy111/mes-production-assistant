@@ -3,8 +3,8 @@ param([switch]$Build)
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'AgentRuntime.Common.ps1')
 $agentConfig = Read-AgentRuntimeConfig
-$config = @{}
-foreach ($name in @('MES_AGENT_BOOTSTRAP_KEY','MES_AGENT_ALLOWED_ORDER_IDS','MES_AGENT_JDBC_URL','MES_AGENT_JDBC_USER','MES_AGENT_JDBC_PASSWORD')) {
+$config = Read-AssistantReaderConfig -Reader workbench
+foreach ($name in @('MES_AGENT_BOOTSTRAP_KEY','MES_AGENT_ALLOWED_ORDER_IDS')) {
     $config[$name] = $agentConfig[$name]
 }
 $privatePath = Join-Path $PSScriptRoot '.env.workbench.local'

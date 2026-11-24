@@ -5,8 +5,8 @@ const props = defineProps<{ message: any }>()
 const sources = computed(() => knowledgeSources(props.message))
 </script>
 <template>
-  <ul v-if="sources.length && (message.result?.ragEnabled || message.result?.intents?.includes('KNOWLEDGE'))" class="knowledge-sources" aria-label="知识回答来源">
-    <li v-for="source in sources" :key="source.ref"><a :href="source.url" target="_blank" rel="noopener noreferrer">[{{ source.id }}] {{ source.title }} · 第 {{ source.page }} 页</a></li>
+  <ul v-if="sources.length" class="knowledge-sources" aria-label="知识回答来源">
+    <li v-for="source in sources" :key="source.ref"><a :href="source.url" target="_blank" rel="noopener noreferrer">[{{ source.id }}] {{ source.type }} · {{ source.title }} · {{ source.location || `第 ${source.page} 页` }}</a></li>
   </ul>
 </template>
 <style scoped>

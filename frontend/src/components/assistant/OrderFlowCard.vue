@@ -1,5 +1,6 @@
 <script setup>
 import { computed, reactive, watch } from 'vue'
+import AgentAvatar from './AgentAvatar.vue'
 const props = defineProps({ flow: { type: Object, required: true }, busy: Boolean, customer: Boolean, historical: Boolean })
 const emit = defineEmits(['action'])
 const draft = computed(() => props.flow.orderDraft)
@@ -50,7 +51,7 @@ function submit() {
       <summary><span>{{ flow.pending || '查看处理过程' }}</span><small>{{ flow.pending ? '处理中' : `${flow.steps?.length || 0} 个步骤` }}</small></summary>
       <ol class="order-steps" aria-live="polite">
       <li v-for="(step, index) in flow.steps || []" :key="index">
-        <div><span><small v-if="actorLabel(step.agentId)">{{ actorLabel(step.agentId) }} · </small>{{ step.label }}</span><small>{{ stepStatus(step.status) }}</small></div>
+        <div><span><AgentAvatar v-if="step.agentId === 'SUP' || step.agentId === 'ORDER'" class="order-avatar" :agent-id="step.agentId" :active="!!flow.pending && step.status === 'RUNNING'" /><small v-if="actorLabel(step.agentId)">{{ actorLabel(step.agentId) }} · </small>{{ step.label }}</span><small>{{ stepStatus(step.status) }}</small></div>
         <p v-if="step.detail">{{ step.detail }}</p>
       </li>
       <li v-if="flow.pending"><div><span>{{ flow.pending }}</span><small>处理中</small></div></li>
@@ -104,6 +105,7 @@ function submit() {
 </template>
 
 <style scoped>
+.order-avatar { --avatar-size: 24px; margin-right: 8px; }
 .order-flow { margin: 14px 0; color: var(--aw-text, #202124); font: 14px/1.6 var(--aw-font-sans, Inter, sans-serif); color-scheme: light; }
 .order-process { margin-bottom: 12px; color: var(--aw-muted, #62666d); }
 .order-process > summary { display: flex; align-items: center; gap: 10px; padding: 7px 0; cursor: pointer; list-style: none; font-size: 13px; }

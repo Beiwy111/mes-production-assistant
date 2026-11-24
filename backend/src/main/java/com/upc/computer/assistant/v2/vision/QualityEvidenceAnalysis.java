@@ -31,7 +31,7 @@ public final class QualityEvidenceAnalysis {
             if(!normalized.containsKey("inspection_id"))normalized.put("inspection_id",normalized.getOrDefault("record_id",""));
             if(normalized.containsKey("status")) {
                 String status=normalized.get("status");
-                if(Set.of("QUALIFIED","UNQUALIFIED","PENDING").contains(status))normalized.putIfAbsent("inspection_result",status);
+                if(Set.of("QUALIFIED","UNQUALIFIED","CONCESSION","PENDING").contains(status))normalized.putIfAbsent("inspection_result",status);
                 else normalized.putIfAbsent("inspection_status",status);
             }
             if(!normalized.containsKey("inspected_at")&&normalized.containsKey("event_at"))normalized.put("inspected_at",normalized.get("event_at"));
