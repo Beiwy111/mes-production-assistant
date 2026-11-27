@@ -31,6 +31,13 @@ test('process shows received inventory as provisional data and stops displaying 
   assert.doesNotMatch(await render('InventoryFindings', { ...live, status: 'CANCELLED' }), /<section|PCB/)
   assert.doesNotMatch(await render('InventoryFindings', final), /<section|PCB/)
 })
+test('material-only evidence shows the confirmed category and material master type', async () => {
+  const scoped = { ...overview, inventoryCategory: '物料', rows: [{ ...row, material_type: 'RAW' }] }
+  const html = await render('InventoryAnswer', { result: { facts: { inventory: { overview: scoped } } } })
+  assert.match(html, /物料库存 · 1 条记录/)
+  assert.match(html, /原材料/)
+  assert.doesNotMatch(html, /material_type/)
+})
 
 
 test('all returned inventory rows render without frontend pagination or 100-row clipping', async () => {

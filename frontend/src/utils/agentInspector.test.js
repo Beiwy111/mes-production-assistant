@@ -2,6 +2,26 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { inspectAgentMessage } from './agentInspector.js'
 
+test('production requests appear as business service observations without invented agent calls', () => {
+ const message = { status: 'RUNNING', productionFlow: { status: 'PREPARING', steps: [
+  { id: 'preview-1', agentId: 'SERVICE', toolId: 'production.preview', label: '准备生产操作预览', status: 'RUNNING', detail: '尚未写入', at: '2026-11-26T08:00:00Z' },
+ ] } }
+ let model = inspectAgentMessage(message)
+ assert.equal(model.serviceLogs.length, 1)
+ assert.equal(model.serviceLogs[0].toolId, 'production.preview')
+ assert.equal(model.events[0].kind, 'PRODUCTION_STEP')
+ assert.ok(model.roles.every(role => role.status === 'UNCALLED'))
+ message.status = 'COMPLETED'; message.productionFlow.status = 'PENDING'; message.productionFlow.steps[0].status = 'COMPLETED'
+ model = inspectAgentMessage(message)
+ assert.equal(model.serviceLogs[0].status, 'COMPLETED')
+ message.productionFlow.deciding = 'APPROVE'; message.productionFlow.steps.push({ agentId: 'SERVICE', label: '提交生产操作确认', status: 'RUNNING' })
+ assert.equal(inspectAgentMessage(message).serviceLogs.at(-1).status, 'RUNNING')
+ for (const guard of [{ evidenceInvalidated: true }, { result: { historyEvidenceOmitted: true } }]) {
+  const hidden = inspectAgentMessage({ ...message, ...guard })
+  assert.equal(hidden.serviceLogs.length, 0); assert.equal(hidden.events.length, 0)
+ }
+})
+
 test('live Supervisor shows its latest real coordination phase before any text arrives',()=>{
  const message={status:'RUNNING',agents:[{agentId:'SUP',status:'RUNNING'}],workflow:{events:[
   {seq:1,agentId:'SUP',kind:'PLAN_CONFIRMED',status:'COMPLETED',label:'确认执行计划',detail:'已确认需要物料Agent'},

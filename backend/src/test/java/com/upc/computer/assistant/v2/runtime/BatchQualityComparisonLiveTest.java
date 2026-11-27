@@ -36,6 +36,18 @@ class BatchQualityComparisonLiveTest {
                 if(type.equals("RECHECK"))assertTrue(pair.get("after").asText().contains("1/3（33.33%）"));
             }
             assertEquals(Set.of("FINAL","RECHECK"),types);
+            var scope=new BusinessToolRegistry.Request("QUALITY",null,null,"2026-07-01 00:00:00","2026-08-01 00:00:00");
+            var overview=BusinessToolRegistry.execute(data.overview(),scope,data.policy());
+            var stats=new ObjectMapper().valueToTree(QualityOverviewStatistics.read(data,overview.rows(),overview.total()==overview.rows().size(),
+                    scope,true,LocalDate.parse("2026-08-01")));
+            assertEquals(overview.total(),stats.path("inspectionCount").asLong());
+            assertTrue(stats.path("validRecordCount").asLong()>0);
+            assertEquals(2,stats.path("periodComparisons").size());
+            for(var group:stats.path("sampleGroups"))if(group.path("sample_fail_percent").isTextual()){
+                var fail=new java.math.BigDecimal(group.path("valid_unqualified_quantity").asText());
+                var total=new java.math.BigDecimal(group.path("valid_sample_quantity").asText());
+                assertEquals(fail.movePointRight(2).divide(total,2,java.math.RoundingMode.HALF_UP).toPlainString(),group.path("sample_fail_percent").asText());
+            }
             session.rollback(true);
         }
     }

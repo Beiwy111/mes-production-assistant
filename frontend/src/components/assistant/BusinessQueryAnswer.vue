@@ -1,13 +1,18 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { businessSnapshot, type BusinessMessage } from '@/utils/businessPresentation'
+import { businessSnapshot, type BusinessMessage, type BusinessSnapshot } from '@/utils/businessPresentation'
 import { evidenceValue } from '@/utils/workbenchEvidence'
 
-const props = defineProps<{ message: BusinessMessage }>()
-const snapshot = computed(() => businessSnapshot(props.message))
-const collapsible = (key: string) => ['inspection-alarmRows', 'inspection-rounds', 'inspection-round-items'].includes(key) || (key === 'process-route' && snapshot.value.tables.length > 1)
+const props = defineProps<{ message: BusinessMessage; snapshot?: BusinessSnapshot }>()
+const snapshot = computed(() => props.snapshot ?? businessSnapshot(props.message))
+const collapsible = (key: string) => key.startsWith('quality-stats-') ||
+  ['inspection-alarmRows', 'inspection-rounds', 'inspection-round-items'].includes(key) ||
+  (key === 'quality-daily-trend' && props.message.result?.facts?.quality?.presentationMode === 'LIST') ||
+  (key === 'process-route' && snapshot.value.tables.length > 1)
 const numeric = (key: string) => /quantity|qty|rate|minutes|hours/i.test(key)
 const identity = (key: string) => /(^|_)id$|Id$|Pk$|Refs$|Ids$|_no$|_code$/i.test(key)
+const cellText = (value: unknown) => value !== null && typeof value === 'object' && !(Array.isArray(value) && value.every(item => typeof item === 'string'))
+  ? JSON.stringify(value) : evidenceValue(value)
 </script>
 
 <template>
@@ -22,11 +27,12 @@ const identity = (key: string) => /(^|_)id$|Id$|Pk$|Refs$|Ids$|_no$|_code$/i.tes
           <caption class="sr-only">{{ table.label }}，全部 {{ table.rows.length }} 条已返回明细；空缺字段显示为未提供。</caption>
           <thead><tr><th v-for="column in table.columns" :key="column.key" scope="col" :class="{ numeric: numeric(column.key) }">{{ column.label }}</th></tr></thead>
           <tbody><tr v-for="(row, index) in table.rows" :key="index">
-            <td v-for="column in table.columns" :key="column.key" :class="{ numeric: numeric(column.key), identity: identity(column.key) }">{{ evidenceValue(row[column.key]) }}</td>
+            <td v-for="column in table.columns" :key="column.key" :class="{ numeric: numeric(column.key), identity: identity(column.key) }">{{ cellText(row[column.key]) }}</td>
           </tr></tbody>
         </table>
       </div>
       <p v-else class="business-empty">本次未返回此类记录。</p>
+      <p v-for="note in table.notes" :key="note" class="business-note">{{ note }}</p>
 
     </component>
     <ul v-if="snapshot.notices.length" class="business-caveats"><li v-for="notice in snapshot.notices" :key="notice">{{ notice }}</li></ul>

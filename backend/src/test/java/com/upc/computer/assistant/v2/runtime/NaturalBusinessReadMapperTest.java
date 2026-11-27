@@ -26,10 +26,25 @@ class NaturalBusinessReadMapperTest {
             assertEquals(SqlCommandType.SELECT,statement.getSqlCommandType());assertTrue(sql.startsWith("SELECT"));
             assertFalse(sql.contains("987"));assertFalse(sql.contains("OR 1=1"));assertFalse(sql.contains("2026"));assertTrue(sql.contains("LOCATE(?,t.search_text)"));
             if(method.equals("rows")){assertFalse(sql.contains("LIMIT"));assertTrue(sql.endsWith("ORDER BY t.record_id"));}else assertTrue(sql.contains("COUNT(*)"));
-            assertFalse(sql.contains("SUM("));assertFalse(sql.contains("SELECT *"));
+            // Reconcile each header against its own defect quantities. Cross-inspection sums remain forbidden here.
+            String permitted="SELECT SUM(n.quantity) FROM nonconforming_product n WHERE n.inspection_id=q.inspection_id";
+            if(domain.equals("QUALITY"))assertTrue(sql.contains(permitted));
+            assertFalse(sql.replace(permitted,"").contains("SUM("));assertFalse(sql.contains("SELECT *"));
             if(domain.equals("MAINTENANCE"))assertTrue(sql.contains("equipment_maintenance_record"));
             if(domain.equals("ALARMS"))assertTrue(sql.contains("andon_alarm"));
             if(domain.equals("STOCK_MOVEMENT"))assertTrue(sql.contains("inventory_transaction"));
         }
+    }
+    @Test void qualityBaselinesAndDefectTotalsUseBoundAuthorizedScopes(){
+        Configuration config=new Configuration();config.addMapper(NaturalBusinessReadMapper.class);
+        String prefix=NaturalBusinessReadMapper.class.getName()+".";
+        var prior=config.getMappedStatement(prefix+"qualityPeriodRows").getBoundSql(Map.of("selectors",Map.of("batch_no","BATCH-123"),
+                "start","2026-10-01 00:00:00","end","2026-11-01 00:00:00","customer","test")).getSql().replaceAll("\\s+"," ").trim();
+        assertTrue(prior.contains("AND t.batch_no=?"));assertTrue(prior.contains("AND 1=0"));assertTrue(prior.endsWith("LIMIT 2001"));
+        assertFalse(prior.contains("BATCH-123"));assertTrue(prior.contains("t.event_at >= ? AND t.event_at < ?"));
+        var details=config.getMappedStatement(prefix+"qualityDefectCounts").getBoundSql(Map.of("ids",List.of(71L,72L))).getSql();
+        assertTrue(details.contains("n.inspection_id=q.inspection_id"));assertTrue(details.contains("n.material_id=q.material_id"));
+        assertTrue(details.contains("COUNT(*) AS record_count"));assertTrue(details.contains("? IS NULL AND ? IS NULL"));
+        assertFalse(details.contains("71"));assertFalse(details.contains("72"));
     }
 }

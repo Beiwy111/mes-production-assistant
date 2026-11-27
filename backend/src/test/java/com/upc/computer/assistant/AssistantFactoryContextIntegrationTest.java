@@ -13,6 +13,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 @SpringBootTest
+@org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable(named = "MES_LIVE_INTEGRATION", matches = "1")
 class AssistantFactoryContextIntegrationTest {
 
     @Autowired private AssistantNluClient nluClient;

@@ -128,7 +128,7 @@ class AssistantV2ConfigurationTest {
     }
 
     @Test
-    void componentScanningTheNewModuleDoesNotActivateRuntimeBeans() {
+    void componentScanningTheFoundationDoesNotActivateRuntimeBeans() {
         new ApplicationContextRunner().withUserConfiguration(ModuleScan.class).run(context -> {
             assertThat(context).hasNotFailed().hasSingleBean(AssistantV2Properties.class)
                     .doesNotHaveBean(AssistantV2Configuration.EnabledFoundation.class);
@@ -214,7 +214,14 @@ class AssistantV2ConfigurationTest {
     }
 
     @Configuration(proxyBeanMethods = false)
-    @ComponentScan("com.upc.computer.assistant.v2")
+    // The optional foundation is isolated from MES-owned chat, order, vision and
+    // production execution modules, which have their own database/context tests.
+    @ComponentScan(basePackages = {
+            "com.upc.computer.assistant.v2.config",
+            "com.upc.computer.assistant.v2.api",
+            "com.upc.computer.assistant.v2.application",
+            "com.upc.computer.assistant.v2.security"
+    })
     static class ModuleScan {
     }
 }

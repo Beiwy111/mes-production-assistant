@@ -1,4 +1,25 @@
 $ErrorActionPreference = 'Stop'
+function Resolve-AssistantJava {
+    # Explorer, npm and a Maven terminal can inherit different PATHs on the same PC.
+    $candidates = @(
+        foreach ($scope in @('Process', 'User', 'Machine')) {
+            $jdk = [Environment]::GetEnvironmentVariable('JAVA_HOME', $scope)
+            if ($jdk) { Join-Path ($jdk.Trim().Trim('"')) 'bin\java.exe' }
+        }
+        Get-Command java.exe -CommandType Application -All -ErrorAction SilentlyContinue | ForEach-Object { $_.Source }
+    )
+    foreach ($exe in ($candidates | Select-Object -Unique)) {
+        if (!(Test-Path -LiteralPath $exe -PathType Leaf)) { continue }
+        try {
+            $version = & $exe --version 2>$null
+            if ($LASTEXITCODE -eq 0 -and ($version -join "`n") -match '(?m)^(?:java|openjdk)\s+(\d+)' -and [int]$Matches[1] -ge 17) {
+                return $exe
+            }
+        } catch { continue }
+    }
+    throw 'The assistant requires Java 17 or newer. Set JAVA_HOME to the JDK used by mvn -version and rerun the launcher.'
+}
+
 function Read-AgentRuntimeConfig {
     param([string]$Path = (Join-Path $PSScriptRoot '.env.agents.local'))
     if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { throw 'Missing .env.agents.local; follow STAGE5-AGENTS-SETUP.md.' }

@@ -27,7 +27,7 @@ public final class NaturalLanguageRuntime {
     private static final Set<String> METHODOLOGY=Set.of("KNOWLEDGE","GRAPH_KNOWLEDGE","GENERAL");
     private static final Set<String> PLANNED_TOOLS=Set.of("PROCESS_ROUTE","INSPECTION_TRACE","GRAPH_KNOWLEDGE","GENERAL");
     private static final Set<String> SET_INTENTS=Arrays.stream(InspectionSelection.Operation.values()).map(Enum::name).collect(java.util.stream.Collectors.toUnmodifiableSet());
-    private static final Pattern INSPECTION_NO=Pattern.compile("(?i)(?<![A-Z0-9_-])QI[A-Z0-9_-]*[0-9](?![A-Z0-9_-])");
+    private static final Pattern INSPECTION_NO=BusinessReadIntent.INSPECTION_ID;
     private static final Set<String> INTENTS=Set.of("INVENTORY","PRODUCTION","QUALITY","DELIVERY","ORDER","EQUIPMENT","AFTERSALES","KNOWLEDGE","MAINTENANCE","ALARMS","STOCK_MOVEMENT","PROCESS_ROUTE","INSPECTION_TRACE","GENERAL","GRAPH_KNOWLEDGE","RECAP");
     private static final Set<String> FIELDS=Set.of("action","intents","orderPk","orderNo","keyword","period","question");
     private static final List<String> ROLE_ORDER=List.of("ORDER","SUPPLY","PRODUCTION","QUALITY","EQUIPMENT","AFTERSALES");
@@ -98,10 +98,36 @@ public final class NaturalLanguageRuntime {
         String question=input.get("question").asText().trim();
         if(action.equals("QUERY")&&intents.isEmpty()||!action.equals("QUERY")&&question.isBlank())throw error(400,"INVALID_PLAN");
         run.planInput=input.deepCopy();
+        // Resolve document type before any set/overview shortcut. A QI number is an inspection
+        // even if the user calls it an order. Keep every independently stated filter and permission.
+        var documentIds=INSPECTION_NO.matcher(run.query).results().map(m->m.group().toUpperCase(Locale.ROOT)).distinct().toList();
+        String priorInspection=run.previous!=null && run.previous.get("scope") instanceof Map<?,?> prior
+            && Boolean.TRUE.equals(prior.get("confirmed")) && prior.get("inspectionNo") instanceof String no ? no : null;
+        boolean singleFollowup=priorInspection!=null && run.query.matches("(?s).*(?:这张单|该单|这张检验单|这批产品|这份检验|这个订单|该检验单).*");
+        String anchor=documentIds.size()==1 ? documentIds.get(0) : documentIds.isEmpty() && singleFollowup ? priorInspection : null;
+        if(anchor!=null && BusinessReadIntent.inspectionRead(run.query) && !action.equals("UNSUPPORTED")
+                && (intents.isEmpty() || intents.stream().allMatch(Set.of("QUALITY","INSPECTION_TRACE","ORDER","GENERAL","KNOWLEDGE","GRAPH_KNOWLEDGE","RECAP")::contains))
+                && (keyword==null || anchor.equalsIgnoreCase(keyword) || !run.query.contains(keyword)
+                    || Set.of("订单","检验单","质检单").contains(keyword))
+                && explicitOrderMatches(INSPECTION_NO.matcher(run.query).replaceAll(" "),null,null)) {
+            var resolved=new ArrayList<String>();resolved.add("INSPECTION_TRACE");
+            if(intents.contains("GRAPH_KNOWLEDGE"))resolved.add("GRAPH_KNOWLEDGE");
+            else if(intents.contains("KNOWLEDGE"))resolved.add("KNOWLEDGE");
+            intents=resolved; action="QUERY"; pk=null; number=null; keyword=anchor; question="";
+        }
         var cohort=BusinessSelection.previous(run.previous);
+        if(InventoryCategory.switchesCategory(run.query)&&BusinessSelectors.previousInventory(run.previous)
+                &&pk==null&&number==null&&!action.equals("UNSUPPORTED")
+                &&intents.stream().allMatch(Set.of("INVENTORY","ROWS_FILTER")::contains)){
+            action="QUERY";intents=List.of("INVENTORY");question="";keyword=null;
+            var prior=(Map<?,?>)run.previous.get("scope");
+            if(prior.get("period") instanceof String previousPeriod)period=previousPeriod;
+        }
         boolean semanticRows=intents.stream().anyMatch(BusinessSelection.INTENTS::contains);
         boolean refers=BusinessSelection.refers(run.query);
         boolean drill=BusinessSelection.dispatch(run.query)||BusinessSelection.material(run.query);
+        if((intents.contains("INVENTORY") || cohort!=null && cohort.domain().equals("INVENTORY") && semanticRows)
+                && InventoryCategory.genericKeyword(keyword) && InventoryCategory.hasCategoryTerms(run.query))keyword=null;
         boolean selectorFollowup=cohort!=null && refers && cohort.domain().equals("INVENTORY")
                 && run.query.matches("(?is).*(?:仓库|库位|warehouse|location).*") && !BusinessSelectors.otherMaterials(run.query);
         boolean resume=BusinessSelection.resume(run.query);
@@ -183,7 +209,8 @@ public final class NaturalLanguageRuntime {
         // GENERAL alone has no business selectors: dates, prices and quantities can be input text.
         if(action.equals("QUERY") && intents.equals(List.of("GENERAL")) && pk==null && number==null && keyword==null
                 && period.equals("CURRENT") && !INSPECTION_NO.matcher(run.query).find() && BusinessReadIntent.needsTechnicalGuidance(run.query))
-            intents=List.of("KNOWLEDGE");
+            intents=List.of(BusinessReadIntent.processMechanism(run.query)?"GRAPH_KNOWLEDGE":"KNOWLEDGE");
+        if(action.equals("QUERY")&&intents.equals(List.of("KNOWLEDGE"))&&BusinessReadIntent.processMechanism(run.query))intents=List.of("GRAPH_KNOWLEDGE");
         if(action.equals("QUERY")&&intents.contains("GENERAL")) {
             if(intents.size()>1) intents=intents.stream().filter(i->!i.equals("GENERAL")).toList();
             else {
@@ -313,7 +340,7 @@ public final class NaturalLanguageRuntime {
                 else if(run.comparison.isEmpty()&&BusinessSelectors.followsScope(run.query)&&run.previous!=null&&
                         run.previous.get("scope") instanceof Map<?,?> prior&&prior.get("comparisonPeriods") instanceof List<?> windows&&!windows.isEmpty())
                     throw new IllegalArgumentException("Repeat the two comparison periods");
-                else if(!Pattern.compile("今天|今日|本月|这个月|最近七天").matcher(dateText).find()&&run.previous!=null&&BusinessSelectors.followsScope(run.query)
+                else if(!Pattern.compile("今天|今日|本月|这个月|最近七天").matcher(dateText).find()&&run.previous!=null&&BusinessSelectors.followsScope(run.query,run.previous)
                     &&run.previous.get("scope") instanceof Map<?,?> prior&&Boolean.TRUE.equals(prior.get("confirmed"))
                     &&prior.get("startInclusive") instanceof String from&&prior.get("endExclusive") instanceof String to)
                     run.dateRange=new BusinessDateRange(LocalDate.parse(from.substring(0,10)),LocalDate.parse(to.substring(0,10)),run.query);
@@ -324,7 +351,7 @@ public final class NaturalLanguageRuntime {
                 if(BusinessQueryFilter.ambiguous(intent,dateText))invalidSelectors=true;
                 String criterion=BusinessQueryFilter.criterion(intent,dateText);
                 if(criterion.equals("ALL")&&!Pattern.compile("不限|所有状态|全部状态|不筛选").matcher(dateText).find()
-                    &&BusinessSelectors.followsScope(run.query)
+                    &&BusinessSelectors.followsScope(run.query,run.previous)
                     &&run.previous!=null&&run.previous.get("scope") instanceof Map<?,?> prior&&Boolean.TRUE.equals(prior.get("confirmed"))
                     &&prior.get("criteria") instanceof Map<?,?> filters&&filters.get(intent) instanceof String previousCriterion)criterion=previousCriterion;
                 if(Pattern.compile("其中|这些|上述|刚才|刚刚|上面|同一范围").matcher(run.query).find()
@@ -337,6 +364,7 @@ public final class NaturalLanguageRuntime {
             }
             run.criteria=Map.copyOf(criteria);
             String filterQuery=BusinessQueryFilter.supportedTextRemoved(intents,dateText);
+            if(run.inspectionNo!=null)filterQuery=INSPECTION_NO.matcher(filterQuery).replaceAll(" ");
             if(run.inspectionNo!=null)filterQuery=filterQuery.replaceAll("(?:判定|设备|检验|质检|工单|报工|派工)(?:的)?状态(?!\\s*(?:为|是(?!否)|等于|[:：=]|不?合格))","关联记录");
             boolean keywordGrounded=keyword==null||keyword.equals(run.inspectionNo)||dateText.toLowerCase(Locale.ROOT).contains(keyword.toLowerCase(Locale.ROOT));
             if(!keywordGrounded&&Pattern.compile("其中|这些|上述|刚才|刚刚|上面|同一范围").matcher(run.query).find()
@@ -354,6 +382,8 @@ public final class NaturalLanguageRuntime {
                 action="CLARIFY";question="请提供一个有效且明确的日期范围，例如2026-11-01至2026-11-15；结束日期包含当天。";
             } else if(invalidSelectors&&(otherStock||stockFollowup)) {
                 action="CLARIFY";question="请明确库存查询范围，包括要排除的物料名称或编码，以及要保留的仓库或库存条件。";
+            } else if(invalidSelectors&&intents.contains("INVENTORY")&&InventoryCategory.hasCategoryTerms(run.query)){
+                action="CLARIFY";question="请明确要查的库存范围，例如全部库存、物料库存或成品库存，以及需要保留的筛选条件。";
             } else if(invalidSelectors&&(BusinessSelectors.EQUIPMENT_CODE.matcher(run.query).find()||BusinessSelectors.BATCH_CODE.matcher(run.query).find())) {
                 action="CLARIFY";question="请指定一个设备编码查询其设备、维修或报警记录，或指定一个批号查询该批质检记录。当前明细工具无法直接按设备筛选质检记录。";
             } else if(invalidSelectors||(pk!=null||number!=null)&&!run.selectors.isEmpty()) {
@@ -364,7 +394,7 @@ public final class NaturalLanguageRuntime {
                 action="CLARIFY";question="请明确要查询的订单编号或关键词；当前问题未提供可核验的查询范围。";
             } else if((run.workOrder==null&&!explicitOrderMatches(filterQuery,pk,number))||unsupportedExplicitFilter(filterQuery)) {
                 action="CLARIFY";question="问题中包含明确订单或其他筛选条件，但当前计划未完整表达。请明确订单ID/订单号，并使用支持的时间范围和物料/单据关键词；请使用明确的仓库/库位编码或完整客户名称；其他未支持条件不能省略。";
-            } else if((run.workOrder==null&&pk==null&&number==null)&&(intents.contains("DELIVERY")||Pattern.compile("这[张个笔].*订单|该订单|此订单").matcher(run.query).find())) {
+            } else if((run.workOrder==null&&run.inspectionNo==null&&pk==null&&number==null)&&(intents.contains("DELIVERY")||Pattern.compile("这[张个笔].*订单|该订单|此订单").matcher(run.query).find())) {
                 action="CLARIFY";question="请提供订单ID或完整订单号，以便核对交付和生产依据。";
             } else if((run.dateRange==null&&!periodGrounded(run,period,dateText))||Pattern.compile("昨天|前天|上周|上月|上个月|去年|截至|截止|大于|小于|低于|高于|超过|不少于|不超过|未完成|(?:仅|只|筛选|列出|查找).*不合格|缺货|库存不足|逾期|仅.*异常|只.*异常|\\d+月\\d+日|\\d{4}-\\d{2}-\\d{2}").matcher(filterQuery).find()) {
                 action="CLARIFY";question="当前支持当前记录、今天、最近7天或本月，以及单个名称/编号关键词。请明确使用哪个支持范围；暂不能按您提出的其他条件精确筛选。";
@@ -696,6 +726,11 @@ public final class NaturalLanguageRuntime {
         };
     }
 
+    private static String sopQuestion(Run run) {
+        var record=run.evidence.get("INSPECTION_TRACE");
+        return record==null ? run.query : BusinessReadIntent.inspectionResearchQuestion(data(record))+" "+run.query;
+    }
+
     /** Network I/O deliberately outside both runtime and HTTP routing locks so progress/cancel stays responsive. */
     public Map<String,Object> research(String ref,String role) {
         Run run;Task task;List<Map<String,Object>> evidence;String knowledgeQuestion,researchLabel;boolean explicitGraph;
@@ -714,11 +749,15 @@ public final class NaturalLanguageRuntime {
                 && records.stream().anyMatch(record->record.get("data") instanceof Map<?,?> facts
                     && facts.get("overview") instanceof Map<?,?> overview && overview.get("rows") instanceof List<?> rows
                     && rows.stream().anyMatch(row->row instanceof Map<?,?> r && "异常线索".equals(r.get("trace_status"))));
-            if(!planned&&(intents(run).contains("INSPECTION_TRACE")||!locatedAnomaly&&!Pattern.compile("分析|原因|诊断|排查|方法|规范|经验|案例|建议|追溯|图谱|关联").matcher(run.query).find()))return task.started;
+            if(intents(run).contains("INSPECTION_TRACE")){
+                var trace=records.stream().filter(r->"INSPECTION_TRACE".equals(r.get("kind"))).findFirst().map(NaturalLanguageRuntime::data).orElse(Map.of());
+                if(!"FOUND".equals(trace.get("status")) || !planned && !BusinessReadIntent.inspectionDiagnosis(run.query))return task.started;
+                knowledgeQuestion=BusinessReadIntent.inspectionResearchQuestion(trace);explicitGraph=true;
+            } else if(!planned && !locatedAnomaly && !Pattern.compile("分析|问题|原因|诊断|排查|方法|规范|经验|案例|建议|追溯|图谱|关联").matcher(run.query).find())return task.started;
             researchLabel=knowledgeQuestion!=null&&!explicitGraph?"检索 Qdrant 公开资料":"检索公开 RAG / GraphRAG";
             task.researchRunning=true;step(run,task,"SOP_LOOKUP","核对已批准的企业 SOP","RUNNING","按账号权限、有效版本及适用范围核对");
         }
-        var sop=ApprovedSopStore.inspect(run.query,run.policy,LocalDate.now(clock.withZone(ZONE)));
+        var sop=ApprovedSopStore.inspect(sopQuestion(run),run.policy,LocalDate.now(clock.withZone(ZONE)));
         synchronized(this) {
             require(ref);
             task.sop=sop;task.started.put("approvedSopEvidence",sop);
@@ -810,7 +849,7 @@ public final class NaturalLanguageRuntime {
         });
         String action=(String)run.plan.get("action");
         if(run.tasks.values().stream().anyMatch(task->task.sop!=null&&!task.sop.equals(
-                ApprovedSopStore.inspect(run.query,run.policy,LocalDate.now(clock.withZone(ZONE))))))changed[0]=true;
+                ApprovedSopStore.inspect(sopQuestion(run),run.policy,LocalDate.now(clock.withZone(ZONE))))))changed[0]=true;
         boolean unresolved=missing.stream().anyMatch(issue->issue.startsWith("CONTRADICTORY_")||issue.startsWith("CONFLICTING_")||issue.startsWith("UNRESOLVED_")||issue.startsWith("UNVERIFIED_")||issue.contains("TRUNCATED_")||issue.startsWith("SOURCE_RECORD_LIMIT_"));
         String verdict=!action.equals("QUERY")?action:changed[0]?"DATA_CHANGED":!absent.isEmpty()?"INCOMPLETE":usesDelivery(run)||unresolved?"INSUFFICIENT_EVIDENCE":"EVIDENCE_READY";
         if(changed[0]){facts.clear();missing.add("REFRESH_RUN_REQUIRED");}
@@ -921,6 +960,7 @@ public final class NaturalLanguageRuntime {
         String from=run.dateRange!=null?run.dateRange.fromTimestamp():start==null?null:start+" 00:00:00",to=run.dateRange!=null?run.dateRange.toTimestamp():start==null?null:today.plusDays(1)+" 00:00:00";
         Long id=run.order==null?null:Long.valueOf(run.order);
         data.policy.require(domain);
+        var domainSelectors=InventoryCategory.forDomain(domain,run.selectors);
         BusinessToolRegistry.Result queried;
         if(run.selection!=null){
             var selected=selectionRows(data,run,from,to);
@@ -949,14 +989,16 @@ public final class NaturalLanguageRuntime {
             data.policy.require("PRODUCTION");data.policy.require("DISPATCH");
             var selected=data.overview.batchInspections(Long.parseLong(run.workOrder));
             queried=new BusinessToolRegistry.Result(selected.size(),selected);
-        } else queried=BusinessToolRegistry.execute(data.overview,new BusinessToolRegistry.Request(domain,id,keyword,from,to,run.selectors),data.policy);
+        } else queried=BusinessToolRegistry.execute(data.overview,new BusinessToolRegistry.Request(domain,id,keyword,from,to,domainSelectors),data.policy);
         var filtered=BusinessQueryFilter.applyCriterion(run.criteria.getOrDefault(domain,"ALL"),queried.rows());
         long total=queried.total()==queried.rows().size()?filtered.size():queried.total();
         var rows=filtered.stream().map(row->{Map<String,Object> out=new LinkedHashMap<>();row.forEach((k,v)->{if(!k.equals("search_text"))out.put(k,v==null?null:String.valueOf(v));});return out;}).toList();
         String dateField=switch(domain){case "QUALITY"->"inspected_at";case "ORDER"->"order_date";case "AFTERSALES"->"opened_at";case "MAINTENANCE"->"start_time";case "ALARMS"->"reported_at";case "STOCK_MOVEMENT"->"handled_at";default->"updated_at";};
         var overview=object("domain",domain,"rows",rows,"totalRecords",total,"returnedRecords",rows.size(),"truncated",total>rows.size(),"limit",null,
             "period",run.dateRange==null?period:"CUSTOM","dateField",dateField,"startInclusive",from,"endExclusive",to,"timeZone","Asia/Shanghai","keyword",keyword,
-            "selectors",run.selectors,"filter",run.criteria.getOrDefault(domain,"ALL"),"countBasis","MATCHING_DATABASE_RECORDS","quantityBasis","PER_RECORD_PER_MATERIAL_UNIT; NO_CROSS_MATERIAL_TOTAL; CURRENT_RECORDS_NOT_HISTORICAL_SNAPSHOTS");
+            "selectors",domainSelectors,"filter",run.criteria.getOrDefault(domain,"ALL"),"countBasis","MATCHING_DATABASE_RECORDS","quantityBasis","PER_RECORD_PER_MATERIAL_UNIT; NO_CROSS_MATERIAL_TOTAL; CURRENT_RECORDS_NOT_HISTORICAL_SNAPSHOTS");
+        if(domainSelectors.containsKey(InventoryCategory.KEY))
+            overview.put("inventoryCategory",InventoryCategory.fromTypes(domainSelectors.get(InventoryCategory.KEY)).label);
         var facts=object("overview",overview);
         if(run.selection!=null){
             overview.put("selectedDomain",run.selection.domain());
@@ -1020,16 +1062,26 @@ public final class NaturalLanguageRuntime {
         if("NO_AVAILABLE".equals(run.criteria.getOrDefault(domain,"ALL")))facts.put("warnings",List.of("本次筛选记录可用量≤0的库存行；不是安全库存预警或按订单BOM确认的物料缺口。"));
         if(domain.equals("QUALITY")){
             facts.putAll(com.upc.computer.assistant.v2.vision.QualityEvidenceAnalysis.overview(rows,total<=rows.size()));
+            boolean fullVerdicts="ALL".equals(run.criteria.getOrDefault(domain,"ALL"));
+            boolean analytic=run.inspectionOperation==null&&QualityOverviewAnswer.analytical(run.query);
+            var statisticsScope=!analytic||run.selection!=null||run.cohortQuality()||run.workOrder!=null?null:
+                    new BusinessToolRegistry.Request("QUALITY",id,keyword,from,to,domainSelectors);
+            var statistics=QualityOverviewStatistics.read(data,rows,total==rows.size(),statisticsScope,fullVerdicts,today);
+            @SuppressWarnings("unchecked") var metrics=(Map<String,Object>)facts.get("qualityMetrics");
+            QualityOverviewStatistics.alignLegacyMetrics(metrics,rows,statistics);
+            facts.put("qualityDetailScope","CURRENT_INSPECTION_HEADS_AND_SCOPE_MATCHED_DEFECT_REGISTRATION_COUNTS");
+            facts.put("qualityStatistics",statistics);
+            var trend=QualityTrendMetrics.summarize(rows,total==rows.size()&&fullVerdicts);
+            facts.put("qualityTrend",trend);
+            facts.put("presentationMode",analytic?"ANALYSIS":"LIST");
+            if(analytic)facts.put("analysisConclusion",QualityOverviewAnswer.describe(overview,statistics,trend,run.query));
             if(run.inspectionOperation==InspectionSelection.Operation.SET_TRIAGE && !rows.isEmpty()){
                 facts.put("qualityDetailScope","SELECTED_INSPECTION_ITEMS_AND_LINKED_DEFECTS_READ_FOR_TRIAGE");
-                @SuppressWarnings("unchecked") var metrics=(Map<String,Object>)facts.get("qualityMetrics");
-                metrics.put("detailStatus","TRIAGE_DETAILS_CHECKED_COUNTS_NOT_AGGREGATED");
+                metrics.put("detailStatus","TRIAGE_DETAILS_CHECKED_LINKED_DEFECT_REGISTRATIONS_COUNTED");
             }
         }
         if(domain.equals("QUALITY")&&"LAST_7_DAYS".equals(period)&&run.dateRange==null)
             facts.put("traceConclusion","按检验时间统计，最近七个自然日（"+start+" 至 "+today+"，上海时区）可见 "+total+" 条检验记录。"+(total==0?"本时段缺少检验样本，无法判断质量状况。":""));
-        if(domain.equals("QUALITY")&&Pattern.compile("趋势|按日|每日|每天|不良率|不合格率").matcher(run.query).find())
-            facts.put("qualityTrend",QualityTrendMetrics.summarize(rows,total==rows.size()));
         if(domain.equals("ALARMS")&&Pattern.compile("趋势|按日|每日|每天").matcher(run.query).find())
             facts.put("alarmTrend",AlarmTrendMetrics.summarize(rows,total==rows.size()));
         return object("queryRef",UUID.randomUUID().toString(),"kind","OVERVIEW_"+domain,"scopeRef",run.scopeRef,"status","PARTIAL","sourceMode",SOURCE,
@@ -1057,10 +1109,15 @@ public final class NaturalLanguageRuntime {
         Map<String,String> labels=Map.of("INVENTORY","库存","PRODUCTION","生产工单","QUALITY","质检","ORDER","订单","EQUIPMENT","设备","AFTERSALES","售后","MAINTENANCE","维修记录","ALARMS","报警记录","STOCK_MOVEMENT","库存流水");
         for(Object value:facts.values()) {
             @SuppressWarnings("unchecked") var fact=(Map<String,Object>)value;
+            if("EVIDENCE_READY".equals(verdict)&&"ANALYSIS".equals(fact.get("presentationMode"))&&fact.get("analysisConclusion") instanceof String conclusion){
+                if(fact.get("traceConclusion") instanceof String trace&&!trace.equals(conclusion)&&!trace.startsWith("按检验时间统计"))parts.add(trace);
+                parts.add(conclusion);
+                continue;
+            }
             if(fact.get("traceConclusion") instanceof String trace)parts.add(trace);
             if(fact.get("overview") instanceof Map<?,?> o) {
                 String dateLabel=switch(String.valueOf(o.get("dateField"))){case "inspected_at"->"检验时间";case "order_date"->"订单日期";case "opened_at"->"售后单建立时间";default->"记录更新时间";};
-                parts.add(labels.get(String.valueOf(o.get("domain")))+"：符合范围的记录共"+o.get("totalRecords")+"条，取回"+o.get("returnedRecords")+"条"+(Boolean.TRUE.equals(o.get("truncated"))?"（明细已截断）":"")+"。时间按"+dateLabel+"筛选，属于当前记录，不是历史快照；数量按各物料原单位查看，不跨物料合计。");
+                parts.add((o.get("inventoryCategory") instanceof String category?category+"库存":labels.get(String.valueOf(o.get("domain"))))+"：符合范围的记录共"+o.get("totalRecords")+"条，取回"+o.get("returnedRecords")+"条"+(Boolean.TRUE.equals(o.get("truncated"))?"（明细已截断）":"")+"。时间按"+dateLabel+"筛选，属于当前记录，不是历史快照；数量按各物料原单位查看，不跨物料合计。");
                 @SuppressWarnings("unchecked") var rows=(List<Map<String,Object>>)o.get("rows");
                 if(!rows.isEmpty())parts.add("以下展示"+Math.min(8,rows.size())+"条，其余已取回明细见引用证据：");
                 rows.stream().limit(8).forEach(row->parts.add(rowSummary(row)));

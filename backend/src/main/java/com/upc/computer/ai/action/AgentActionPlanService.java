@@ -41,20 +41,32 @@ public class AgentActionPlanService {
 
     public AgentPlanOutcome preview(String actionCode, Map<String, Object> supplied,
                                     LoginResponse session, String sessionId) {
+        return preview(actionCode, supplied, session, sessionId, false);
+    }
+
+    public AgentPlanOutcome previewProduction(String actionCode, Map<String,Object> supplied,
+                                              LoginResponse session, String sessionId) {
+        return preview(actionCode, supplied, session, sessionId, true);
+    }
+
+    private AgentPlanOutcome preview(String actionCode, Map<String,Object> supplied, LoginResponse session,
+                                     String sessionId, boolean production) {
         requireSession(session);
         AgentActionDefinition action = catalog.requireAllowed(actionCode, session.getRoleCode());
-        Map<String, Object> parameters = repository.findDraft(session.getUserId(), sessionId, action.code());
+        Map<String, Object> parameters = production ? new LinkedHashMap<>()
+                : repository.findDraft(session.getUserId(), sessionId, action.code());
         if (supplied != null) parameters.putAll(new LinkedHashMap<>(supplied));
         validateNoGenericExecution(parameters);
 
         List<AgentRequiredField> missing = collectMissing(action, parameters);
         if (!missing.isEmpty()) {
-            repository.saveDraft(session.getUserId(), sessionId, action.code(), parameters);
+            if (!production) repository.saveDraft(session.getUserId(), sessionId, action.code(), parameters);
             String labels = String.join("、", missing.stream().map(AgentRequiredField::label).toList());
             return new AgentPlanOutcome("NEEDS_INPUT", "信息不完整，请补充：" + labels, missing, null);
         }
 
-        String planId = "AIP-" + UUID.randomUUID().toString().replace("-", "").substring(0, 16).toUpperCase(Locale.ROOT);
+        String planId = (production ? "AIP-PROD-" : "AIP-")
+                + UUID.randomUUID().toString().replace("-", "").substring(0, 16).toUpperCase(Locale.ROOT);
         LocalDateTime now = LocalDateTime.now();
         List<String> affected = affectedResources(action, parameters);
         String snapshot = stateService.fingerprint(action, parameters, session);
@@ -64,7 +76,7 @@ public class AgentActionPlanService {
                 immutableMap(parameters), List.copyOf(affected), snapshot, AgentPlanStatus.PENDING,
                 null, null, now, now.plusSeconds(AgentPlanRepository.PLAN_TTL_SECONDS), null);
         repository.save(plan);
-        repository.deleteDraft(session.getUserId(), sessionId, action.code());
+        if (!production) repository.deleteDraft(session.getUserId(), sessionId, action.code());
         auditService.record(session, action, "AI_PLAN_CREATED", planId, parameters, true, null);
 
         Map<String, Object> confirmation = new LinkedHashMap<>();
@@ -81,6 +93,19 @@ public class AgentActionPlanService {
 
     public synchronized Map<String, Object> confirm(String planId, String decision,
                                                      Object finalParams, LoginResponse session) {
+        if (planId != null && planId.startsWith("AIP-PROD-"))
+            throw new BusinessException(400, "请通过生产工作台核对并确认本方案");
+        return decide(planId, decision, finalParams, session);
+    }
+
+    public synchronized Map<String,Object> confirmProduction(String planId, String decision, LoginResponse session) {
+        if (planId == null || !planId.startsWith("AIP-PROD-") ||
+                !("APPROVE".equals(decision) || "SKIP".equals(decision)))
+            throw new BusinessException(400, "生产操作须确认或取消原预览方案");
+        return decide(planId, decision, null, session);
+    }
+
+    private Map<String,Object> decide(String planId, String decision, Object finalParams, LoginResponse session) {
         requireSession(session);
         AgentActionPlan plan = repository.find(planId);
         if (plan == null) throw new BusinessException(404, "待确认方案不存在或已过期");
@@ -90,6 +115,7 @@ public class AgentActionPlanService {
         if (plan.status() == AgentPlanStatus.EXECUTED) {
             return executionResult(plan, true, "该方案已经执行，已返回原执行结果");
         }
+        if (plan.status() == AgentPlanStatus.REJECTED && "SKIP".equals(decision)) return rejected(planId);
         if (plan.status() != AgentPlanStatus.PENDING) {
             throw new BusinessException(409, "方案当前状态为 " + plan.status() + "，不能重复执行");
         }
@@ -104,8 +130,7 @@ public class AgentActionPlanService {
             AgentActionPlan rejected = plan.withStatus(AgentPlanStatus.REJECTED, null, null, LocalDateTime.now());
             repository.save(rejected);
             auditService.record(session, action, "AI_PLAN_REJECTED", planId, plan.parameters(), true, null);
-            return Map.of("proposalId", planId, "status", "REJECTED", "ok", false,
-                    "message", "已取消，未修改任何业务数据", "reply", "已取消，未修改任何业务数据");
+            return rejected(planId);
         }
         if (!"APPROVE".equals(normalizedDecision) && !"MODIFY".equals(normalizedDecision)) {
             throw new BusinessException(400, "decision 只能是 APPROVE、MODIFY 或 SKIP");
@@ -133,24 +158,31 @@ public class AgentActionPlanService {
 
         AgentActionPlan executing = plan.withStatus(AgentPlanStatus.EXECUTING, null, null, null);
         repository.save(executing);
+        Object result;
         try {
-            Object result = executionService.execute(executing, session);
-            AgentActionPlan executed = executing.withStatus(AgentPlanStatus.EXECUTED, result, null, LocalDateTime.now());
-            repository.save(executed);
-            auditService.record(session, action, "AI_PLAN_EXECUTED", planId, parameters, true, null);
-            return executionResult(executed, false, "操作执行成功");
+            result = executionService.execute(executing, session);
         } catch (RuntimeException ex) {
             AgentActionPlan failed = executing.withStatus(AgentPlanStatus.FAILED, null, safeMessage(ex), LocalDateTime.now());
             repository.save(failed);
             auditService.record(session, action, "AI_PLAN_FAILED", planId, parameters, false, safeMessage(ex));
             throw ex;
         }
+        // The MES transaction has committed. A later receipt/audit failure cannot undo the operation.
+        AgentActionPlan executed = executing.withStatus(AgentPlanStatus.EXECUTED, result, null, LocalDateTime.now());
+        repository.save(executed);
+        auditService.record(session, action, "AI_PLAN_EXECUTED", planId, parameters, true, null);
+        return executionResult(executed, false, "操作执行成功");
     }
 
     private void requireSession(LoginResponse session) {
         if (session == null || session.getUserId() == null || session.getUsername() == null) {
             throw new BusinessException(401, "登录状态已失效，请重新登录");
         }
+    }
+
+    private Map<String,Object> rejected(String planId) {
+        return Map.of("proposalId", planId, "status", "REJECTED", "ok", false,
+                "message", "已取消，未修改任何业务数据", "reply", "已取消，未修改任何业务数据");
     }
 
     private void assertOwner(AgentActionPlan plan, LoginResponse session) {

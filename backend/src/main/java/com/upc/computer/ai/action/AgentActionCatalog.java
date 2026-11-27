@@ -35,7 +35,7 @@ public class AgentActionCatalog {
         add("updatePlan", "修改生产计划", "生产计划", roles("PLANNER"), "planId:计划编号");
         add("agentCreatePlan", "智能排产并创建计划", "智能排产", roles("PLANNER"), "orderId:订单编号", "planStart:计划开始日期", "planEnd:计划结束日期");
         add("generateSmartPlans", "批量智能生成生产计划", "智能排产", roles("PLANNER"));
-        add("saveProductionPlan", "保存手工排产方案", "智能排产", roles("PLANNER"), "orderId:订单编号", "schedule:排产明细");
+        add("saveProductionPlan", "保存生产排程草案", "智能排产", roles("PLANNER"), "orderId:订单编号", "schedules:排产明细");
         add("saveBatchProductionPlans", "批量保存排产方案", "智能排产", roles("PLANNER"), "plans:排产方案列表");
         add("copyProductionPlan", "复制生产计划", "生产计划", roles("PLANNER"), "planId:计划编号");
         add("publishPlan", "发布生产计划", "生产计划", roles("PLANNER"), "planId:计划编号");
@@ -59,6 +59,7 @@ public class AgentActionCatalog {
 
         // 生产操作员
         add("acceptDispatch", "接收派工", "现场作业", roles("OPERATOR"), "dispatchId:派工编号");
+        add("production.dispatch.remind", "提醒派工操作员", "生产管理", roles("MANAGER"), "dispatchId:派工编号", "targetUsername:接收人账号");
         add("startDispatch", "开始生产", "现场作业", roles("OPERATOR"), "dispatchId:派工编号");
         add("pickMaterial", "领取单项物料", "现场作业", roles("OPERATOR"), "dispatchId:派工编号", "taskId:领料任务ID", "qty:领取数量");
         add("pickAllMaterials", "领取全部物料", "现场作业", roles("OPERATOR"), "dispatchId:派工编号");

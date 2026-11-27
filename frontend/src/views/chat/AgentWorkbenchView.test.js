@@ -8,7 +8,7 @@ import * as inventory from '../../utils/inventoryPresentation.js'
 import * as business from '../../utils/businessPresentation.ts'
 import * as modelModes from '../../utils/workbenchModes.js'
 import * as images from '../../utils/imageConversation.js'
-import { prefersReadOnlyQuery, entryContext } from '../../utils/workbenchRouting.js'
+import * as routing from '../../utils/workbenchRouting.js'
 
 const filename = new URL('./AgentWorkbenchView.vue', import.meta.url)
 const source = readFileSync(filename, 'utf8')
@@ -29,7 +29,7 @@ function setupView(overrides = {}, role = 'ADMIN') {
     ...modelModes,
     modelChatStatus: async () => ({ apiConfigured: false, localConfigured: false, ragConfigured: false }),
     ...images,
-    prefersReadOnlyQuery, entryContext,
+    ...routing,
     useUserStore: () => user,
     watch: () => {},
     onBeforeUnmount: () => {},
@@ -73,6 +73,37 @@ test('clear read questions start the streaming Supervisor without order-intake l
   assert.equal(intakes, 0);assert.equal(sent.length, 1)
   assert.equal(view.messages.value.at(-2).orderMessage, false)
   assert.equal(view.messages.value.at(-1).orderFlow, undefined)
+})
+
+test('polite planning requests reach production preview even when the entry classifier would route to orders', async () => {
+  for (const role of ['PLANNER', 'MANAGER', 'ADMIN']) {
+    for (const text of ['你能帮我去排产吗', '帮我去制定生产计划呢', '智能排产']) {
+      let previews = 0, entries = 0, intakes = 0
+      const { view, sent } = setupView({
+        workbenchStatus: async () => ({ configured: true, naturalLanguage: true, directChat: true, productionActions: true }),
+        chatEntry: async () => { entries++; return { route: 'ORDER' } },
+        orderTurn: async () => { intakes++; throw Error('unexpected order intake') },
+        previewProductionOperation: async (_token, request) => {
+          previews++; assert.equal(request.text, text)
+          return { status: 'NEEDS_INPUT', actionCode: 'PLAN_CREATE', message: '请选择待计划订单', missingFields: [{ name: 'orderId', label: '订单' }] }
+        },
+      }, role)
+      await view.checkConnection(); view.input.value = text; await view.send()
+      assert.equal(previews, 1, `${role}: ${text}`)
+      assert.equal(entries, 0); assert.equal(intakes, 0); assert.equal(sent.length, 0)
+      assert.equal(view.messages.value.at(-1).productionFlow.status, 'NEEDS_INPUT')
+      assert.equal(view.messages.value.at(-2).orderMessage, false)
+    }
+  }
+})
+
+test('role shortcuts use the existing planning and production-manager task names', () => {
+  const planner = setupView({}, 'PLANNER').view.productionExample.value
+  const manager = setupView({}, 'MANAGER').view.productionExample.value
+  assert.equal(planner.title, '智能制定生产计划')
+  assert.match(planner.prompt, /制定生产计划/)
+  assert.equal(manager.title, '智能排产')
+  assert.match(manager.description, /工序.*设备.*操作员/)
 })
 
 test('general chat streams without creating business tasks and a topic switch enters quality lookup', async () => {
@@ -164,15 +195,13 @@ test('session switch clears unsent text and compact composer does not expose red
   assert.doesNotMatch(descriptor.template.content, /查看完整文字说明|WorkbenchEvidence|composer-footnote|composer-context|assistant-heading|expand-answer/)
 })
 
-test('streamed analytical text stays intact while tables precede the necessary conclusions', () => {
-  const { view } = setupView()
-  const message = { text: '已查询到以下质量信息：\n\n- 检验状态与数量不一致，需核对。', status: 'RUNNING',
-    result: { presentation: 'compact_stream', verdict: 'EVIDENCE_READY', facts: {
-      quality: { overview: { domain: 'QUALITY', rows: [{ inspection_no: 'QI-1', unqualified_quantity: 0 }], totalRecords: 1, returnedRecords: 1 } },
-    } } }
-  assert.equal(view.answerParts(message).intro, '已查询到以下质量信息：')
-  assert.equal(view.answerParts(message).analysis, '- 检验状态与数量不一致，需核对。')
-  assert.ok(descriptor.template.content.indexOf('<BusinessQueryAnswer') < descriptor.template.content.indexOf('class="answer-analysis"'))
+test('one continuous Markdown renderer precedes evidence for streamed, saved and recovered answers', () => {
+  const template = descriptor.template.content
+  assert.equal([...template.matchAll(/<WorkbenchMarkdown :content="message.text"/g)].length, 1)
+  assert.ok(template.indexOf(':content="message.text"') < template.indexOf('<AnswerEvidence'))
+  assert.ok(template.indexOf('<AgentCollaborationStream') < template.indexOf(':content="message.text"'))
+  assert.match(template, /<AgentCollaborationStream v-if="!message.modelSource && !message.routing && !message.directChat"/)
+  assert.doesNotMatch(source, /answerParts|compactBusinessAnswer|isProductionOnly/)
 })
 
 test('text attachment adds editable content only and rejects oversized input without truncation', async () => {
@@ -268,9 +297,11 @@ test('continuing an old history session starts natural querying without its prev
 })
 
 test('natural answers retain full replies including limitations', () => {
-  const { view } = setupView()
   const text = '库存查询结果\n\n缺失/限制：当前库存不等于可供特定订单使用的数量。'
-  assert.equal(view.displayAnswer({ text, result: { queryMode: 'NATURAL' } }), text)
+  const message = workbench.createAssistantMessage()
+  workbench.applyWorkbenchEvent(message, { type: 'result', data: { queryMode: 'NATURAL', reply: text } })
+  assert.equal(message.text, text)
+  assert.match(descriptor.template.content, /<WorkbenchMarkdown :content="message.text"/)
 })
 
 const draftEnvelope = (version = 1, status = 'READY') => ({ handled: true, reply: '请核对订单后确认', steps: [{ agentId: 'ORDER', label: '校验草稿', status: 'COMPLETED' }], orderDraft: { id: 'draft-1', version, status, fields: { materialId: 3, quantity: 5 }, products: [], missing: [] } })
@@ -678,4 +709,192 @@ test('new authorization stamp removes cached business messages before continuing
     assert.equal(view.sessions.value.length, 0)
     assert.equal(view.activeId.value, null)
   } finally {globalThis.localStorage = original}
+})
+
+const schedulePreview = {
+  status: 'PENDING', actionCode: 'saveProductionPlan', message: '请核对排产明细',
+  confirmation: { proposalId: 'proposal-plan-A', title: '保存生产排程草案',
+    params: { orderId: 'CO801', schedules: [{ processStep: '装配', planQty: 4 }] } },
+}
+function productionView(overrides = {}) {
+  const previews = [], decisions = []
+  const result = setupView({
+    workbenchStatus: async () => ({ configured: true, naturalLanguage: true, productionActions: true, capabilities: { domains: ['PRODUCTION'] } }),
+    chatEntry: async () => ({ route: 'PRODUCTION_ACTION' }),
+    previewProductionOperation: async (token, body) => { previews.push({ token, body }); return schedulePreview },
+    decideProductionOperation: async (token, id, decision) => {
+      decisions.push({ token, id, decision })
+      return { proposalId: id, status: 'EXECUTED', reply: '已保存', result: { planId: 'PP901', orderId: 'CO801' } }
+    },
+    ...overrides,
+  }, 'PLANNER')
+  return { ...result, previews, decisions }
+}
+async function say(view, text) { view.input.value = text; await view.send() }
+
+test('actual preview lifecycle records request start, safe response counts and failure without invented agents', async () => {
+  let resolve
+  const { view } = productionView({ previewProductionOperation: async () => new Promise(done => { resolve = done }) })
+  await view.checkConnection()
+  const pending = say(view, '帮我排产')
+  const message = view.messages.value.at(-1)
+  assert.equal(message.productionFlow.steps[0].status, 'RUNNING')
+  assert.ok(message.productionFlow.steps[0].startedAt)
+  resolve({ status: 'NEEDS_INPUT', schemes: [{}, {}, {}], options: { orderId: [{ value: 'secret' }] } })
+  await pending
+  assert.equal(message.productionFlow.steps[0].status, 'COMPLETED')
+  assert.match(message.productionFlow.steps[0].detail, /1 个待计划订单.*3 种排产方案/)
+  assert.doesNotMatch(message.productionFlow.steps[0].detail, /secret/)
+  assert.deepEqual(message.agents, [])
+  const failing = productionView({ previewProductionOperation: async () => { throw Error('private server detail') } }).view
+  await failing.checkConnection(); await say(failing, '帮我排产')
+  const step = failing.messages.value.at(-1).productionFlow.steps[0]
+  assert.equal(step.status, 'FAILED'); assert.doesNotMatch(step.detail, /private/)
+})
+
+test('production chat previews under the caller and writes only on explicit approval of the current card', async () => {
+  const { view, previews, decisions, sent } = productionView()
+  await view.checkConnection(); await say(view, '给 CO801 排产')
+  const card = view.messages.value.at(-1)
+  assert.deepEqual(previews, [{ token: 'test-token', body: { text: '给 CO801 排产', sessionId: view.activeId.value, history: [] } }])
+  assert.equal(card.productionFlow.status, 'PENDING')
+  assert.equal(card.productionFlow.steps[0].agentId, 'SERVICE')
+  assert.equal(card.productionFlow.steps[0].status, 'COMPLETED')
+  assert.match(card.productionFlow.steps[0].detail, /待确认.*未写入/)
+  assert.equal(view.canRegenerate(card), false)
+  await say(view, '确定')
+  assert.equal(previews.length, 1)
+  assert.equal(decisions.length, 0)
+  assert.deepEqual(sent, [])
+  await view.productionDecision(card, 'APPROVE')
+  assert.deepEqual(decisions, [{ token: 'test-token', id: 'proposal-plan-A', decision: 'APPROVE' }])
+  assert.equal(card.productionFlow.result.planId, 'PP901')
+  assert.equal(card.productionFlow.steps.at(-1).toolId, 'production.decision')
+  assert.equal(card.productionFlow.steps.at(-1).status, 'COMPLETED')
+  await view.productionDecision(card, 'APPROVE')
+  assert.equal(decisions.length, 1)
+  await say(view, '发布刚生成的计划')
+  assert.deepEqual(previews[1].body.fields, { planId: 'PP901' })
+})
+
+test('clarification carries just this conversation’s fields and unrelated reads use the streaming query', async () => {
+  const requests = [], contexts = []
+  const { view, sent } = productionView({
+    chatEntry: async (_token, body) => { contexts.push(body.context); return { route: body.text === '查库存' ? 'BUSINESS' : 'PRODUCTION_ACTION' } },
+    previewProductionOperation: async (_token, body) => {
+      requests.push(body)
+      return body.text === '帮我排产' ? { status: 'NEEDS_INPUT', actionCode: 'saveProductionPlan', fields: { planStart: '2026-12-01' },
+        missingFields: [{ name: 'orderId', label: '订单编号' }], message: '请补充订单编号' } : schedulePreview
+    },
+  })
+  await view.checkConnection(); await say(view, '帮我排产'); await say(view, 'CO801')
+  assert.deepEqual(requests[1], { text: 'CO801', sessionId: view.activeId.value, actionCode: 'saveProductionPlan', fields: { planStart: '2026-12-01' },
+    history: [{ role: 'user', text: '帮我排产' }, { role: 'assistant', text: '请补充订单编号' }] })
+  assert.deepEqual(contexts, []) // Scoped input goes straight to preview.
+  const pending = view.messages.value.at(-1)
+  await say(view, '查库存')
+  assert.equal(contexts[0], 'PRODUCTION_ACTION')
+  assert.equal(sent.length, 1)
+  await view.productionDecision(pending, 'APPROVE')
+  assert.equal(pending.productionFlow.status, 'PENDING')
+  view.newSession(); await say(view, 'CO999')
+  assert.equal(requests.at(-1).actionCode, undefined)
+})
+
+test('an uncertain decision can only retry the same decision and proposal, with no automatic retry', async () => {
+  const attempts = []
+  const { view } = productionView({ decideProductionOperation: async (_token, id, decision) => {
+    attempts.push([id, decision])
+    if (attempts.length === 1) throw new TypeError('网络中断')
+    return { proposalId: id, status: 'EXECUTED', reply: '返回原结果', result: { planId: 'PP901' } }
+  } })
+  await view.checkConnection(); await say(view, '给 CO801 排产')
+  const card = view.messages.value.at(-1)
+  await view.productionDecision(card, 'APPROVE')
+  assert.match(card.error, /核对|未确认/)
+  assert.equal(card.productionFlow.steps.at(-1).status, 'INTERRUPTED')
+  await view.productionDecision(card, 'SKIP')
+  assert.equal(attempts.length, 1)
+  await view.productionDecision(card, 'APPROVE')
+  assert.deepEqual(attempts, [['proposal-plan-A', 'APPROVE'], ['proposal-plan-A', 'APPROVE']])
+  assert.equal(card.productionFlow.status, 'EXECUTED')
+})
+
+test('a rejected or expired production action never appears executed and stored history cannot authorize it', async () => {
+  const { view } = productionView({ decideProductionOperation: async () => { throw Object.assign(new Error('方案已过期'), { code: 409 }) } })
+  await view.checkConnection(); await say(view, '给 CO801 排产')
+  const card = view.messages.value.at(-1)
+  const serialized = workbench.serializeWorkbenchSessions(view.sessions.value)
+  assert.doesNotMatch(serialized, /proposal-plan-A/)
+  const restored = workbench.restoreSessions(serialized)[0].messages.at(-1)
+  assert.match(restored.text, /重新|历史/)
+  await view.productionDecision(card, 'APPROVE')
+  assert.match(card.error, /已过期/)
+  assert.equal(card.productionFlow.status, 'FAILED')
+  assert.equal(card.productionFlow.result, undefined)
+})
+
+test('new session and changed credentials cannot confirm an old production card or receive its late result', async () => {
+  let release, decisions = 0
+  const { view, user } = productionView({ decideProductionOperation: async (_token, id) => {
+    decisions++
+    await new Promise(resolve => { release = resolve })
+    return { proposalId: id, status: 'EXECUTED', reply: '已保存', result: { planId: 'PP901' } }
+  } })
+  await view.checkConnection(); await say(view, '给 CO801 排产')
+  const card = view.messages.value.at(-1), session = view.active.value
+  view.newSession(); await view.productionDecision(card, 'APPROVE')
+  assert.equal(decisions, 0)
+  view.selectSession(session)
+  const pending = view.productionDecision(card, 'APPROVE')
+  await view.productionDecision(card, 'APPROVE')
+  assert.equal(decisions, 1)
+  user.token = 'other'; release(); await pending
+  assert.notEqual(card.productionFlow.status, 'EXECUTED')
+})
+
+test('older gateway fallback recognizes explicit production requests and preserves status questions', async () => {
+  const { view, previews, sent } = productionView({
+    workbenchStatus: async () => ({ configured: true, naturalLanguage: true, capabilities: { domains: ['PRODUCTION'] } }),
+  })
+  await view.checkConnection(); await say(view, '给订单 CO801 排产')
+  assert.equal(previews.length, 1)
+  await say(view, '这个订单现在派工了吗？')
+  assert.equal(sent.length, 1)
+  assert.equal(previews.length, 1)
+})
+
+test('a clarification form sends only requested fields to the current proposal preview without classifying field values as a new intent', async () => {
+  const previews = []
+  const { view, decisions } = productionView({
+    previewProductionOperation: async (_token, input) => {
+      previews.push(input)
+      return previews.length === 1 ? { status: 'NEEDS_INPUT', actionCode: 'submitReport', fields: { dispatchId: 'DT101' },
+        missingFields: [{ name: 'reportQty', label: '本次完成数量' }], message: '请补充本次完成数量' } : schedulePreview
+    },
+  })
+  await view.checkConnection(); await say(view, '我要给 DT101 报工')
+  const card = view.messages.value.at(-1)
+  await view.supplementProduction(card, { reportQty: '12', dispatchId: 'DT999' })
+  assert.equal(previews[1].text, '')
+  assert.deepEqual(previews[1].fields, { dispatchId: 'DT101', reportQty: '12' })
+  assert.equal(previews[1].actionCode, 'submitReport')
+  await view.supplementProduction(card, { reportQty: '50' })
+  assert.equal(previews.length, 2)
+  assert.equal(decisions.length, 0)
+})
+
+test('a targeted dispatch clarification preserves the requested operator and process when supplying a work order', async () => {
+  const previews = []
+  const { view, decisions } = productionView({ previewProductionOperation: async (_token, input) => {
+    previews.push(input)
+    return previews.length === 1
+      ? { status: 'NEEDS_INPUT', actionCode: 'confirmSmartDispatch', fields: { operator: '王工', processStep: '装配' },
+        missingFields: [{ name: 'workOrderNo', label: '工单编号' }], message: '请补充工单编号' } : schedulePreview
+  } })
+  await view.checkConnection()
+  await say(view, '把装配派给王工'); await say(view, '按工单 WO615 安排智能派工')
+  assert.deepEqual(previews[1].fields, { operator: '王工', processStep: '装配' })
+  assert.equal(previews[1].actionCode, 'confirmSmartDispatch')
+  assert.equal(decisions.length, 0)
 })

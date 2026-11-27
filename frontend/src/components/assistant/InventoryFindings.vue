@@ -10,7 +10,7 @@ const rows = computed(() => snapshot.value?.rows.slice(0, expanded.value ? 100 :
 <template>
   <section v-if="snapshot?.provisional" class="inventory-findings" aria-label="物料供应 Agent 查询发现">
     <div class="findings-heading"><span class="findings-check">✓</span><strong>物料供应 Agent · 已读取库存明细</strong><span>{{ snapshot.rows.length }} 条</span></div>
-    <p class="findings-scope">{{ snapshot.period }}<template v-if="snapshot.keyword"> · {{ snapshot.keyword }}</template> · 等待总协调完成数据复核</p>
+    <p class="findings-scope">{{ snapshot.period }}<template v-if="snapshot.category"> · {{ snapshot.category }}库存</template><template v-if="snapshot.keyword"> · {{ snapshot.keyword }}</template> · 等待总协调完成数据复核</p>
     <div class="finding-grid">
       <article v-for="(row, index) in rows" :key="index" class="finding-row">
         <div><strong>{{ row.material_name || '未提供物料名称' }}</strong><small>{{ row.material_code || '编码未提供' }} · {{ row.warehouse_code || '仓库未提供' }} · {{ row.batch_no || '批次未提供' }}</small></div>

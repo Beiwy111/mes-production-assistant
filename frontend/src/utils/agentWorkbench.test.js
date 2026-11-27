@@ -14,6 +14,19 @@ import {
   serializeWorkbenchSessions,
 } from './agentWorkbench.js'
 
+test('dynamic planner rounds and real return-to-supervisor handoffs survive normalization', () => {
+  const message = createAssistantMessage()
+  applyWorkbenchEvent(message, { type: 'run', runId: 'dynamic-run' })
+  applyWorkbenchEvent(message, { type: 'workflow', runId: 'dynamic-run', invalidated: false, events: [
+    { seq: 1, agentId: 'SUP', taskId: 'round1', toolId: 'TASK_TASK_PLAN', kind: 'STEP_STARTED', status: 'RUNNING', detail: '规划下一步' },
+    { seq: 2, agentId: 'SUP', taskId: 'orders1', toolId: 'TASK_ORDERS', kind: 'HANDOFF', status: 'COMPLETED', fromAgent: 'ORDER', toAgent: 'SUP', detail: '返回 4 条实际订单' },
+    { seq: 3, agentId: 'SUP', taskId: 'round2', toolId: 'TASK_TASK_PLAN', kind: 'STEP_STARTED', status: 'RUNNING', detail: '根据查询结果重新规划' },
+  ] })
+  assert.equal(message.workflow.events.length, 3)
+  assert.equal(message.workflow.events[1].fromAgent, 'ORDER')
+  assert.equal(message.workflow.events[2].taskId, 'round2')
+})
+
 test('actual tool steps remain live in chat and history; unknown tool IDs are discarded', () => {
   const message = createAssistantMessage()
   applyWorkbenchEvent(message, { type: 'run', runId: 'r1' })
@@ -401,4 +414,31 @@ test('confirmed retries replace terminal agent details and reject older task sna
   assert.equal(message.agents.length, 1)
   assert.equal(message.agents[0].taskId, 'second')
   assert.equal(message.agents[0].summary, 'new')
+})
+
+test('calculation events retain real stage keys and failures through stream normalization', () => {
+  const message = createAssistantMessage()
+  applyWorkbenchEvent(message, {type:'run',runId:'calc-run'})
+  applyWorkbenchEvent(message, {type:'workflow',runId:'calc-run',invalidated:false,events:[
+    {seq:1,agentId:'PRODUCTION',kind:'CALCULATION',key:'portfolio_stock',status:'RUNNING',label:'读取库存',detail:'查询中'},
+    {seq:2,agentId:'PRODUCTION',kind:'CALCULATION',key:'portfolio_stock',status:'FAILED',label:'读取库存',detail:'库存不可用'},
+  ]})
+  assert.equal(message.workflow.events.length,2)
+  assert.equal(message.workflow.events[1].key,'portfolio_stock')
+  assert.equal(message.workflow.events[1].status,'FAILED')
+})
+
+test('multi-order calculations preserve completion beyond the old 128-event limit', () => {
+  const message = createAssistantMessage()
+  applyWorkbenchEvent(message, {type:'run',runId:'portfolio'})
+  for (let seq=1;seq<=600;seq++) {
+    applyWorkbenchEvent(message, {type:'workflow',runId:'portfolio',invalidated:false,events:[
+      {seq,agentId:'PRODUCTION',kind:'CALCULATION',key:'order_'+Math.ceil(seq/2),
+        status:seq%2?'RUNNING':'COMPLETED',label:'核算订单',detail:'实际执行结果'}
+    ]})
+  }
+  assert.equal(message.workflow.events.length,600)
+  assert.equal(message.workflow.events.at(-1).status,'COMPLETED')
+  const [session] = restoreSessions(serializeWorkbenchSessions([{id:'portfolio',messages:[message]}]))
+  assert.equal(session.messages[0].workflow.events.at(-1).seq,600)
 })

@@ -104,10 +104,19 @@ public class AgentActionExecutionService {
             request.setPayload(p);
             request.setOperator(session.getUsername());
             request.setRoleKey(roleKey(session.getRoleCode()));
+            if ("confirmSmartDispatch".equals(code) && plan.planId().startsWith("AIP-PROD-")) {
+                if (Boolean.TRUE.equals(p.get("preparePlan"))) {
+                    catalog.requireAllowed("publishPlan",session.getRoleCode());
+                    catalog.requireAllowed("submitPlanToManager",session.getRoleCode());
+                }
+                return mesWorkflowService.executeReviewedDispatch(request);
+            }
             return mesWorkflowService.execute(request);
         }
 
         return switch (code) {
+            case "production.dispatch.remind" -> mesWorkflowService.remindDispatch(
+                    String.valueOf(p.get("dispatchId")), String.valueOf(p.get("targetUsername")), session.getUsername());
             case "admin.user.create" -> createUser(p);
             case "admin.user.update" -> updateUser(p);
             case "admin.user.delete" -> done(() -> systemService.deleteUser(longVal(p, "userId")));

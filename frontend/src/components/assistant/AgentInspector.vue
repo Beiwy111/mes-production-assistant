@@ -29,6 +29,16 @@ const roster = computed(() => props.message ? model.value.roles.filter(role => !
 const phase = computed(() => {
   const m = model.value, status = props.message?.status
   if (m.invalidated || m.omitted) return { label: '待核对', state: 'INTERRUPTED' }
+  const production = props.message?.productionFlow
+  if (production) {
+    if (production.deciding) return { label: '正在提交', state: 'RUNNING' }
+    if (production.uncertainDecision && production.status === 'PENDING') return { label: '结果待核对', state: 'INTERRUPTED' }
+    if (production.result?.allDone === false) return { label: '部分完成', state: 'INTERRUPTED' }
+    const phases: Record<string, [string, string]> = { PREPARING: ['正在准备方案', 'RUNNING'], NEEDS_INPUT: ['待补充', 'WAITING'],
+      PENDING: ['待确认执行', 'WAITING'], EXECUTED: ['操作已执行', 'COMPLETED'], REJECTED: ['操作已取消', 'CANCELLED'], FAILED: ['操作未完成', 'FAILED'] }
+    const [label, state] = phases[production.status] || ['已收到响应', 'RECORDED']
+    return { label, state }
+  }
   if (!m.events.length && !timeline.value.length && !m.serviceActivity) return { label: '等待任务', state: 'WAITING' }
   if (['FAILED', 'CANCELLED', 'INTERRUPTED'].includes(status)) return { label: agentStateText(status), state: status }
   if (m.live || m.serviceActivity) {
@@ -86,6 +96,7 @@ const actorName = (id: string) => id === 'SERVICE' ? '业务服务' : AGENTS[id]
     <div v-if="model.draftStatus || (model.requestStatus && (!timeline.length || message?.orderFlow))" class="current-task" aria-label="当前任务状态">
       <div v-if="model.requestStatus"><span>当前请求</span><span>{{ model.requestStatus }}</span></div>
       <div v-if="model.draftStatus"><span>订单草稿</span><span>{{ model.draftStatus }}</span></div>
+      <div v-if="message?.productionFlow?.confirmation"><span>生产操作</span><span>{{ message.productionFlow.confirmation.title }}</span></div>
     </div>
     <div class="inspector-tabs" role="tablist" aria-label="Agent 详情">
       <button v-for="(item, index) in tabs" :id="`${instance}-tab-${item}`" :key="item"
@@ -141,13 +152,14 @@ const actorName = (id: string) => id === 'SERVICE' ? '业务服务' : AGENTS[id]
         </div>
       </details>
       <button v-if="roster.length" class="roster-toggle" :aria-expanded="showRoster" @click="showRoster = !showRoster">{{ showRoster ? '收起角色列表' : '查看其他角色' }}</button>
-      <section v-if="model.serviceLogs.length || model.serviceActivity" class="business-service" aria-label="订单业务服务记录">
+      <section v-if="model.serviceLogs.length || model.serviceActivity" class="business-service" aria-label="业务服务记录">
         <h3>业务服务</h3>
         <p v-if="model.serviceActivity" class="service-activity" role="status"><AgentStatusIndicator status="RUNNING" /><span>{{ model.serviceActivity }}</span></p>
         <details v-for="event in model.serviceLogs" :key="event.seq" class="log-detail">
           <summary><AgentStatusIndicator :status="event.status" :animate="false" />{{ event.label }}<span>{{ agentStateText(event.status) }}</span></summary>
           <pre v-if="event.detail">{{ event.detail }}</pre>
         </details>
+        <p v-if="message?.productionFlow && model.serviceLogs.at(-1)?.detail" class="step-preview">{{ model.serviceLogs.at(-1).detail }}</p>
       </section>
     </div>
     <div :id="`${instance}-panel-calls`" role="tabpanel" :aria-labelledby="`${instance}-tab-calls`" :hidden="tab !== 'calls'" class="inspector-body">

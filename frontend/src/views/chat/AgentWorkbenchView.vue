@@ -18,17 +18,16 @@ import ChatDetectionFrame from '@/components/assistant/ChatDetectionFrame.vue'
 import DisplayMark from '@/components/assistant/DisplayMark.vue'
 import { PencilLine, RotateCcw, GitBranch, Share2 } from 'lucide-vue-next'
 import AgentInspector from '@/components/assistant/AgentInspector.vue'
-import BusinessQueryAnswer from '@/components/assistant/BusinessQueryAnswer.vue'
+import AnswerEvidence from '@/components/assistant/AnswerEvidence.vue'
 import KnowledgeSources from '@/components/assistant/KnowledgeSources.vue'
 import ExperienceEvidence from '@/components/assistant/ExperienceEvidence.vue'
 import VisionImageEvidence from '@/components/assistant/VisionImageEvidence.vue'
 import { inspectionImageRecords } from '@/utils/workbenchEvidence'
 import { canExportResult, resultCsv } from '@/utils/knowledgeSources'
 import WorkbenchMarkdown from '@/components/assistant/WorkbenchMarkdown.vue'
-import { isProductionOnly, compactBusinessAnswer, hasBusinessTables } from '@/utils/businessPresentation'
 import {
   workbenchStatus,
-  streamWorkbench, continueImage, chatEntry,
+  streamWorkbench, continueImage, chatEntry, previewProductionOperation, decideProductionOperation,
   workbenchRun,
 } from '@/api/agentWorkbench'
 import {
@@ -46,15 +45,15 @@ import {
 } from '@/utils/agentWorkbench'
 import { orderStatus, orderTurn, getOrderDraft, reviseOrderDraft, confirmOrderDraft, cancelOrderDraft } from '@/api/assistantOrders'
 import OrderFlowCard from '@/components/assistant/OrderFlowCard.vue'
-import AgentWorkflowCard from '@/components/assistant/AgentWorkflowCard.vue'
+import ProductionOperationCard from '@/components/assistant/ProductionOperationCard.vue'
+import ProductionCalculationFlow from '@/components/assistant/ProductionCalculationFlow.vue'
+import AgentCollaborationStream from '@/components/assistant/AgentCollaborationStream.vue'
 import WorkbenchComposer from '@/components/assistant/WorkbenchComposer.vue'
 import WorkbenchModeSelector from '@/components/assistant/WorkbenchModeSelector.vue'
 import { modelChatStatus, modelChatTurn } from '@/api/workbenchModels'
 import { isDirectSource, modelHistory, needsModelOrderTurn } from '@/utils/workbenchModes'
-import InventoryAnswer from '@/components/assistant/InventoryAnswer.vue'
-import { isInventoryOnly, inventorySnapshot } from '@/utils/inventoryPresentation'
 import { precedingWorkRun, imageFollowup, comparePhoto } from '@/utils/imageConversation'
-import { prefersReadOnlyQuery, entryContext } from '@/utils/workbenchRouting'
+import { prefersReadOnlyQuery, entryContext, productionPreviewContext, productionPreviewIntent } from '@/utils/workbenchRouting'
 
 function exportResult(message) {
   const csv = resultCsv(message)
@@ -103,6 +102,8 @@ let controller = null,
 let pendingHistory = null
 let lastAuthorizationStamp = null
 const orderConnection = ref(null)
+const proposalSessions = new WeakMap()
+const productionAllowed = computed(() => ['ADMIN', 'ORDER', 'PLANNER', 'MANAGER', 'OPERATOR'].includes(user.userInfo?.roleCode))
 const modelConnection = ref(null)
 const modelError = ref('')
 const source = ref('WORKFLOW')
@@ -173,17 +174,19 @@ const visibleSessions = computed(() =>
   sessions.value.filter((s) => s.title.includes(search.value.trim())),
 )
 const queryReady = computed(() => (admin.value || Array.isArray(connection.value?.capabilities?.domains)) && connection.value?.configured === true && connection.value?.naturalLanguage === true)
+const entryAvailable = computed(() => connection.value?.directChat === true || connection.value?.productionActions === true)
 const modelConfigured = computed(() => Boolean(source.value === 'LOCAL' ? modelConnection.value?.localConfigured : modelConnection.value?.apiConfigured))
 const ready = computed(() => direct.value
   ? modelConfigured.value && (!rag.value || modelConnection.value?.ragConfigured === true)
-  : orderReady.value || queryReady.value || connection.value?.directChat === true)
+  : orderReady.value || queryReady.value || entryAvailable.value)
 const needsUpgrade = computed(() => connection.value != null && connection.value.naturalLanguage !== true)
 const BusinessActions = defineAsyncComponent(() => import('./ChatHomeView.vue'))
 const businessToolsOpen = ref(false)
 const graphWindow = ref('')
 const WorkbenchGraphWindow = defineAsyncComponent(() => import('@/components/assistant/WorkbenchGraphWindow.vue'))
 watch([activeId, () => user.token], () => { graphWindow.value = '' })
-const canSend = computed(() => ready.value && !busy.value && (input.value.trim().length > 0 || Boolean(pendingImage.value)))
+const canSend = computed(() => !busy.value && (ready.value || (!direct.value && user.token && productionAllowed.value &&
+  productionPreviewIntent(input.value, messages.value.at(-1)))) && (input.value.trim().length > 0 || Boolean(pendingImage.value)))
 const statusText = computed(() => checking.value ? '正在连接' : direct.value ? (ready.value ? '已配置' : '未就绪') :
   ready.value ? '已连接' : needsUpgrade.value ? '服务待升级' : '服务未连接')
 const statusHint = computed(() => {
@@ -196,8 +199,21 @@ const statusHint = computed(() => {
   if (needsUpgrade.value) return '当前协作服务尚未升级为自然语言查询，请联系维护人员升级后重新连接。'
   return connectionError.value || '订单服务尚未连接，请稍后重新连接。'
 })
+const productionExamples = {
+  ADMIN: { title: '智能排产', description: '制定生产计划或安排工序派工', prompt: '帮我智能排产。' },
+  PLANNER: { title: '智能制定生产计划', description: '比较排程方案并保存生产计划', prompt: '帮我智能制定生产计划。' },
+  MANAGER: { title: '智能排产', description: '核对工序、设备与操作员', prompt: '帮我为生产计划安排智能派工。' },
+  OPERATOR: { title: '接收派工', description: '核对派工单并接收任务', prompt: '我要接收派工。' },
+  ORDER: { title: '提交给计划员', description: '将已审核订单转入计划', prompt: '帮我把订单提交给计划员。' },
+}
+const productionExample = computed(() => {
+  const role = user.userInfo?.roleCode
+  if (!connection.value?.productionActions && !['PLANNER', 'MANAGER', 'OPERATOR'].includes(role)) return null
+  return productionExamples[role]
+})
 const introductory = computed(() => [
   ...(orderAllowed.value ? [{ title: '创建订单', icon: ClipboardPlus, description: '产品选型与订单草稿', prompt: '我想下单，请帮我选择产品并填写订单信息。' }] : []),
+  ...(!direct.value && productionExample.value ? [{ ...productionExample.value, icon: Factory }] : []),
   ...((admin.value || queryReady.value || (direct.value && Array.isArray(readDomains.value))) ? [
     { title: '查库存', icon: PackageSearch, description: '物料、仓库与可用数量', prompt: '帮我查一下当前库存，列出需要关注的物料。' },
     { title: '看生产进度', icon: Factory, description: '工单进展与生产状态', prompt: '帮我看看当前生产进度，哪些工单需要关注？' },
@@ -234,7 +250,9 @@ function setMode(nextSource, nextRag = rag.value) {
 }
 function stop() {
   controller?.abort()
-  if (activeMessage?.orderFlow) {
+  if (activeMessage?.productionFlow?.deciding) {
+    activeMessage.error = '已停止等待，请核对原方案的执行结果。'
+  } else if (activeMessage?.orderFlow) {
     activeMessage.orderFlow.pending = ''
     activeMessage.orderFlow.needsRecovery = true
     interruptMessage(activeMessage, 'INTERRUPTED', '已停止等待；请刷新草稿状态，未自动重新提交。')
@@ -393,14 +411,14 @@ function trackScroll() {
 function canRegenerate(message) {
   return !direct.value && !message.modelSource && message === messages.value.at(-1) && message.status === 'COMPLETED' &&
     !busy.value && !input.value && !pendingImage.value && !message.imageQuestion &&
-    !message.orderMessage && !message.orderFlow && !message.evidenceInvalidated &&
+    !message.orderMessage && !message.orderFlow && !message.productionFlow && !message.evidenceInvalidated &&
     messages.value.at(-2)?.role === 'user' && !messages.value.at(-2)?.orderMessage &&
     (message.directChat ? connection.value?.directChat : queryReady.value && message.runId)
 }
-async function send(replay = null) {
-  if (replay ? !canRegenerate(replay) : !canSend.value) return
+async function send(replay = null, supplement = null) {
+  if (supplement ? busy.value : replay ? !canRegenerate(replay) : !canSend.value) return
   const imageFile = pendingImage.value, photoMode = imageMode.value
-  const typed = replay ? messages.value.at(-2).text : input.value.trim()
+  const typed = supplement?.description || (replay ? messages.value.at(-2).text : input.value.trim())
   const text = typed || (photoMode === 'screen' ? '检测这张屏幕照片上的划痕' : '这张图片里有什么？'),
     token = user.token,
     capturedOwner = owner
@@ -424,9 +442,21 @@ async function send(replay = null) {
     activeId.value = id
     session = active.value
   }
-  const previousMessages = replay ? session.messages.slice(0, -2) : session.messages
+  const previousMessages = replay ? session.messages.slice(0, -2) : session.messages.slice()
+  const previous = previousMessages.at(-1)
+  if (!mode && !imageFile && !replay && previous?.productionFlow?.status === 'PENDING' &&
+      /^(?:好[的啊]?|嗯|是的?|行|可以|确认(?:执行)?|同意|确定|执行|取消|跳过|不执行|ok)[\s!！。]*$/i.test(text)) {
+    previous.error = '请核对方案，在卡片上选择确认执行或取消。'
+    input.value = ''
+    followScroll(true)
+    return
+  }
   const photoTurn = mode || imageFile || replay ? null : imageFollowup(previousMessages, text)
-  const classify = !mode && !imageFile && !photoTurn && (!replay || replay.directChat) && connection.value?.directChat === true
+  const previousTask = previousMessages.findLast(item => item.productionFlow)
+  let needsProductionPreview = !!supplement || (!mode && !replay && !imageFile && !photoTurn && productionAllowed.value && productionPreviewIntent(text, previousTask || previous))
+  // Explicit production requests already have a safe preview destination. Do not let
+  // the general classifier turn them into order intake or a conversational answer.
+  const classify = !mode && !needsProductionPreview && !supplement && !imageFile && !photoTurn && (!replay || replay.directChat) && entryAvailable.value
   const context = classify ? entryContext(previousMessages) : null
   const workAnchor = imageFile ? precedingWorkRun(session.messages) : null
   session.updatedAt = Date.now()
@@ -442,13 +472,13 @@ async function send(replay = null) {
   const message = session.messages.at(-1)
   message.conversationId = session.id
   if (mode) Object.assign(message, mode)
-  let needsOrderIntake = !replay && !imageFile && !photoTurn && orderReady.value && (mode ? directOrder : !prefersReadOnlyQuery(text, { canQuery: queryReady.value }))
+  let needsOrderIntake = !needsProductionPreview && !replay && !imageFile && !photoTurn && orderReady.value && (mode ? directOrder : !prefersReadOnlyQuery(text, { canQuery: queryReady.value }))
   if (!classify && !needsOrderIntake) session.messages.at(-2).orderMessage = false
   if (!classify && needsOrderIntake) message.orderFlow = { steps: [], classifying: true }
   activeMessage = message
   if (imageFile) { clearImage(); message.imageUpload = true }
   if (imageFile || photoTurn) message.imageQuestion = true
-  input.value = ''
+  if (!supplement) input.value = ''
   busy.value = true
   controller = new AbortController()
   persist()
@@ -474,12 +504,43 @@ async function send(replay = null) {
         message.status = 'COMPLETED'
         return
       }
-      if (replay && route === 'ORDER') throw new Error('该问题涉及业务办理，请单独发起请求。')
+      if (replay && ['ORDER', 'PRODUCTION_ACTION'].includes(route)) throw new Error('该问题涉及业务办理，请单独发起请求。')
       if (route === 'ORDER' && !orderReady.value) throw new Error('当前账号或连接无法办理订单。')
-      if (!['BUSINESS','ORDER','FALLBACK'].includes(route)) throw new Error('对话分流结果无效，请重试。')
-      if (route !== 'FALLBACK') needsOrderIntake = route === 'ORDER'
+      if (!['BUSINESS','ORDER','PRODUCTION_ACTION','FALLBACK'].includes(route)) throw new Error('对话分流结果无效，请重试。')
+      if (route !== 'FALLBACK') {
+        needsProductionPreview = route === 'PRODUCTION_ACTION'
+        needsOrderIntake = route === 'ORDER'
+      }
       session.messages.at(-2).orderMessage = needsOrderIntake
       if (needsOrderIntake) message.orderFlow = { steps: [], classifying: true }
+    }
+    if (needsProductionPreview) {
+      if (!productionAllowed.value) throw new Error('当前账号没有生产办理权限。')
+      message.productionFlow = { status: 'PREPARING', steps: [] }
+      const step = beginProductionRequest(message.productionFlow, 'production.preview', '准备生产操作预览', '正在请求业务服务预览；尚未写入业务数据。')
+      const request = supplement ? { text: '', actionCode: supplement.actionCode, fields: supplement.fields }
+        : { text, ...productionPreviewContext(previous, text) }
+      const history = previousMessages.slice(-6).map(item => ({ role: item.role, text: String(item.text || item.result?.reply || '').slice(0, 1200) }))
+      const preview = await previewProductionOperation(token, { ...request, sessionId: session.id, history }, {
+        signal: controller.signal,
+        onEvent: (event) => {
+          if (disposed || owner !== capturedOwner || token !== user.token || activeId.value !== session.id || message.status !== 'RUNNING') return
+          if (['run', 'workflow', 'delta'].includes(event.type)) applyWorkbenchEvent(message, event)
+          followScroll()
+        },
+      })
+      if (disposed || owner !== capturedOwner || token !== user.token || activeId.value !== session.id || message.status !== 'RUNNING') return
+      if (!['PENDING', 'NEEDS_INPUT', 'UNHANDLED', 'COMPLETED'].includes(preview?.status) ||
+          (preview.status === 'PENDING' && (!preview.confirmation?.proposalId || !preview.confirmation.params))) {
+        throw new Error('生产服务未返回完整的方案，请重新发起请求。')
+      }
+      finishProductionRequest(step, 'COMPLETED', productionPreviewSummary(preview))
+      message.productionFlow = { ...preview, steps: message.productionFlow.steps }
+      message.text = preview.message || (preview.status === 'UNHANDLED' ? '请说明要办理的生产操作和对应的订单、计划或派工编号。' : '')
+      message.status = 'COMPLETED'
+      if (['PENDING', 'NEEDS_INPUT'].includes(preview.status)) proposalSessions.set(message, { token, sessionId: session.id })
+      followScroll()
+      return
     }
     if (imageFile) {
       const body = new FormData()
@@ -588,6 +649,11 @@ async function send(replay = null) {
     )
   } catch (error) {
     if (capturedOwner === owner && token === user.token && !disposed) {
+      if (message.productionFlow?.status === 'PREPARING') {
+        message.productionFlow.status = 'FAILED'
+        finishProductionRequest(message.productionFlow.steps?.at(-1), error.name === 'AbortError' ? 'CANCELLED' : 'FAILED',
+          error.name === 'AbortError' ? '已停止等待预览响应；未请求业务写入。' : '预览请求未成功返回；未请求业务写入。')
+      }
       if (message.orderFlow) {
         delete message.orderFlow.classifying
         message.orderFlow.pending = ''
@@ -609,6 +675,94 @@ async function send(replay = null) {
     controller = null
     activeMessage = null
     if (capturedOwner === owner && token === user.token && !disposed) persist()
+  }
+}
+function beginProductionRequest(flow, toolId, label, detail) {
+  const at = new Date().toISOString()
+  flow.steps ||= []
+  flow.steps.push({ agentId: 'SERVICE', toolId, label, detail, status: 'RUNNING', startedAt: at, at })
+  return flow.steps.at(-1)
+}
+function finishProductionRequest(step, status, detail) {
+  if (step) Object.assign(step, { status, detail, at: new Date().toISOString() })
+}
+function productionPreviewSummary(preview) {
+  const details = []
+  for (const [key, label] of [['orderId', '待计划订单'], ['planId', '可排产计划'], ['planningTask', '办理方向']]) {
+    if (Array.isArray(preview.options?.[key])) details.push(`返回 ${preview.options[key].length} 个${label}`)
+  }
+  if (preview.schemes?.length) details.push(`返回 ${preview.schemes.length} 种排产方案`)
+  for (const [key, label] of [['schedules', '工序排程'], ['recommendations', '派工建议']]) {
+    if (Array.isArray(preview.confirmation?.params?.[key])) details.push(`返回 ${preview.confirmation.params[key].length} 项${label}`)
+  }
+  details.push(preview.status === 'PENDING' ? '方案待确认，未写入业务数据' : preview.status === 'NEEDS_INPUT' ? '等待补充或选择，未写入业务数据' : '未生成可执行方案')
+  return details.join('；') + '。'
+}
+function changeProductionOperator(message, change) {
+  const flow = message.productionFlow, scope = proposalSessions.get(message)
+  if (busy.value || pendingImage.value || !productionAllowed.value || !scope || scope.token !== user.token ||
+      scope.sessionId !== activeId.value || message !== messages.value.at(-1) || flow?.status !== 'PENDING' ||
+      flow.actionCode !== 'confirmSmartDispatch' || flow.uncertainDecision) return
+  const row = flow.confirmation.params?.recommendations?.find(row => row.processStep === change.processStep)
+  const option = flow.confirmation.operatorOptions?.find(option => option.username === change.username && option.processStep === change.processStep && !option.disabled)
+  if (!row || !option || row.recommendedOperator === option.username) return
+  return send(null, { actionCode: flow.actionCode, fields: { editProposalId: flow.confirmation.proposalId, assignmentOverrides: JSON.stringify({ [change.processStep]: option.username }) }, description: `将${change.processStep}调整为${option.name || option.username}，重新校验派工方案` })
+}
+function supplementProduction(message, supplied) {
+  const flow = message.productionFlow, scope = proposalSessions.get(message)
+  if (busy.value || !productionAllowed.value || !scope || scope.token !== user.token || scope.sessionId !== activeId.value ||
+      message !== messages.value.at(-1) || flow?.status !== 'NEEDS_INPUT' || pendingImage.value) return
+  const fields = { ...flow.fields }, description = []
+  for (const field of flow.missingFields || []) {
+    const value = String(supplied?.[field.name] || '').trim()
+    if (!value) return
+    fields[field.name] = value
+    description.push(field.label + '：' + value)
+  }
+  if (description.length) return send(null, { actionCode: flow.actionCode, fields, description: description.join('，') })
+}
+async function productionDecision(message, decision) {
+  const flow = message.productionFlow, scope = proposalSessions.get(message), token = user.token
+  if (busy.value || !productionAllowed.value || !scope || scope.token !== token || scope.sessionId !== activeId.value ||
+      messages.value.at(-1) !== message || !['APPROVE', 'SKIP'].includes(decision) ||
+      flow?.status !== 'PENDING' || (flow.uncertainDecision && decision !== flow.uncertainDecision)) return
+  const id = flow.confirmation.proposalId
+  const valid = () => !disposed && token === user.token && sessions.value.some(s => s.id === scope.sessionId)
+  busy.value = true
+  activeMessage = message
+  controller = new AbortController()
+  flow.deciding = decision
+  const step = beginProductionRequest(flow, 'production.decision', decision === 'APPROVE' ? '提交生产操作确认' : '取消生产操作方案',
+    '已发送当前方案的处理决定，等待业务服务返回。')
+  message.error = ''
+  try {
+    const reply = await decideProductionOperation(token, id, decision, { signal: controller.signal, ...(flow.taskManaged ? { sessionId: scope.sessionId } : {}) })
+    if (!valid()) return
+    if (reply?.proposalId !== id || !['EXECUTED', 'REJECTED'].includes(reply.status)) throw new Error('业务服务返回的方案或处理状态不一致')
+    flow.status = reply.status
+    flow.result = reply.result
+    finishProductionRequest(step, 'COMPLETED', reply.status === 'REJECTED' ? '业务服务确认方案已取消。'
+      : reply.result?.allDone === false ? '业务服务返回部分完成，请核对未完成项目。' : '业务服务确认操作已执行。')
+    message.text = reply.result?.message || reply.reply || reply.message || ''
+    proposalSessions.delete(message)
+  } catch (error) {
+    if (!valid()) return
+    if ([400, 401, 403, 404, 409, 422].includes(error.code)) {
+      flow.status = 'FAILED'
+      finishProductionRequest(step, 'FAILED', '业务服务拒绝本次处理请求，请核对方案状态与权限。')
+      message.error = error.message
+      proposalSessions.delete(message)
+    } else {
+      flow.uncertainDecision = decision
+      finishProductionRequest(step, 'INTERRUPTED', '未取得确定的处理结果，请核对原方案；未自动重试。')
+      message.error = (error.message || '连接中断') + '。操作结果尚未确认，请核对原方案。'
+    }
+  } finally {
+    delete flow.deciding
+    activeMessage = null
+    controller = null
+    busy.value = false
+    if (valid()) { persist(); followScroll() }
   }
 }
 function applyOrderEnvelope(message, envelope) {
@@ -736,27 +890,6 @@ async function copy(text) {
     ElMessage.info('复制不可用，请选中文字复制。')
   }
 }
-const displayAnswer = (message) =>
-  message.directChat || message.result?.queryMode === 'MODEL_CHAT' || message.result?.presentation === 'compact_stream' ? message.text :
-  compactBusinessAnswer(message) || (
-  isInventoryOnly(message) ? '已查询到以下库存信息：' :
-  isProductionOnly(message) ? '已查询到以下生产工单：' :
-  message.result?.queryMode === 'NATURAL' || message.result?.workflowProfile === 'AUTO'
-    ? message.text
-    : message.text
-        .split(
-          /\n\n(?:ORDER|SUPPLY|PRODUCTION|QUALITY|EQUIPMENT|AFTERSALES)补充说明：/,
-        )[0]
-        .split('缺失/限制：')[0]
-        .replace(/^已启动的专家：.*\n*/m, '')
-        .replace(/^数据复核时间：.*\n*/m, '')
-        .replace(/^范围：本机只读预览.*\n*/m, ''))
-const answerParts = (message) => {
-  const content = displayAnswer(message)
-  const split = content.indexOf('\n')
-  if (split < 0 || !(hasBusinessTables(message) || inventorySnapshot(message))) return { intro: content, analysis: '' }
-  return { intro: content.slice(0, split), analysis: content.slice(split).trim() }
-}
 </script>
 
 <template>
@@ -805,27 +938,27 @@ const answerParts = (message) => {
             <div class="welcome-emblem" aria-hidden="true"><DisplayMark /></div>
             <div class="welcome-eyebrow">MES WORKSPACE</div>
             <h1>从一个生产问题开始</h1>
-            <p>{{ direct ? '输入生产问题，或选择快捷业务查询。' : queryReady ? '查询生产现场的数据，跟进工单与质量问题。' : '描述订购需求，核对信息后提交订单审核。' }}</p>
+            <p>{{ direct ? '输入生产问题，或选择快捷业务查询。' : productionExample ? '查询生产进度，或提出业务操作并核对执行方案。' : queryReady ? '查询生产现场的数据，跟进工单与质量问题。' : '描述订购需求，核对信息后提交订单审核。' }}</p>
         </section>
         <div v-show="messages.length" ref="list" class="conversation-scroll" @scroll.passive="trackScroll">
           <div class="conversation-content">
             <article v-for="message in messages" :key="message.id" class="workbench-message" :class="message.role">
               <template v-if="message.role === 'user'"><div class="user-bubble">{{ message.text }}</div><div v-if="legacyMessageContext(message)" class="user-context">{{ legacyMessageContext(message) }}</div></template>
               <template v-else>
+                <ProductionCalculationFlow :message="message" />
+                <AgentCollaborationStream v-if="!message.modelSource && !message.routing && !message.directChat" :message="message" />
                 <OrderFlowCard v-if="message.orderFlow && !message.orderFlow.classifying" :flow="message.orderFlow" :busy="busy || !orderReady" :customer="user.userInfo?.roleCode === 'CUSTOMER'" :historical="historicalOrder(message)" @action="orderAction(message, $event)" />
-                <AgentWorkflowCard v-else-if="!message.modelSource && !message.routing && !message.directChat" :message="message" />
+                <ProductionOperationCard v-if="message.productionFlow?.confirmation || message.productionFlow?.planning || message.productionFlow?.status === 'NEEDS_INPUT'" :flow="message.productionFlow" :latest="messages.at(-1) === message" :busy="busy || !!pendingImage" @decision="productionDecision(message, $event)" @supplement="supplementProduction(message, $event)" @operator-change="changeProductionOperator(message, $event)" />
                 <small v-if="isDirectSource(message.modelSource)" class="model-caption">{{ message.modelSource === 'API' ? 'API 模型' : '本地模型' }}{{ message.result?.model ? ' · ' + message.result.model : '' }} · {{ message.ragEnabled ? (message.result?.ragStatus === 'NO_MATCHES' ? 'RAG 未检索到匹配资料' : 'RAG 开启') : 'RAG 关闭' }}</small>
                 <p v-if="message.orderIntakeNotice" class="message-error" role="status">{{ message.orderIntakeNotice }}</p>
-                <div v-if="(!message.orderFlow || message.orderFlow.classifying) && message.status === 'RUNNING' && !message.directChat && !message.agents.length && !message.workflow" class="waiting-line"><Loading class="spin" />{{ isDirectSource(message.modelSource) ? '正在等待模型回复…' : message.imageQuestion ? '正在分析图片…' : message.routing || message.orderFlow?.classifying ? '正在理解请求…' : message.runId ? '任务已接收，等待协调执行…' : '正在连接协调服务…' }}</div>
+                <div v-if="(!message.orderFlow || message.orderFlow.classifying) && message.status === 'RUNNING' && !message.directChat && !message.agents.length && !message.workflow" class="waiting-line"><Loading class="spin" />{{ isDirectSource(message.modelSource) ? '正在等待模型回复…' : message.productionFlow ? '正在准备生产方案…' : message.imageQuestion ? '正在分析图片…' : message.routing || message.orderFlow?.classifying ? '正在理解请求…' : message.runId ? '任务已接收，等待协调执行…' : '正在连接协调服务…' }}</div>
                 <WorkbenchMarkdown v-if="message.photoObservation" :content="message.photoObservation" :smooth="message.imageStreaming" :streaming="message.status === 'RUNNING' && !message.text" :stopped="['FAILED','CANCELLED','INTERRUPTED'].includes(message.status)" @progress="followScroll()" />
-                <div v-if="message.text" :id="`answer-${message.id}`" class="answer-content"><WorkbenchMarkdown :content="answerParts(message).intro" :smooth="message.directChat || message.result?.presentation === 'compact_stream' || message.imageStreaming" :streaming="message.status === 'RUNNING'" :stopped="['FAILED','CANCELLED','INTERRUPTED'].includes(message.status)" :cursor="!answerParts(message).analysis" @progress="followScroll()" /></div>
+                <div v-if="message.text" :id="`answer-${message.id}`" class="answer-content"><WorkbenchMarkdown :content="message.text" :smooth="message.directChat || message.result?.presentation === 'compact_stream' || message.imageStreaming" :streaming="message.status === 'RUNNING'" :stopped="['FAILED','CANCELLED','INTERRUPTED'].includes(message.status)" @progress="followScroll()" /></div>
                 <ChatDetectionFrame v-if="imagePreviews.has(message) || (message.frameCount != null && message.imageRef)"
                   :initial="imagePreviews.get(message)" :image-ref="message.imageRef" :count="message.frameCount"
                   :session-id="active.id" :token="user.token" />
-                <InventoryAnswer :message="message" />
-                <BusinessQueryAnswer :message="message" />
-                <div v-if="answerParts(message).analysis" class="answer-analysis"><WorkbenchMarkdown :content="answerParts(message).analysis" :smooth="message.result?.presentation === 'compact_stream'" :streaming="message.status === 'RUNNING'" :stopped="['FAILED','CANCELLED','INTERRUPTED'].includes(message.status)" @progress="followScroll()" /></div>
                 <WorkbenchMarkdown v-if="message.photoComparison && !message.evidenceInvalidated" :content="message.photoComparison" />
+                <AnswerEvidence v-if="message.result" :message="message" />
                 <KnowledgeSources :message="message" />
                 <details v-if="isDirectSource(message.modelSource) && message.result?.expertExplanations?.length" class="model-analysis">
                   <summary>查看模型对业务记录的分析</summary>

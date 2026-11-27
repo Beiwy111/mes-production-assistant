@@ -13,7 +13,13 @@ CONFIG = runpy.run_path(str(DEPLOY / 'Prepare-AssistantReadersLocal.py'))
 
 
 def tables(statements):
+    # Java documentation is not a query (for example, "from a scoped read").
+    statements = (re.sub(r'(?m)^\s*//[^\n]*$', '', text) for text in statements)
     return {name for text in statements for name in re.findall(r'(?i)\b(?:FROM|JOIN)\s+`?(\w+)', text)}
+
+
+def test_table_audit_ignores_comment_prose_but_keeps_query_tables():
+    assert tables(['// Selected from a scoped read.\nSELECT * FROM work_order w JOIN production_plan p ON p.plan_id=w.plan_id']) == {'work_order', 'production_plan'}
 
 
 def test_mysql_reader_allowlists_match_actual_fixed_source_tables():

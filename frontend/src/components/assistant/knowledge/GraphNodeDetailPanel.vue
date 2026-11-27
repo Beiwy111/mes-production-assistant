@@ -166,7 +166,7 @@ defineExpose({ showDetail: () => { tab.value = 'detail' } })
       <template v-else>
         <div class="empty"><Focus aria-hidden="true"/><h3>选择图谱节点</h3><p>点击画布中的节点，或搜索名称，即可查看引用片段与上下游关系。</p></div>
         <section v-if="documentNodes.length" class="section">
-          <h4><FileText aria-hidden="true"/>本页来源文档</h4>
+          <h4><FileText aria-hidden="true"/>当前范围来源文档</h4>
           <button v-for="node in documentNodes" :key="node.id" class="neighbor document-link" @click="inspect(node.id)">
             <span>{{ node.label }}</span><ChevronRight aria-hidden="true"/>
           </button>

@@ -144,7 +144,53 @@ def inspection(cursor, packet, name):
 
 
 def verify(cursor, name, packet):
-    if name=='recent':return recent(cursor,packet)
+    if name in ('recent','analysis_recent','analysis_batches'):
+        return recent(cursor,packet)
+    if name=='analysis_route':
+        return route(cursor,packet)
+    if name in ('analysis_diagnosis','analysis_entity','analysis_followup'):
+        checked=verify(cursor,'status_mismatch' if name!='analysis_followup' else 'verification_followup',packet)
+        answer=packet['answer']
+        trace=answer['facts']['inspection_trace']
+        require(answer['scope']['inspectionNo']==checked['inspection_no'], 'follow-up changed inspection')
+        sample=Decimal(checked['sample_quantity'])
+        for column,field in [('qualified_quantity','confirmedSamplePassRate'),('unqualified_quantity','confirmedSampleRejectRate')]:
+            require(Decimal(trace[field].rstrip('%'))==(100*Decimal(checked[column])/sample).quantize(Decimal('.01')), 'trace percentage differs from MySQL')
+        require(trace['processCoverage']['reportedStepCount']<=trace['processCoverage']['routeStepCount'], 'invalid route coverage')
+        require(bool(trace['verificationActions']), 'missing checks for incomplete evidence')
+        return {**checked,'coverage':trace['processCoverage']['reportedStepCount'],'deltas':packet['deltas']}
+    if name=='analysis_appearance':
+        answer,facts,tools=check_run(packet,name)
+        hits={h['evidence_ref'] for b in answer.get('knowledgeEvidence',[]) if b.get('status')=='MATCHES' for h in b['hits']}
+        citations={int(ref) for ref in re.findall(r'\[S(\d+)\]',answer['reply'])}
+        require('KNOWLEDGE_RETRIEVAL' in tools and hits and citations and all(1<=i<=len(hits) for i in citations), 'missing or unbound public references')
+        return dict(sources=len(hits),citations=sorted(citations))
+    if name=='analysis_uncertain':
+        answer,facts,tools=check_run(packet,name)
+        require(not facts and any(term in answer['reply'] for term in ('验证','核实','复核','补充','取证')), 'expected general verification guidance')
+        return dict(intents=answer['intents'],tools=sorted(tools))
+    if name=='analysis_july':
+        answer,facts,tools=check_run(packet,name)
+        require('OVERVIEW_QUALITY' in tools,'missing authorized quality query')
+        quality=facts['quality']
+        rows=select(cursor,"SELECT inspection_no,batch_no,material_id,sample_quantity,unqualified_quantity FROM quality_inspection WHERE inspected_at >= %s AND inspected_at < %s",('2026-07-01','2026-08-01'))
+        require(keys(rows,'inspection_no')==keys(quality['overview']['rows'],'inspection_no'),'returned records differ from original July inspections')
+        stats=quality['qualityStatistics']
+        require(stats['batchCount']==len({(r['material_id'],r['batch_no']) for r in rows if r.get('batch_no')}),'mismatched number of distinct batches')
+        diffs=stats['batchDifferences']
+        require(bool(diffs),'expected a comparable historical group')
+        table=quality['overview']['rows']
+        originals={r['inspection_no']:r for r in rows}
+        for comparison in diffs:
+            for label in ('lowest','highest'):
+                group=comparison[label]
+                same=[originals[r['inspection_no']] for r in table if all(str(r.get(k))==str(group.get(k)) for k in ('material_id','unit','inspection_type','inspection_category','batch_no'))]
+                require(bool(same),'comparable group missing in database')
+                total=sum(r['sample_quantity'] for r in same)
+                bad=sum(r['unqualified_quantity'] for r in same)
+                require(Decimal(group['valid_sample_quantity'])==total and Decimal(group['valid_unqualified_quantity'])==bad,'sample counts differ')
+            require(Decimal(comparison['difference_percentage_points'])==Decimal(comparison['highest']['sample_fail_percent'])-Decimal(comparison['lowest']['sample_fail_percent']), 'incorrect batch difference')
+        return dict(inspections=len(rows),batches=stats['batchCount'],comparable_groups=len(diffs))
     if name=='route':return route(cursor,packet)
     if name in ('inspection','followup','personnel'):return inspection(cursor,packet,name)
     a,facts,tools=check_run(packet,name)
@@ -210,7 +256,7 @@ def verify(cursor, name, packet):
                         row['defect_type'].replace('超标','') in reply for row in nc),'optical observations missing')
             require(bool(trace['conflicts']) and any(k in reply for k in ('矛盾','不一致','冲突','不符')),'conflict not surfaced')
         return {'inspection':number,'tool':'INSPECTION_DETAILS','deltas':packet['deltas']}
-    if name=='status_mismatch':
+    if name in ('status_mismatch','verification_followup'):
         require('INSPECTION_HEADER' in tools,'mismatch example did not read header')
         record=select(cursor,'SELECT inspection_id,inspection_no,inspection_status,inspection_result,sample_quantity,'
                       'qualified_quantity,unqualified_quantity FROM quality_inspection WHERE inspection_no=%s',('QI202611001',))[0]
@@ -221,8 +267,11 @@ def verify(cursor, name, packet):
         for k in ('sample_quantity','qualified_quantity','unqualified_quantity'):
             require(Decimal(str(observed[k]))==record[k],'mismatch inspection quantities')
         require(record['inspection_result']=='QUALIFIED' and record['unqualified_quantity']>0,'update mismatch fixture')
-        require(trace['conflicts'] and '合格' in a['reply'] and any(w in a['reply'] for w in ('准则','复核','复判','接受')),
-                'mismatch needs explicit reconciliation')
+        require(any('接受准则' in action for action in trace['verificationActions']), 'acceptance rule check missing from evidence')
+        if name=='status_mismatch':
+            require('合格' in a['reply'] and any(w in a['reply'] for w in ('准则','复核','复判','接受','抽样方案','签核记录')), 'initial diagnosis omitted acceptance review')
+        else:
+            require(record['inspection_no'] in a['reply'] and any(w in a['reply'] for w in ('序列号','留样','交接','复测')), 'follow-up omitted traceable verification')
         return {k:str(v) for k,v in record.items()}
     if name=='named_batch':
         batch='BATCH-WO202607002-3201'
@@ -259,7 +308,7 @@ def verify(cursor, name, packet):
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--out',type=Path,required=True,help='Read existing workbench result JSONs from this directory')
-    parser.add_argument('--cases',nargs='+',choices=['recent','route','inspection','followup','personnel','optical_review','optical_followup','incoming_review','reported_review','pixel_review','batch','named_batch','general','status_mismatch',
+    parser.add_argument('--cases',nargs='+',choices=['analysis_recent','analysis_batches','analysis_diagnosis','analysis_entity','analysis_followup','analysis_route','analysis_july','analysis_uncertain','analysis_appearance','recent','route','inspection','followup','personnel','optical_review','optical_followup','incoming_review','reported_review','pixel_review','batch','named_batch','general','status_mismatch',
                         'defense','defense_selected','defense_followup','defense_next','defense_next_followup'],
                         default=['recent','route','inspection','followup','batch','named_batch','general','status_mismatch'])
     args=parser.parse_args()

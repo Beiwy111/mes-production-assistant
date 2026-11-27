@@ -13,6 +13,12 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
 class NaturalLanguageRuntimeTest {
+    @Test void comparingDifferentBatchesDoesNotRequireASingleWorkOrder() {
+        assertFalse(WorkOrderReference.needsBatchIdentity("不同批次的质量有什么变化？"));
+        assertFalse(WorkOrderReference.needsAnchor("不同批次中哪些存在异常？"));
+        assertTrue(WorkOrderReference.needsBatchIdentity("同一批的质量怎么样？"));
+    }
+
     @Test void selectedDispatchRetainsOperatorPredicateAndCannotReadInventory() throws Exception {
         var actor=AssistantReadPolicy.of(42,"OPERATOR",null,List.of("production:myDispatch"));
         var scoped=new NaturalLanguageRuntime(clock,(owner,op)->op.apply(new NaturalLanguageRuntime.Data(overview,service,actor)));
@@ -102,6 +108,18 @@ class NaturalLanguageRuntimeTest {
         assertEquals("支架底座装配",begun.at("/evidence/0/data/productionStages/7/step_name").asText());
         verify(overview).activeRouteSteps(null);
     }
+    @Test void typedInspectionOverridesColloquialOrderButNeverDiscardsAnotherId() throws Exception {
+        String run=create("qi54321 分析一下这个订单");
+        var response=json.valueToTree(runtime.plan(run,plan("ORDER","54321",null,null,"CURRENT")));
+        assertEquals("QUERY",response.at("/plan/action").asText());
+        assertEquals("INSPECTION_TRACE",response.at("/plan/intents/0").asText());
+        assertEquals("QI54321",response.at("/plan/keyword").asText());
+        var mixed=json.valueToTree(runtime.plan(create("分析 QI54321 和订单 123"),
+            plan("ORDER","123",null,null,"CURRENT")));
+        assertEquals("CLARIFY",mixed.at("/plan/action").asText());
+        verifyNoInteractions(delivery);
+    }
+
     @Test void exactInspectionAnchorsAndMissingIdsCannotBroadenToOverview() throws Exception {
         String r=create("QI202607021存在哪些问题");
         assertEquals(List.of("QUALITY"),runtime.plan(r,plan("INSPECTION_TRACE",null,null,"QI202607021","CURRENT")).get("requiredAgents"));
@@ -327,11 +345,36 @@ class NaturalLanguageRuntimeTest {
         assertEquals("BATCH-101",batch.at("/scope/selectors/batch_no").asText());
         assertEquals("CLARIFY",json.valueToTree(runtime.plan(create("查本厂设备EQ-DISP-01关联的质检记录"),plan("QUALITY",null,null,null,"CURRENT"))).at("/plan/action").asText());
     }
+    @Test void inventoryCategoriesAreDatabasePredicatesAndFollowupsKeepThem() throws Exception {
+        var expected=Map.of("material_types","RAW,SEMI,PACK,SPARE","warehouse_code","WH-01");
+        String ref=create("我只查仓库WH-01的物料库存");
+        var first=json.valueToTree(runtime.plan(ref,plan("INVENTORY",null,null,"物料","CURRENT")));
+        assertEquals("QUERY",first.at("/plan/action").asText());
+        assertTrue(first.at("/plan/keyword").isNull());
+        assertEquals(json.valueToTree(expected),first.at("/scope/selectors"));
+        when(overview.countScoped("INVENTORY",null,null,null,null,expected)).thenReturn(1L);
+        when(overview.rowsScoped("INVENTORY",null,null,null,null,expected)).thenReturn(List.of(Map.of("record_id",11,"material_type","RAW","quantity_available",9)));
+        runtime.begin(ref,"SUPPLY");runtime.complete(ref,"SUPPLY",node("{\"summary\":\"已读\"}"));
+        var result=json.valueToTree(runtime.finalizeRun(ref));
+        assertEquals("物料",result.at("/facts/inventory/overview/inventoryCategory").asText());
+        verify(overview,times(2)).rowsScoped("INVENTORY",null,null,null,null,expected);
+        String next=follow("其中可用库存",ref);
+        var retained=json.valueToTree(runtime.plan(next,plan("INVENTORY",null,null,null,"CURRENT")));
+        assertEquals(json.valueToTree(expected),retained.at("/scope/selectors"));
+        var switched=json.valueToTree(runtime.plan(follow("那成品呢？",ref),plan("ROWS_FILTER",null,null,null,"CURRENT")));
+        assertEquals("QUERY",switched.at("/plan/action").asText());
+        assertEquals(json.valueToTree(Map.of("material_types","FINISHED","warehouse_code","WH-01")),switched.at("/scope/selectors"));
+        String fresh=follow("查成品库存",ref);
+        var changed=json.valueToTree(runtime.plan(fresh,plan("INVENTORY",null,null,"成品库存","CURRENT")));
+        assertEquals(json.valueToTree(Map.of("material_types","FINISHED")),changed.at("/scope/selectors"));
+        assertTrue(changed.at("/plan/keyword").isNull());
+        assertEquals(0,json.valueToTree(runtime.plan(follow("查全部库存",ref),plan("INVENTORY",null,null,null,"CURRENT"))).at("/scope/selectors").size());
+    }
     @Test void otherMaterialsAndAvailabilityKeepExclusionWarehouseAndTimeThroughFinalRead() throws Exception {
         String initial=create("查今天仓库WH-01的PCB板库存");
         runtime.plan(initial,plan("INVENTORY",null,null,"PCB板","TODAY"));
         String other=(String)runtime.create(json.valueToTree(Map.of("query","其他物料有多少","ownerUserId","42","previousRunRef",initial))).get("runRef");
-        var selectors=Map.of("excluded_material_keyword","PCB板","warehouse_code","WH-01");
+        var selectors=Map.of("excluded_material_keyword","PCB板","warehouse_code","WH-01","material_types","RAW,SEMI,PACK,SPARE");
         var second=json.valueToTree(runtime.plan(other,plan("INVENTORY",null,null,"PCB板","CURRENT")));
         assertEquals(json.valueToTree(selectors),second.at("/scope/selectors"));
         assertTrue(second.at("/scope/keyword").isNull());assertEquals("TODAY",second.at("/scope/period").asText());
@@ -753,8 +796,9 @@ class NaturalLanguageRuntimeTest {
         String ref=create("截至昨天的库存");runtime.plan(ref,plan("INVENTORY",null,null,null,"CURRENT"));assertEquals("CLARIFY",runtime.finalizeRun(ref).get("verdict"));verifyNoInteractions(overview);
     }
     @Test void explicitAvailableFilterUsesRealValuesAndKeepsWholeMatchingSet()throws Exception {
-        when(overview.count("INVENTORY",null,null,null,null)).thenReturn(3L);
-        when(overview.rows("INVENTORY",null,null,null,null)).thenReturn(List.of(
+        var materials=Map.of("material_types","RAW,SEMI,PACK,SPARE");
+        when(overview.countScoped("INVENTORY",null,null,null,null,materials)).thenReturn(3L);
+        when(overview.rowsScoped("INVENTORY",null,null,null,null,materials)).thenReturn(List.of(
             Map.of("record_id",1,"quantity_available","0"),Map.of("record_id",2,"quantity_available","5"),Map.of("record_id",3)));
         String ref=create("查询库存不足的物料");
         assertEquals(List.of("SUPPLY"),runtime.plan(ref,plan("INVENTORY",null,null,null,"CURRENT")).get("requiredAgents"));
@@ -871,6 +915,21 @@ class NaturalLanguageRuntimeTest {
     @Test void globalQualityReplyDoesNotPretendToHaveAnOrderScope()throws Exception {
         String ref=create("查质量概览");runtime.plan(ref,plan("QUALITY",null,null,null,"CURRENT"));runtime.begin(ref,"QUALITY");runtime.complete(ref,"QUALITY",node("{\"summary\":\"质检概览\"}"));
         String reply=(String)runtime.finalizeRun(ref).get("reply");assertFalse(reply.contains("订单null"));assertFalse(reply.contains("候选关联证据"));assertTrue(reply.contains("质检"));
+    }
+    @Test void qualityAnalysisUsesComparableCountsAndListLookupRetainsRows()throws Exception {
+        var a=sample("11","10","3","FINAL","BATCH-A");a.put("event_at","2026-11-03 11:00:00");a.put("inspection_no","QI501");
+        var b=sample("12","20","1","FINAL","BATCH-B");b.put("event_at","2026-11-15 12:00:00");b.put("inspection_no","QI502");
+        when(overview.count("QUALITY",null,null,null,null)).thenReturn(2L);
+        when(overview.rows("QUALITY",null,null,null,null)).thenReturn(List.of(a,b));
+        for(boolean list:List.of(false,true)){
+            String ref=create(list?"列出全部质检记录":"查质量概览");
+            runtime.plan(ref,plan("QUALITY",null,null,null,"CURRENT"));runtime.begin(ref,"QUALITY");
+            runtime.complete(ref,"QUALITY",node("{\"summary\":\"汇总完成\"}"));
+            var result=json.valueToTree(runtime.finalizeRun(ref));var facts=result.at("/facts/quality");
+            assertEquals(2,facts.at("/overview/rows").size());assertEquals(list?"LIST":"ANALYSIS",facts.get("presentationMode").asText());
+            assertTrue(result.get("reply").asText().contains(list?"QI501":"25.00 个百分点"));
+            if(!list)assertFalse(result.get("reply").asText().contains("QI501"));
+        }
     }
     @Test void exactOrderSpecialistsRetainDetailedEvidenceAndContradictoryRelations()throws Exception {
         order100();when(business.read(100L)).thenReturn(Map.of(

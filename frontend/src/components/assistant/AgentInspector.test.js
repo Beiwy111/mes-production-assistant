@@ -102,6 +102,23 @@ test('inspector displays order request state, actual service logs and draft stat
   assert.doesNotMatch(html, /SERVICE Agent|<script>|状态待确认/)
 })
 
+test('the inspector reports a production preview and decision without inventing agent calls', async () => {
+  for (const [status, label] of [['NEEDS_INPUT', '待补充'], ['PENDING', '待确认执行'], ['EXECUTED', '操作已执行'], ['REJECTED', '操作已取消']]) {
+    const html = await renderToString(vue.createSSRApp(component, { message: { status: 'COMPLETED',
+      productionFlow: { status, confirmation: { title: '保存生产排程草案' } } } }))
+    assert.ok(html.includes(label))
+    assert.doesNotMatch(html, /等待任务/)
+  }
+})
+
+test('production service receipt replaces the empty timeline with actual response counts', async () => {
+  const html = await renderToString(vue.createSSRApp(component, { message: { status: 'COMPLETED',
+    productionFlow: { status: 'NEEDS_INPUT', steps: [{ agentId: 'SERVICE', label: '准备生产操作预览',
+      toolId: 'production.preview', status: 'COMPLETED', detail: '返回 3 种排产方案；等待补充或选择，未写入业务数据。' }] } } }))
+  for (const label of ['业务服务', '准备生产操作预览', '返回 3 种排产方案', '未写入业务数据']) assert.ok(html.includes(label), label)
+  assert.doesNotMatch(html, /class="inspector-idle"|SERVICE Agent/)
+})
+
 test('live roles open automatically and expose actual query results without nested clicks', async () => {
   const html = await renderToString(vue.createSSRApp(component, { message: { id: 'live', status: 'RUNNING',
     agents: [{ agentId: 'SUPPLY', status: 'RUNNING', evidence: [{ kind: 'OVERVIEW_INVENTORY', status: 'PARTIAL',

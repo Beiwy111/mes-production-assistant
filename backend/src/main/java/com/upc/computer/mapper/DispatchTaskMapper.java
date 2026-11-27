@@ -13,6 +13,15 @@ public interface DispatchTaskMapper {
     @Select("SELECT dispatch_id, dispatch_no, work_order_id, step_id, operator_id, equipment_id, assigned_quantity, accepted_quantity, completed_quantity, assigned_by, assigned_at, accepted_at, status, remark, created_at, updated_at FROM dispatch_task ORDER BY created_at DESC, dispatch_id DESC")
     public ArrayList<DispatchTask> dispatchList();
 
+    @Select("SELECT EXISTS(SELECT 1 FROM dispatch_task d JOIN work_order w ON w.work_order_id=d.work_order_id " +
+            "JOIN production_plan p ON p.plan_id=w.plan_id WHERE p.plan_no=#{planNo} AND d.status <> 'CANCELLED')")
+    boolean hasDispatchForPlan(String planNo);
+
+    @Select("SELECT EXISTS(SELECT 1 FROM dispatch_task d JOIN work_order w ON w.work_order_id=d.work_order_id " +
+            "JOIN production_plan p ON p.plan_id=w.plan_id JOIN process_step s ON s.step_id=d.step_id " +
+            "WHERE p.plan_no=#{planNo} AND s.step_name=#{stepName} AND d.status <> 'CANCELLED')")
+    boolean hasDispatchForStep(@Param("planNo") String planNo, @Param("stepName") String stepName);
+
     // 根据主键查询派工任务
     @Select("SELECT dispatch_id, dispatch_no, work_order_id, step_id, operator_id, equipment_id, assigned_quantity, accepted_quantity, completed_quantity, assigned_by, assigned_at, accepted_at, status, remark, created_at, updated_at FROM dispatch_task WHERE dispatch_id = #{dispatchId}")
     public DispatchTask getDispatchById(Long dispatchId);

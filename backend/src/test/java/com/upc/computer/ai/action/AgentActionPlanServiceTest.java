@@ -7,6 +7,7 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -152,6 +153,64 @@ class AgentActionPlanServiceTest {
                 "quantity", 100,
                 "deliveryDate", "2026-08-01"
         ), session("ORDER"), "chat-1");
+    }
+
+    @Test
+    void productionProposalsPreserveReviewedParametersAndSupportLostDecisionResponse() {
+        inMemoryRepository();
+        var session = session("MANAGER");
+        var preview = service.previewProduction("confirmSmartDispatch",
+                Map.of("planId","PP123","recommendations",List.of(Map.of("recommendedOperator","li_operator"))),
+                session, "chat-production");
+        String id = String.valueOf(preview.confirmation().get("proposalId"));
+        assertThatThrownBy(() -> service.confirm(id, "MODIFY", Map.of("recommendations",List.of()), session))
+                .isInstanceOf(BusinessException.class);
+        assertThatThrownBy(() -> service.confirmProduction(id, "MODIFY", session))
+                .isInstanceOf(BusinessException.class);
+        assertThat(service.confirmProduction(id,"SKIP",session)).containsEntry("status","REJECTED");
+        assertThat(service.confirmProduction(id,"SKIP",session)).containsEntry("status","REJECTED");
+        assertThatThrownBy(() -> service.confirmProduction(id,"APPROVE",session)).isInstanceOf(BusinessException.class);
+        verify(executionService, never()).execute(any(),any());
+    }
+
+    @Test
+    void committedMesReceiptSurvivesLateAuditFailure() {
+        inMemoryRepository();
+        var session = session("MANAGER");
+        var preview = service.previewProduction("confirmSmartDispatch", Map.of("planId","PP123"), session, "chat-1");
+        String id = String.valueOf(preview.confirmation().get("proposalId"));
+        when(executionService.execute(any(),any())).thenReturn(Map.of("count",1));
+        org.mockito.Mockito.doThrow(new IllegalStateException("audit unavailable")).when(auditService).record(
+                any(), any(), org.mockito.ArgumentMatchers.eq("AI_PLAN_EXECUTED"), any(), any(),
+                org.mockito.ArgumentMatchers.eq(true), org.mockito.ArgumentMatchers.isNull());
+        assertThatThrownBy(() -> service.confirmProduction(id,"APPROVE",session)).hasMessageContaining("audit unavailable");
+        assertThat(service.confirmProduction(id,"APPROVE",session)).containsEntry("status","EXECUTED")
+                .containsEntry("idempotent",true).containsEntry("result",Map.of("count",1));
+        verify(executionService).execute(any(),any());
+    }
+
+    @Test
+    void productionProposalRequiresCurrentOwnerRoleAndUnexpiredBusinessState() {
+        var saved = inMemoryRepository();
+        var session = session("MANAGER");
+        var preview = service.previewProduction("confirmSmartDispatch", Map.of("planId","PP123"), session, "chat-1");
+        String id = String.valueOf(preview.confirmation().get("proposalId"));
+        var otherUser = session("MANAGER");
+        otherUser.setUserId(2L);
+        assertThatThrownBy(() -> service.confirmProduction(id,"APPROVE",otherUser)).hasMessageContaining("本人");
+        assertThatThrownBy(() -> service.confirmProduction(id,"APPROVE",session("ADMIN"))).hasMessageContaining("本人");
+        var original = saved.get();
+        saved.set(new AgentActionPlan(original.planId(),original.actionCode(),original.title(),original.module(),
+                original.userId(),original.username(),original.roleCode(),original.sessionId(),original.parameters(),
+                original.affectedResources(),original.snapshotHash(),original.status(),null,null,
+                original.createdAt().minusHours(2),original.createdAt().minusHours(1),null));
+        assertThatThrownBy(() -> service.confirmProduction(id,"APPROVE",session)).hasMessageContaining("过期");
+        assertThat(saved.get().status()).isEqualTo(AgentPlanStatus.STALE);
+        saved.set(original);
+        when(stateService.fingerprint(any(),any(),any())).thenReturn("reassigned");
+        assertThatThrownBy(() -> service.confirmProduction(id,"APPROVE",session)).hasMessageContaining("发生变化");
+        assertThat(saved.get().status()).isEqualTo(AgentPlanStatus.STALE);
+        verify(executionService, never()).execute(any(),any());
     }
 
     private AtomicReference<AgentActionPlan> inMemoryRepository() {

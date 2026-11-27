@@ -22,9 +22,9 @@ final class WorkOrderReference {
         if(q.matches("(?:那|那么)?(?:同批|同一批|同批次|这个批次)(?:的)?(?:有没有|有无|是否有)(?:质检|检验|质量)异常"))return "BATCH";
         return null;
     }
-    static boolean needsAnchor(String q){return focus(q)!=null||q.matches(".*(?:同批|哪道工序|哪些工序).*(?:异常|没做完|未完成).*");}
+    static boolean needsAnchor(String q){return focus(q)!=null||q.matches(".*(?:(?<!不)同批|哪道工序|哪些工序).*(?:异常|没做完|未完成).*");}
     static boolean needsBatchIdentity(String query) {
-        return Pattern.compile("(?:这(?:一)?批|该批|本批|同(?:一)?批).*(?:质量|质检|检验|复检|不良|不合格|缺陷|异常|色斑|反复|根因)").matcher(query).find();
+        return Pattern.compile("(?:这(?:一)?批|该批|本批|(?<!不)同(?:一)?批).*(?:质量|质检|检验|复检|不良|不合格|缺陷|异常|色斑|反复|根因)").matcher(query).find();
     }
     static String batchClarificationAnswer(String query,Map<String,Object> previous) {
         if(previous==null||!(previous.get("plan") instanceof Map<?,?> plan)||!"CLARIFY".equals(plan.get("action"))

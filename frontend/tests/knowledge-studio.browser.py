@@ -16,7 +16,7 @@ claim = dict(claim_id='claim', subject_id='O', subject_name='Optics', object_id=
 bundle = dict(status='MATCHES', query='Mura', release_id='r', mode_used='graph_assisted',
               graph_status='MATCHES', graph_release_id='g', hits=[hit], graph_paths=[claim])
 job = dict(id='sample', filename='检验.md', status='completed',
-           counts={'chunks':3},
+           counts={'chunks':3,'entities':0,'relations':0},
            chunks=[dict(id=f'part{i}', text=f'Panel reference {i}.', location=f'line:{i}', metadata={'headings':['检验']})
                    for i in range(1,4)],
            entities=[], relations=[])
@@ -69,10 +69,10 @@ with sync_playwright() as playwright:
         return [box.x+x,box.y+y]
       }
     }""", FOLDER)
+    page.get_by_role('button',name='公开知识库总览',exact=True).click()
     expect(page.locator('.kg-scope')).to_contain_text('全库 2 份文档 · 115 个片段 · 120 个节点')
-    expect(page.locator('.kg-pages')).to_contain_text('第 1 / 5 页')
-    page.get_by_role('button',name='下一页节点').click()
-    expect(page.locator('.kg-pages')).to_contain_text('第 2 / 5 页')
+    expect(page.locator('.kg-overview')).to_contain_text('已展示 120 / 120 节点')
+    expect(page.get_by_role('button',name='下一页节点')).to_have_count(0)
     catalog_hits.append(dict(catalog_hits[0], chunk_id='new', evidence_ref='r:Q:new'))
     page.get_by_role('button',name='刷新目录').click()
     expect(page.locator('.kg-scope')).to_contain_text('全库 2 份文档 · 116 个片段 · 121 个节点')

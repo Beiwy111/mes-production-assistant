@@ -9,6 +9,11 @@ public interface NaturalBusinessReadMapper extends InspectionTraceMapper {
     String DETAIL_CONFLICT = "CASE WHEN ((q.unqualified_quantity=0 OR q.inspection_result='QUALIFIED') AND EXISTS "
         +"(SELECT 1 FROM quality_inspection_item x WHERE x.inspection_id=q.inspection_id AND x.result IN ('FAILED','NG','UNQUALIFIED'))) "
         +"OR (SELECT SUM(n.quantity) FROM nonconforming_product n WHERE n.inspection_id=q.inspection_id)!=q.unqualified_quantity "
+        +"OR EXISTS (SELECT 1 FROM nonconforming_product n LEFT JOIN work_report qr ON qr.report_id=q.work_report_id "
+        +"LEFT JOIN work_report nr ON nr.report_id=n.work_report_id WHERE n.inspection_id=q.inspection_id "
+        +"AND (n.material_id!=q.material_id OR (NULLIF(TRIM(n.batch_no),'') IS NOT NULL AND n.batch_no!=COALESCE(q.batch_no,'')) "
+        +"OR (n.work_order_id IS NOT NULL AND n.work_order_id!=COALESCE(q.work_order_id,qr.work_order_id,0)) "
+        +"OR (nr.work_order_id IS NOT NULL AND nr.work_order_id!=COALESCE(q.work_order_id,qr.work_order_id,0)))) "
         +"OR (q.unqualified_quantity=0 AND EXISTS (SELECT 1 FROM nonconforming_product n WHERE n.inspection_id=q.inspection_id)) THEN 1 ELSE 0 END";
     @Select("""
         SELECT r.route_id,r.route_code,r.route_name,r.version_no,m.material_code,m.material_name,
@@ -22,14 +27,15 @@ public interface NaturalBusinessReadMapper extends InspectionTraceMapper {
     List<Map<String,Object>> activeRouteSteps(@Param("keyword") String keyword);
     @Select("""
         <script>SELECT q.inspection_id AS record_id,q.inspection_no,w.work_order_id,w.work_order_no,q.work_report_id,
-        q.batch_no,q.material_id,q.inspection_category,q.inspection_type,q.inspection_status,
+        q.batch_no,q.material_id,m.material_name,m.unit,q.inspection_category,q.inspection_type,q.inspection_status,
         q.sample_quantity,q.qualified_quantity,q.unqualified_quantity,q.inspection_result AS status,q.inspected_at AS event_at,
         """ + DETAIL_CONFLICT + " AS detail_count_conflict," + """
         (SELECT GROUP_CONCAT(DISTINCT n.defect_type ORDER BY n.defect_type SEPARATOR '、')
          FROM nonconforming_product n WHERE n.inspection_id=q.inspection_id
          AND (n.work_order_id IS NULL OR n.work_order_id=w.work_order_id)
          AND (n.material_id IS NULL OR n.material_id=q.material_id)) AS recorded_defect_types
-        FROM quality_inspection q LEFT JOIN work_report wr ON wr.report_id=q.work_report_id
+        FROM quality_inspection q LEFT JOIN material m ON m.material_id=q.material_id
+        LEFT JOIN work_report wr ON wr.report_id=q.work_report_id
         JOIN work_order w ON w.work_order_id=COALESCE(q.work_order_id,wr.work_order_id)
         <if test="salesOrders">
         JOIN production_plan_item pi ON pi.plan_item_id=w.plan_item_id AND w.plan_id=pi.plan_id
@@ -43,7 +49,7 @@ public interface NaturalBusinessReadMapper extends InspectionTraceMapper {
     String AUTH_FILTER = "<if test='customer != null'> AND <choose><when test=\"domain == 'ORDER'\">t.customer_name=#{customer}</when><when test=\"domain == 'AFTERSALES'\">t.record_id IN (SELECT case_id FROM after_sales_case WHERE customer_name=#{customer}) AND (t.order_id IS NULL OR t.order_id IN (SELECT order_id FROM customer_order WHERE customer_name=#{customer}))</when><otherwise>1=0</otherwise></choose></if>"
         + "<if test='operator != null'> AND <choose><when test=\"domain == 'PRODUCTION'\">t.record_id IN (SELECT work_order_id FROM dispatch_task WHERE operator_id=#{operator})</when><when test=\"domain == 'ALARMS'\">t.work_order_id IN (SELECT work_order_id FROM dispatch_task WHERE operator_id=#{operator})</when><otherwise>1=0</otherwise></choose></if>";
     String SOURCE = "<choose>"
-        + "<when test=\"domain == 'INVENTORY'\">SELECT v.inventory_id AS record_id,v.material_id,m.material_code,m.material_name,m.unit,v.warehouse_code,v.location_code,v.batch_no,v.quantity_on_hand,v.quantity_reserved,v.quantity_available,v.inventory_status AS status,v.updated_at AS event_at,CONCAT_WS(' ',m.material_code,m.material_name,CASE WHEN UPPER(m.material_name) REGEXP '^PCB.{0,8}板$' THEN 'PCB板' END) AS search_text FROM inventory v LEFT JOIN material m ON m.material_id=v.material_id <if test='id != null'>WHERE v.material_id IN (SELECT material_id FROM customer_order_item WHERE order_id=#{id} UNION SELECT b.child_material_id FROM bom b JOIN customer_order_item i ON i.material_id=b.parent_material_id WHERE i.order_id=#{id})</if></when>"
+        + "<when test=\"domain == 'INVENTORY'\">SELECT v.inventory_id AS record_id,v.material_id,m.material_type,m.material_code,m.material_name,m.unit,v.warehouse_code,v.location_code,v.batch_no,v.quantity_on_hand,v.quantity_reserved,v.quantity_available,v.inventory_status AS status,v.updated_at AS event_at,CONCAT_WS(' ',m.material_code,m.material_name,CASE WHEN UPPER(m.material_name) REGEXP '^PCB.{0,8}板$' THEN 'PCB板' END) AS search_text FROM inventory v LEFT JOIN material m ON m.material_id=v.material_id <if test='id != null'>WHERE v.material_id IN (SELECT material_id FROM customer_order_item WHERE order_id=#{id} UNION SELECT b.child_material_id FROM bom b JOIN customer_order_item i ON i.material_id=b.parent_material_id WHERE i.order_id=#{id})</if></when>"
         + "<when test=\"domain == 'PRODUCTION'\">SELECT w.work_order_id AS record_id,w.work_order_no,w.material_id,m.material_name,m.unit,w.planned_quantity,w.completed_quantity,w.qualified_quantity,w.unqualified_quantity,w.status,w.updated_at AS event_at,CONCAT_WS(' ',w.work_order_no,m.material_code,m.material_name) AS search_text FROM work_order w LEFT JOIN material m ON m.material_id=w.material_id <if test='id != null'>WHERE w.work_order_id IN " + com.upc.computer.assistant.v2.mapper.business.AiBusinessReadMapper.WORK_ORDERS + "</if></when>"
         + "<when test=\"domain == 'QUALITY'\">SELECT q.inspection_id AS record_id,q.inspection_no,q.material_id,m.material_name,m.unit,q.batch_no,q.inspection_category,q.inspection_type,q.inspection_status,q.sample_quantity,q.qualified_quantity,q.unqualified_quantity,q.inspection_result AS status,q.inspected_at AS event_at,"+DETAIL_CONFLICT+" AS detail_count_conflict,CONCAT_WS(' ',q.inspection_no,m.material_code,m.material_name,q.batch_no) AS search_text FROM quality_inspection q LEFT JOIN material m ON m.material_id=q.material_id <if test='id != null'>WHERE q.inspection_id IN " + com.upc.computer.assistant.v2.mapper.business.AiBusinessReadMapper.INSPECTIONS + "</if></when>"
         + "<when test=\"domain == 'EQUIPMENT'\">SELECT e.equipment_id AS record_id,e.equipment_code,e.equipment_name,e.equipment_type,e.workshop,e.workstation,e.status,e.updated_at AS event_at,CONCAT_WS(' ',e.equipment_code,e.equipment_name,e.equipment_type) AS search_text FROM equipment e <if test='id != null'>WHERE e.equipment_id IN " + com.upc.computer.assistant.v2.mapper.business.AiBusinessReadMapper.EQUIPMENT + "</if></when>"
@@ -57,6 +63,26 @@ public interface NaturalBusinessReadMapper extends InspectionTraceMapper {
             +") t JOIN quality_inspection q ON t.record_id=q.inspection_id WHERE t.record_id IN <foreach collection='ids' item='pk' open='(' separator=',' close=')'>#{pk}</foreach>"
             + AUTH_FILTER+" ORDER BY t.record_id</script>")
     List<Map<String,Object>> displayedInspections(@Param("ids") List<Long> ids,@Param("customer") String customer,@Param("operator") Long operator);
+
+    // The IN keys come exclusively from a freshly authorized quality read. Count registrations, not units.
+    @Select("""
+        <script>SELECT CASE WHEN n.material_id=q.material_id
+          AND (NULLIF(TRIM(n.batch_no),'') IS NULL OR n.batch_no=q.batch_no)
+          AND (q.work_order_id IS NULL OR qr.work_order_id IS NULL OR q.work_order_id=qr.work_order_id)
+          AND (q.work_report_id IS NULL OR qr.report_id IS NOT NULL)
+          AND (n.work_report_id IS NULL OR nr.report_id IS NOT NULL)
+          AND (n.work_order_id IS NULL OR n.work_order_id=COALESCE(q.work_order_id,qr.work_order_id))
+          AND (nr.work_order_id IS NULL OR nr.work_order_id=COALESCE(q.work_order_id,qr.work_order_id))
+          THEN COALESCE(NULLIF(TRIM(n.defect_type),''),'未登记类型') END AS defect_type,
+          COUNT(*) AS record_count
+        FROM quality_inspection q JOIN nonconforming_product n ON n.inspection_id=q.inspection_id
+        LEFT JOIN work_report qr ON qr.report_id=q.work_report_id
+        LEFT JOIN work_report nr ON nr.report_id=n.work_report_id
+        WHERE q.inspection_id IN <foreach collection="ids" item="id" open="(" separator="," close=")">#{id}</foreach>
+          AND #{customer} IS NULL AND #{operator} IS NULL
+        GROUP BY 1 ORDER BY 1</script>
+        """)
+    List<Map<String,Object>> qualityDefectCounts(@Param("ids") List<Long> ids,@Param("customer") String customer,@Param("operator") Long operator);
 
 
     @Select("""
@@ -77,14 +103,14 @@ public interface NaturalBusinessReadMapper extends InspectionTraceMapper {
     List<Map<String,Object>> stepCoverage(@Param("id") long id,@Param("operator") Long operator);
 
     @Select("""
-        SELECT q.inspection_id AS record_id,q.inspection_no,q.work_order_id,q.batch_no,q.material_id,
-        q.inspection_category,q.inspection_result AS status,q.inspection_status,q.sample_quantity,
+        SELECT q.inspection_id AS record_id,q.inspection_no,q.work_order_id,q.batch_no,q.material_id,m.material_name,m.unit,
+        q.inspection_type,q.inspection_category,q.inspection_result AS status,q.inspection_status,q.sample_quantity,
         q.qualified_quantity,q.unqualified_quantity,q.inspected_at AS event_at,
         """ + DETAIL_CONFLICT + " AS detail_count_conflict, CASE WHEN (" + DETAIL_CONFLICT + ")=1 OR " + """
         q.unqualified_quantity>0 OR q.inspection_result IN ('UNQUALIFIED','CONCESSION') OR q.inspection_status IN ('FAILED','RECHECK_REQUIRED')
              THEN '异常线索' WHEN q.inspection_status='PASSED' AND q.inspection_result='QUALIFIED' AND q.unqualified_quantity=0
              THEN '未见异常' ELSE '待核实' END AS trace_status
-        FROM quality_inspection q WHERE EXISTS (SELECT 1 FROM quality_inspection a
+        FROM quality_inspection q LEFT JOIN material m ON m.material_id=q.material_id WHERE EXISTS (SELECT 1 FROM quality_inspection a
         WHERE a.work_order_id=#{id} AND TRIM(a.batch_no)<>'' AND a.batch_no=q.batch_no
         AND a.material_id=q.material_id AND a.inspection_category=q.inspection_category)
         ORDER BY q.inspection_id
@@ -107,6 +133,7 @@ public interface NaturalBusinessReadMapper extends InspectionTraceMapper {
     String EXACT_FILTER = "<if test='selectors.warehouse_code != null'> AND t.warehouse_code=#{selectors.warehouse_code}</if>"
         + "<if test='selectors.equipment_code != null'> AND t.equipment_code=#{selectors.equipment_code}</if>"
         + "<if test='selectors.batch_no != null'> AND t.batch_no=#{selectors.batch_no}</if>"
+        + "<if test='selectors.material_types != null'> AND t.material_type IN <foreach collection=\"selectors.material_types.split(',')\" item='type' open='(' separator=',' close=')'>#{type}</foreach></if>"
         + "<if test='selectors.excluded_material_keyword != null'> AND LOCATE(#{selectors.excluded_material_keyword},t.search_text)=0</if>"
         + "<if test='selectors.location_code != null'> AND t.location_code=#{selectors.location_code}</if>"
         + "<if test='selectors.customer_name != null'> AND t.customer_name=#{selectors.customer_name}</if>"
@@ -115,6 +142,12 @@ public interface NaturalBusinessReadMapper extends InspectionTraceMapper {
         + "<if test='selectors.location_codes != null'> AND t.location_code IN <foreach collection=\"selectors.location_codes.split(',')\" item='code' open='(' separator=',' close=')'>#{code}</foreach></if>"
         + "<if test='selectors.excluded_warehouse_codes != null'> AND t.warehouse_code NOT IN <foreach collection=\"selectors.excluded_warehouse_codes.split(',')\" item='code' open='(' separator=',' close=')'>#{code}</foreach></if>"
         + "<if test='selectors.excluded_location_codes != null'> AND t.location_code NOT IN <foreach collection=\"selectors.excluded_location_codes.split(',')\" item='code' open='(' separator=',' close=')'>#{code}</foreach></if>";
+
+    // One sentinel row makes truncation explicit. The overview's authorized predicates also apply to both baselines.
+    @Select("<script><bind name='domain' value=\"'QUALITY'\"/>SELECT t.* FROM (" + SOURCE + ") t" + FILTER + EXACT_FILTER + AUTH_FILTER
+            + " ORDER BY t.record_id LIMIT 2001</script>")
+    List<Map<String,Object>> qualityPeriodRows(@Param("id") Long id,@Param("keyword") String keyword,@Param("start") String start,
+            @Param("end") String end,@Param("selectors") Map<String,String> selectors,@Param("customer") String customer,@Param("operator") Long operator);
     @Select("<script>SELECT t.* FROM (" + SOURCE + ") t" + FILTER + EXACT_FILTER + " ORDER BY t.record_id</script>")
     List<Map<String,Object>> rowsScoped(@Param("domain") String domain,@Param("id") Long id,@Param("keyword") String keyword,@Param("start") String start,@Param("end") String end,@Param("selectors") Map<String,String> selectors);
     @Select("<script>SELECT COUNT(*) FROM (" + SOURCE + ") t" + FILTER + EXACT_FILTER + "</script>")

@@ -56,13 +56,15 @@ const showCursor = computed(() => props.smooth && props.cursor && pending.value 
 .workbench-markdown :deep(.code-block button) { background:transparent; border:none; color:var(--mes-accent); cursor:pointer; font:400 12px var(--aw-font-sans); }
 .workbench-markdown :deep(.code-block pre) { margin:0; border:0; }
 .workbench-markdown :deep(p) { margin:0 0 12px; }
-.workbench-markdown :deep(h1),.workbench-markdown :deep(h2),.workbench-markdown :deep(h3),.workbench-markdown :deep(h4),.workbench-markdown :deep(h5),.workbench-markdown :deep(h6) { margin:22px 0 10px; color:var(--aw-text, #202124); font-weight:500; line-height:1.5; }
+.workbench-markdown :deep(h1),.workbench-markdown :deep(h2),.workbench-markdown :deep(h3),.workbench-markdown :deep(h4),.workbench-markdown :deep(h5),.workbench-markdown :deep(h6) { margin:22px 0 10px; color:var(--aw-text, #202124); font-weight:650; line-height:1.5; }
 .workbench-markdown :deep(h1) { font-size:20px; }
 .workbench-markdown :deep(h2) { font-size:18px; }
 .workbench-markdown :deep(h3) { font-size:16px; }
 .workbench-markdown :deep(h4),.workbench-markdown :deep(h5),.workbench-markdown :deep(h6) { font-size:14px; }
-.workbench-markdown :deep(strong) { font-weight:500; }
+.workbench-markdown :deep(strong) { font-weight:700; }
 .workbench-markdown :deep(ul),.workbench-markdown :deep(ol) { padding-left:23px; margin:10px 0 14px; }
+.workbench-markdown :deep(ul) { list-style:disc; }
+.workbench-markdown :deep(ol) { list-style:decimal; }
 .workbench-markdown :deep(li) { margin:4px 0; }
 .workbench-markdown :deep(li p) { margin:4px 0; }
 .workbench-markdown :deep(a) { color:var(--aw-link, #315e9e); text-decoration:underline; text-underline-offset:3px; }

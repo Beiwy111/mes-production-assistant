@@ -137,3 +137,30 @@ export async function chatEntry(token, input, {signal, onDelta}) {
   if (!response.ok) return readResponse(response, token)
   return consumeAssistantStream(response.body, {signal, onDelta})
 }
+
+async function productionPost(token, path, data, signal) {
+  const response = await fetch('/api/assistant-v2/operations/' + path, {
+    method: 'POST', headers: headers(token), credentials: 'same-origin',
+    cache: 'no-store', body: JSON.stringify(data), signal,
+  })
+  return readResponse(response, token)
+}
+export async function previewProductionOperation(token, body, { signal, onEvent } = {}) {
+  if (onEvent) {
+    const response = await fetch('/api/assistant-v2/tasks/stream', {
+      method: 'POST', headers: headers(token), credentials: 'same-origin', cache: 'no-store', body: JSON.stringify(body), signal,
+    })
+    if (!response.ok) return readResponse(response, token)
+    return consumeTaskEvents(response.body, { conversationId: body.sessionId, onEvent, signal })
+  }
+  return productionPost(token, 'preview', body, signal)
+}
+export async function decideProductionOperation(token, proposalId, decision, { signal, sessionId } = {}) {
+  if (sessionId) {
+    const response = await fetch(`/api/assistant-v2/tasks/${encodeURIComponent(sessionId)}/proposals/${encodeURIComponent(proposalId)}/decision`, {
+      method: 'POST', headers: headers(token), credentials: 'same-origin', cache: 'no-store', body: JSON.stringify({ decision }), signal,
+    })
+    return readResponse(response, token)
+  }
+  return productionPost(token, encodeURIComponent(proposalId) + '/decision', { decision }, signal)
+}

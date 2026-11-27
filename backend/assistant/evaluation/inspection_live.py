@@ -12,6 +12,14 @@ import requests
 from replay import MES, GATEWAY
 
 CASES = {
+    'analysis_recent': '最近的质检情况如何？主要问题是什么？',
+    'analysis_diagnosis': 'QI202611001 存在什么问题？应该如何解决？',
+    'analysis_july': '比较 2026-07-01 至 2026-07-31 不同批次的质量情况，哪些差异值得复核？',
+    'analysis_entity': 'QI202611001分析一下这个订单',
+    'analysis_appearance': '哪些生产环节可能导致外观缺陷？',
+    'analysis_batches': '最近不同批次的质量情况有什么变化？',
+    'analysis_route': '八道生产工序分别是什么？结合实际工艺路线回答。',
+    'analysis_uncertain': '当前证据不足以确定故障原因时，系统应该如何处理？',
     'defense': '列出全部质检记录。',
     'recent': '看一下最近的质检情况。',
     'route': '八道工序分别是什么？',
@@ -68,6 +76,7 @@ def turn(client, question, sid, previous=None):
 def main():
     parser=argparse.ArgumentParser()
     parser.add_argument('--out',required=True,type=Path)
+    parser.add_argument('--chat-entry',action='store_true',help='Exercise the same daily/business routing as the browser first')
     parser.add_argument('--cases',choices=list(CASES),nargs='+',default=list(CASES))
     args=parser.parse_args()
     args.out.mkdir(exist_ok=True,parents=True)
@@ -77,6 +86,7 @@ def main():
         login.raise_for_status()
         client.headers['Authorization']='Bearer '+login.json()['data']['token']
         try:
+            failures=[]
             batch_context=None
             for case in args.cases:
                 sid=str(uuid4())
@@ -88,6 +98,8 @@ def main():
                         ('defense_next','换一批，分析检验单 QI202607022 的质检结果。有哪些原始依据？'),
                         ('defense_next_followup','这批产品先查哪个环节？工序前后有同一台样机的实测值吗？'),
                     ])
+                if case=='analysis_entity':
+                    prompts.append(('analysis_followup','那这张单先查哪个环节，怎么验证？'))
                 if case=='inspection':
                     prompts.append(('followup','那这张单关联的设备能确定吗？'))
                 if case=='optical_review':
@@ -99,11 +111,34 @@ def main():
                     else:
                         prior,_=turn(client,CASES['batch'],sid)
                 for name,q in prompts:
-                    prior,result=turn(client,q,sid,prior)
+                    try:
+                        route=None
+                        if args.chat_entry:
+                            entry_payload=dict(text=q,context='BUSINESS' if prior else 'NEW')
+                            entry_url=GATEWAY.rsplit('/runs/',1)[0]+'/chat-entry'
+                            with client.post(entry_url,json=entry_payload,stream=True,timeout=(8,150)) as entry:
+                                entry.raise_for_status()
+                                entries=[json.loads(line) for line in entry.iter_lines() if line]
+                            route=next(((e.get('data') or e).get('route') for e in entries if e.get('type')=='result'),None)
+                            if route not in ('BUSINESS','FALLBACK','GENERAL','WEATHER'):
+                                raise ValueError('Unexpected chat route '+str(route))
+                        if route in ('GENERAL','WEATHER'):
+                            deltas=[e['text'] for e in entries if e.get('type')=='delta' and e.get('text')]
+                            result=dict(answer=dict(reply=''.join(deltas),facts={},intents=[route]),events=[],deltas=len(deltas))
+                        else:
+                            prior,result=turn(client,q,sid,prior)
+                        if route:
+                            result['entryRoute']=route
+                    except (requests.RequestException, RuntimeError, ValueError) as exc:
+                        failures.append(name)
+                        print(name,'FAIL',str(exc),flush=True)
+                        break
                     if name=='batch':
                         batch_context=(sid,prior)
                     (args.out/(name+'.json')).write_text(json.dumps(result,ensure_ascii=False,default=str),'utf-8')
                     print(name,result['answer'].get('verdict'),list((result['answer'].get('facts') or {}).keys()),result['deltas'],flush=True)
+            if failures:
+                raise SystemExit('Incomplete cases: '+', '.join(failures))
         finally:
             client.post(MES+'/auth/logout',timeout=10)
 

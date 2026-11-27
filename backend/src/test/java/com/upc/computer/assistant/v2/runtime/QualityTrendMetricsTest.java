@@ -6,7 +6,10 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class QualityTrendMetricsTest {
     private Map<String,Object> row(String id,String material,String sample,String good,String bad,String time) {
-        return Map.of("record_id",id,"material_id",material,"material_name","显示器","unit","台","sample_quantity",sample,"qualified_quantity",good,"unqualified_quantity",bad,"status","QUALIFIED","event_at",time);
+        var data=new HashMap<String,Object>(Map.of("record_id",id,"material_id",material,"material_name","显示器","unit","台",
+                "sample_quantity",sample,"qualified_quantity",good,"unqualified_quantity",bad,"event_at",time));
+        boolean passed="0".equals(bad);data.put("status",passed?"QUALIFIED":"UNQUALIFIED");data.put("inspection_status",passed?"PASSED":"FAILED");
+        data.put("inspection_category","OQC");data.put("inspection_type","FINAL");return data;
     }
     @Test void trendWeightsSamplesAndSeparatesDaysProductsAndUnits() {
         var result=QualityTrendMetrics.summarize(List.of(row("1","1","10","8","2","2026-11-01 10:00:00"),row("2","1","90","90","0","2026-11-01 11:00:00"),row("3","2","10","5","5","2026-11-01 12:00:00"),row("4","1","10","9","1","2026-11-02 10:00:00")),true);

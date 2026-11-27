@@ -15,8 +15,49 @@ final class BusinessReadIntent {
 
     /** A model may treat a practical technical question as everyday chat. Only narrow GENERAL to public guidance. */
     static boolean needsTechnicalGuidance(String query) {
-        return TECHNICAL_SUBJECT.matcher(query).find() && PRACTICAL_TASK.matcher(query).find()
+        return (TECHNICAL_SUBJECT.matcher(query).find() && PRACTICAL_TASK.matcher(query).find()
+            || processMechanism(query))
             && !TEXT_TASK.matcher(query).find() && !LOCAL.matcher(query).find() && !crossCustomerDisclosure(query);
+    }
+
+    static boolean processMechanism(String query) {
+        return query.matches("(?s).*(?:环节|工艺|工序|设备).*") && query.matches("(?si).*(?:缺陷|瑕疵|划痕|坏点|漏光|mura|故障).*")
+                && query.matches("(?s).*(?:可能|导致|机理|原因|引起|形成|影响).*");
+    }
+
+    static final Pattern INSPECTION_ID = Pattern.compile("(?i)(?<![A-Z0-9_-])QI[A-Z0-9_-]*[0-9](?![A-Z0-9_-])");
+    private static final Pattern READ_TASK = Pattern.compile("分析|问题|改善|改进|解决|建议|情况|怎么样|如何|原因|排查|验证|解读|追溯|看看|查看|查询|核对|哪(?:个|道|些)|风险");
+    private static final Pattern MODIFY = Pattern.compile("提交|创建|下单|采购|删除|更新|修改|审批|审核通过|改成|替我|安排派工");
+    private static final Pattern OTHER_OBJECT = Pattern.compile("(?i)(?<![a-z0-9_-])(?:SO|WO|PO|DT|EQ|BATCH)[-_]?[a-z0-9_-]*[0-9](?![a-z0-9_-])|(?:订单|工单)(?:号|编号|ID|主键)?\\s*[:：#]?\\s*[0-9]+");
+    static boolean inspectionRead(String query) {
+        return READ_TASK.matcher(query).find() && !MODIFY.matcher(query).find() && !TEXT_TASK.matcher(query).find()
+            && !OTHER_OBJECT.matcher(query).find() && !InspectionTrace.asksForAdditionalScope(query) && !crossCustomerDisclosure(query);
+    }
+
+    static boolean inspectionDiagnosis(String query) {
+        return query.matches("(?s).*(?:分析|问题|原因|建议|解决|诊断|机理|排查|验证|改善|风险|缺陷|改进).*");
+    }
+
+    // Build the retrieval question from this inspection's recorded observations only.
+    // Do not mix in history, plausible causes, operator names, or document identifiers.
+    static String inspectionResearchQuestion(Map<String,Object> trace) {
+        var terms=new LinkedHashSet<String>();
+        var header=trace.get("inspection") instanceof List<?> headers && !headers.isEmpty() && headers.get(0) instanceof Map<?,?> h ? h : Map.of();
+        for(String group:List.of("items","defects","boundImages")) {
+            if(!(trace.get(group) instanceof List<?> records))continue;
+            for(Object entry:records) {
+                if(!(entry instanceof Map<?,?> row))continue;
+                if(group.equals("items") && !Set.of("FAILED","UNQUALIFIED","NG").contains(Objects.toString(row.get("result"),"")))continue;
+                if(group.equals("defects") && List.of("work_order_id","material_id","batch_no").stream().anyMatch(k->
+                        row.get(k)!=null && header.get(k)!=null && !row.get(k).toString().equals(header.get(k).toString())))continue;
+                for(String key:List.of("item_name","defect_type","defect_description","defect")) {
+                    String value=Objects.toString(row.get(key),"").strip();
+                    if(!value.isEmpty() && terms.size()<8)terms.add(value.substring(0,Math.min(value.length(),60)));
+                }
+            }
+        }
+        return terms.isEmpty()?"显示器质量检验 抽样接收准则 复判与复测方法":
+            "显示器检验 "+String.join(" ",terms)+" 形成机理 工序定位 对照验证";
     }
 
     static boolean crossCustomerDisclosure(String query) {

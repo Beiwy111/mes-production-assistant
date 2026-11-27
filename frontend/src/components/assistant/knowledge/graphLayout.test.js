@@ -32,3 +32,11 @@ test('node size reflects semantic type, connection count and selection', () => {
   assert.ok(nodeDiameter('entity', 6, true) > nodeDiameter('entity', 6))
   assert.ok(nodeDiameter('document', 300) <= 52)
 })
+
+test('large PDF overview preserves every node with bounded layout work',()=>{
+  const nodes=Array.from({length:2400},(_,i)=>({id:String(i)}))
+  const edges=nodes.slice(1).map(n=>({from:'0',to:n.id}))
+  const positions=spatialLayout(nodes,edges,1200,800)
+  assert.equal(positions.size,2400)
+  assert.ok([...positions.values()].every(([x,y])=>Number.isFinite(x)&&Number.isFinite(y)))
+})

@@ -115,10 +115,11 @@ const clip = (value, max = 6000) =>
   typeof value === 'string' ? value.slice(0, max) : ''
 const workflowText = (value, max) => clip(value, max).replace(/[\x00-\x1f\x7f-\x9f]/g, '')
 const businessAgent = (id) => id !== 'SUP' && Object.hasOwn(AGENTS, id)
-const WORKFLOW_LIMIT = 128
+// A selected portfolio can contain 12 orders, each with real comparison stages.
+const WORKFLOW_LIMIT = 1024
 const WORKFLOW_STATUSES = new Set(['RUNNING', 'COMPLETED', 'FAILED', 'CANCELLED'])
 const COORDINATION_KINDS = new Set(['PLAN_CONFIRMED', 'SUMMARIZING', 'CANCELLED'])
-const TASK_KINDS = new Set(['AGENT_STARTED', 'STEP_STARTED', 'STEP_COMPLETED', 'HANDOFF', 'AGENT_COMPLETED'])
+const TASK_KINDS = new Set(['AGENT_STARTED', 'STEP_STARTED', 'STEP_COMPLETED', 'HANDOFF', 'AGENT_COMPLETED', 'CALCULATION'])
 
 function workflowPlan(plan) {
   if (!['QUERY', 'CLARIFY', 'UNSUPPORTED'].includes(plan?.action) ||
@@ -142,14 +143,16 @@ function normalizeWorkflow(value, runId) {
     if (!Number.isSafeInteger(item?.seq) || item.seq <= 0 || events.has(item.seq) ||
         !WORKFLOW_STATUSES.has(item.status)) continue
     const { seq, kind, agentId, status } = item
-    if (COORDINATION_KINDS.has(kind) ? agentId !== 'SUP' : !TASK_KINDS.has(kind) || !businessAgent(agentId)) continue
-    const event = { seq, kind, agentId, status, label: workflowText(item.label, 80),
+    const taskPlanner = agentId === 'SUP' && item.toolId === 'TASK_TASK_PLAN'
+    const taskHandoff = agentId === 'SUP' && kind === 'HANDOFF' && item.toAgent === 'SUP' && item.toolId?.startsWith('TASK_') && businessAgent(item.fromAgent)
+    if (COORDINATION_KINDS.has(kind) ? agentId !== 'SUP' : !TASK_KINDS.has(kind) || (!businessAgent(agentId) && !taskPlanner && !taskHandoff)) continue
+    const event = { seq, kind, agentId, status, ...(kind === 'CALCULATION' ? { key: workflowText(item.key, 60) } : {}), label: workflowText(item.label, 80),
       detail: workflowText(item.detail, 200), at: workflowText(item.at, 40) }
     for (const field of ['eventId', 'runRef', 'toolCallId']) {
       if (typeof item[field] === 'string' && /^[a-f0-9-]{36}$/.test(item[field])) event[field] = item[field]
     }
     if (typeof item.toolId === 'string' && /^[A-Z0-9_]{1,40}$/.test(item.toolId)) event.toolId = item.toolId
-    if (businessAgent(agentId) && typeof item.taskId === 'string') event.taskId = workflowText(item.taskId, 36)
+    if ((businessAgent(agentId) || taskPlanner || taskHandoff) && typeof item.taskId === 'string') event.taskId = workflowText(item.taskId, 36)
     if (kind === 'HANDOFF') {
       if (!businessAgent(item.fromAgent) || item.toAgent !== agentId || item.fromAgent === agentId || status !== 'COMPLETED') continue
       event.fromAgent = item.fromAgent
@@ -491,6 +494,22 @@ export function restoreSessions(raw) {
 
 // Keep complete evidence or omit the whole evidence bundle with a visible reason. Never
 // truncate rows while retaining totals or analysis that appear to describe a full snapshot.
+function savedProductionMessage(message) {
+  const flow = message.productionFlow
+  const title = flow.confirmation?.title || '生产操作'
+  let text
+  if (flow.status === 'EXECUTED') {
+    const identifiers = ['orderId', 'planId', 'workOrderId', 'dispatchId', 'notificationId']
+      .map(key => flow.result?.[key]).filter(id => typeof id === 'string' || typeof id === 'number')
+    text = [title, message.text, ...identifiers].filter(Boolean).join(' · ')
+  } else if (flow.status === 'REJECTED') text = title + '已取消。'
+  else if (flow.uncertainDecision || flow.deciding) text = title + '的处理结果待核对，请在业务系统查看记录。'
+  else if (flow.status === 'FAILED') text = message.error || '生产操作未完成。'
+  else text = title + '的历史预览已关闭。如需办理，请重新发起操作。'
+  // A persisted record is a receipt. The live proposal and its parameters stay in the issuing tab.
+  return { id: message.id, role: 'assistant', status: message.status, text: clip(text, 4000), agents: [] }
+}
+
 export function serializeWorkbenchSessions(sessions) {
   const budget = 1_800_000
   const saved = sessions.slice(0, 20).map((session) => ({ ...session,
@@ -502,7 +521,7 @@ export function serializeWorkbenchSessions(sessions) {
       orderMessage: true,
       ...(message.orderFlow ? { orderFlow: { needsRecovery: true,
         ...(message.orderFlow.orderDraft?.id ? { orderDraft: { id: message.orderFlow.orderDraft.id } } : {}) } } : {}),
-    } : ({ ...message,
+    } : message.productionFlow ? savedProductionMessage(message) : ({ ...message,
       text: clip(message.text, 64000), result: message.result ? { ...message.result, reply: clip(message.result.reply, 64000) } : null,
     })),
   }))

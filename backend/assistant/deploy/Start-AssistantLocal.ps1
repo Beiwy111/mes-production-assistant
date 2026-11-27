@@ -66,13 +66,20 @@ function Get-OwnedListener {
 
 function Start-LocalRuntime {
     param([string]$Name, [int]$Port, [string]$CommandMarker, [string]$Starter, [string]$Url, [int]$Expected = 200, [string]$BodyPattern = '')
+    $startedProcess = $null
     if (Get-OwnedListener $Port $CommandMarker) { Write-Host "[SKIP] $Name is already running on $Port." }
     else {
         Write-Host "[START] $Name"
         if ($Port -eq 18081) { & (Join-Path $PSScriptRoot $Starter) -SkipQdrantStart }
-        else { & (Join-Path $PSScriptRoot $Starter) }
+        else { $startedProcess = & (Join-Path $PSScriptRoot $Starter) -PassThru }
     }
-    Wait-LocalService $Name { (Get-OwnedListener $Port $CommandMarker) -and (Test-LocalHttp $Url $Expected $BodyPattern) }
+    Wait-LocalService $Name {
+        if ($startedProcess -and $startedProcess.HasExited) {
+            $logName = [IO.Path]::GetFileNameWithoutExtension($CommandMarker) + '.stderr.log'
+            throw "$Name exited with code $($startedProcess.ExitCode) before port $Port was ready. See backend/assistant/rag/logs/$logName."
+        }
+        (Get-OwnedListener $Port $CommandMarker) -and (Test-LocalHttp $Url $Expected $BodyPattern)
+    }
 }
 
 function Resume-LocalContainers {

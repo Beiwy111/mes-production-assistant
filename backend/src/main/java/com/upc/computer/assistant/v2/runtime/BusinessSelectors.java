@@ -13,10 +13,17 @@ public record BusinessSelectors(Map<String,String> values,String remainingText) 
     private static final Pattern OTHER_MATERIALS=Pattern.compile("(?:其他|其它|其余|剩余)(?:的)?物料");
     static boolean otherMaterials(String query){return OTHER_MATERIALS.matcher(query).find();}
     static boolean followsScope(String query){return FOLLOWUP.matcher(query).find()||otherMaterials(query);}
+    static boolean previousInventory(Map<String,Object> previous) {
+        return previous!=null&&previous.get("scope") instanceof Map<?,?> scope&&Boolean.TRUE.equals(scope.get("confirmed"))
+                &&scope.get("criteria") instanceof Map<?,?> criteria&&criteria.keySet().equals(Set.of("INVENTORY"))&&scope.get("orderPk")==null;
+    }
+    static boolean followsScope(String query,Map<String,Object> previous) {
+        return followsScope(query)||InventoryCategory.switchesCategory(query)&&previousInventory(previous);
+    }
     public BusinessSelectors { values=Map.copyOf(values); }
     public static BusinessSelectors parse(String query,List<String> intents,Map<String,Object> previous) {
         Map<String,String> values=new LinkedHashMap<>();
-        if(previous!=null&&followsScope(query)&&previous.get("scope") instanceof Map<?,?> scope
+        if(previous!=null&&followsScope(query,previous)&&previous.get("scope") instanceof Map<?,?> scope
             &&Boolean.TRUE.equals(scope.get("confirmed"))&&scope.get("selectors") instanceof Map<?,?> prior) {
             prior.forEach((key,value)->{if(key instanceof String k&&value instanceof String v)values.put(k,v);});
         }
@@ -94,7 +101,11 @@ public record BusinessSelectors(Map<String,String> values,String remainingText) 
             throw new IllegalArgumentException("Unresolved selector");
         if(!extracted.isEmpty()&&Pattern.compile("除外|之外|除了|非|不只|不仅|不查|不看|不含|不要|不包括|排除|剔除|去掉|除去|不在").matcher(text).find())
             throw new IllegalArgumentException("Unresolved exclusion");
-        for(String domain:intents)if(!domain.equals("KNOWLEDGE")||intents.size()==1)validate(domain,values);
+        if(intents.contains("INVENTORY")){
+            var category=InventoryCategory.explicit(text);
+            if(category!=null)values.put(InventoryCategory.KEY,category.types);
+        }
+        for(String domain:intents)if(!domain.equals("KNOWLEDGE")||intents.size()==1)validate(domain,InventoryCategory.forDomain(domain,values));
         return new BusinessSelectors(values,text);
     }
     private static void putCode(Map<String,String> selectors,String field,Pattern pattern,String query) {
@@ -113,6 +124,8 @@ public record BusinessSelectors(Map<String,String> values,String remainingText) 
                     throw new IllegalArgumentException("Invalid code list");
                 for(String code:codes)if(!code.matches("[A-Za-z0-9][A-Za-z0-9_-]{1,63}"))throw new IllegalArgumentException("Invalid code");
                 if(key.endsWith("_code")&&values.containsKey(key+"s"))throw new IllegalArgumentException("Conflicting selector forms");
+            } else if(key.equals(InventoryCategory.KEY)&&domain.equals("INVENTORY")) {
+                if(Arrays.stream(InventoryCategory.values()).noneMatch(category->category.types.equals(value)))throw new IllegalArgumentException("Invalid material types");
             } else if(key.equals("equipment_code")&&EQUIPMENT_DOMAINS.contains(domain)&&value.length()<=100&&EQUIPMENT_CODE.matcher(value).matches()
                 ||key.equals("batch_no")&&domain.equals("QUALITY")&&value.length()<=100&&BATCH_CODE.matcher(value).matches()
                 ||key.equals("excluded_material_keyword")&&domain.equals("INVENTORY")&&value.length()<=100) {

@@ -8,7 +8,7 @@ import java.time.Clock;
 import java.util.*;
 
 /** Versioned public event boundary. Input is already authorized and projected by the gateway. */
-final class TaskEventStream {
+public final class TaskEventStream {
     enum Type {task_started,task_planned,task_completed,task_failed,task_cancelled,
         agent_started,agent_progress,agent_completed,agent_failed,
         tool_started,tool_completed,tool_failed,message_started,message_delta,message_completed,
@@ -24,8 +24,9 @@ final class TaskEventStream {
     private final java.util.function.Consumer<Event> observer;
     private long sequence,workflowSequence;
     private boolean terminal,messageStarted;
+    private String messageSource="model_stream";
     private final Map<String,String> agentStates=new HashMap<>();
-    TaskEventStream(String task,String conversation,Clock clock,OutputStream output) {
+    public TaskEventStream(String task,String conversation,Clock clock,OutputStream output) {
         this(task,conversation,clock,output,event->{});
     }
     TaskEventStream(String task,String conversation,Clock clock,OutputStream output,java.util.function.Consumer<Event> observer) {
@@ -34,7 +35,7 @@ final class TaskEventStream {
     }
     long sequence(){return sequence;}
     void heartbeat() throws IOException {send(Type.heartbeat,null,null,json.createObjectNode());}
-    void accept(JsonNode legacy) throws IOException {
+    public synchronized void accept(JsonNode legacy) throws IOException {
         if(legacy==null||legacy.isNull())return;
         String type=legacy.path("type").asText();
         ObjectNode payload=json.createObjectNode();payload.set("legacy",legacy);
@@ -75,10 +76,10 @@ final class TaskEventStream {
             }
             case "snapshot" -> {messageStarted=true;send(Type.message_started,"SUP",null,payload.put("source","model_stream"));}
             case "delta" -> {
-                if(!messageStarted){messageStarted=true;send(Type.message_started,"SUP",null,json.createObjectNode().put("source","model_stream"));}
+                if(!messageStarted){messageStarted=true;messageSource=legacy.path("source").asText("model_stream");send(Type.message_started,"SUP",null,json.createObjectNode().put("source",messageSource));}
                 payload.put("text",legacy.path("text").asText());send(Type.message_delta,"SUP",null,payload);
             }
-            case "result" -> send(Type.message_completed,"SUP",null,payload.put("source",messageStarted?"model_stream":"complete_response"));
+            case "result" -> send(Type.message_completed,"SUP",null,payload.put("source",messageStarted?messageSource:"complete_response"));
             case "error" -> {
                 terminal=true;String code=legacy.path("message").asText();payload.put("code",code);
                 payload.put("category",code.contains("DIFY")?"model":code.contains("RUNTIME")?"business_api":code.contains("TIMED_OUT")?"timeout":code.equals("RUN_CANCELLED")?"cancelled":"workflow");

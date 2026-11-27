@@ -170,20 +170,27 @@ public interface InspectionTraceMapper {
         + " JOIN process_step s ON s.route_id=w.route_id WHERE q.inspection_id=#{id} ORDER BY s.step_no,s.step_id")
     List<Map<String,Object>> traceRoute(long id);
 
+    String INSPECTION_WORK_ID = "COALESCE(q.work_order_id,(SELECT qr.work_order_id FROM work_report qr WHERE qr.report_id=q.work_report_id))";
+    String DEFECT_REPORT_LINK = """
+        EXISTS (SELECT 1 FROM nonconforming_product n WHERE n.inspection_id=q.inspection_id AND n.work_report_id=r.report_id
+            AND (n.material_id IS NULL OR n.material_id=q.material_id)
+            AND (NULLIF(n.batch_no,'') IS NULL OR n.batch_no=q.batch_no)
+            AND (n.work_order_id IS NULL OR n.work_order_id=r.work_order_id)
+            AND r.work_order_id=COALESCE(
+        """ + INSPECTION_WORK_ID + ",r.work_order_id))";
+
     @Select("""
         SELECT r.report_id,r.report_no,r.work_order_id,r.step_id,s.step_name,r.equipment_id,r.dispatch_id,r.report_status,
                r.operator_id,u.real_name operator_name,r.completed_quantity,r.qualified_quantity,r.unqualified_quantity,CAST(r.report_date AS CHAR) report_date,
                CASE WHEN r.report_id=q.work_report_id AND (q.work_order_id IS NULL OR r.work_order_id=q.work_order_id)
                          THEN '检验单直接报工'
                     WHEN r.report_id=q.work_report_id THEN '检验工单与报工工单矛盾'
-                    WHEN EXISTS (SELECT 1 FROM nonconforming_product n WHERE n.inspection_id=q.inspection_id
-                         AND n.work_report_id=r.report_id AND (n.work_order_id IS NULL OR n.work_order_id=r.work_order_id)
-                         AND (q.work_order_id IS NULL OR q.work_order_id=r.work_order_id)) THEN '不合格品关联报工'
+                    WHEN
+        """ + DEFECT_REPORT_LINK + """
+                    THEN '不合格品关联报工'
                     ELSE '同工单背景' END AS link_basis
-        FROM quality_inspection q JOIN work_report r ON (r.report_id=q.work_report_id OR r.work_order_id=q.work_order_id
-            OR (q.work_order_id IS NULL AND EXISTS (SELECT 1 FROM nonconforming_product n
-                WHERE n.inspection_id=q.inspection_id AND n.work_report_id=r.report_id
-                AND (n.work_order_id IS NULL OR n.work_order_id=r.work_order_id))))
+        FROM quality_inspection q JOIN work_report r ON (r.report_id=q.work_report_id OR r.work_order_id=
+        """ + INSPECTION_WORK_ID + " OR "+DEFECT_REPORT_LINK+") " + """
         LEFT JOIN process_step s ON s.step_id=r.step_id LEFT JOIN `user` u ON u.user_id=r.operator_id
         WHERE q.inspection_id=#{id} ORDER BY r.report_id
         """)
@@ -200,19 +207,16 @@ public interface InspectionTraceMapper {
                CASE WHEN EXISTS (SELECT 1 FROM quality_inspection q JOIN work_report r ON r.report_id=q.work_report_id
                         WHERE q.inspection_id=#{id} AND r.equipment_id=e.equipment_id
                         AND (q.work_order_id IS NULL OR q.work_order_id=r.work_order_id)) THEN '检验单直接报工设备'
-                    WHEN EXISTS (SELECT 1 FROM quality_inspection q JOIN nonconforming_product n ON n.inspection_id=q.inspection_id
-                        JOIN work_report r ON r.report_id=n.work_report_id WHERE q.inspection_id=#{id} AND r.equipment_id=e.equipment_id
-                        AND (q.work_order_id IS NULL OR q.work_order_id=r.work_order_id)
-                        AND (n.work_order_id IS NULL OR n.work_order_id=r.work_order_id)) THEN '不合格品关联报工设备'
+                    WHEN EXISTS (SELECT 1 FROM quality_inspection q JOIN work_report r ON r.equipment_id=e.equipment_id
+                        WHERE q.inspection_id=#{id} AND
+        """ + DEFECT_REPORT_LINK + ") THEN '不合格品关联报工设备' " + """
                     ELSE '同工单背景设备' END AS link_basis
         FROM equipment e
         WHERE e.equipment_id IN (
             SELECT r.equipment_id FROM work_report r JOIN quality_inspection q ON q.inspection_id=#{id}
             WHERE (r.report_id=q.work_report_id AND (q.work_order_id IS NULL OR q.work_order_id=r.work_order_id))
-                  OR r.work_order_id=q.work_order_id
-                  OR EXISTS (SELECT 1 FROM nonconforming_product n WHERE n.inspection_id=q.inspection_id
-                    AND n.work_report_id=r.report_id AND (q.work_order_id IS NULL OR q.work_order_id=r.work_order_id)
-                    AND (n.work_order_id IS NULL OR n.work_order_id=r.work_order_id))
+                  OR r.work_order_id=
+        """ + INSPECTION_WORK_ID + " OR "+DEFECT_REPORT_LINK+" " + """
             UNION
             SELECT d.equipment_id
         """ + TRACE_WORK + """

@@ -37,7 +37,14 @@ function factTables(value, path = '', out = []) {
   if (Array.isArray(value)) {
     if (value.some(row => row && typeof row === 'object' && !Array.isArray(row))) out.push({ path, rows: value })
   } else if (value && typeof value === 'object') {
-    for (const [key, child] of Object.entries(value)) factTables(child, path ? `${path}.${key}` : key, out)
+    const fields = []
+    for (const [key, child] of Object.entries(value)) {
+      const rowTable = Array.isArray(child) && child.some(row => row && typeof row === 'object' && !Array.isArray(row))
+      if (rowTable || (child && typeof child === 'object' && !Array.isArray(child)))
+        factTables(child, path ? `${path}.${key}` : key, out)
+      else fields.push([key, child])
+    }
+    if (fields.length) out.push({ path: path || 'facts', rows: [Object.fromEntries(fields)] })
   }
   return out
 }

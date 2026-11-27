@@ -93,16 +93,18 @@ function render(explicitReset = false) {
     const selected = node.id === props.selected
     const dim = highlighted.size > 0 && !highlighted.has(node.id)
     const [x, y] = (!reset && graphPosition(node.id)) || positions.get(node.id)
-    const size = nodeDiameter(node.type, degree.get(node.id), selected)
+    const densityScale = Math.max(0.3, Math.min(1, Math.sqrt(50 / Math.max(1, nodes.length))))
+    const size = selected ? nodeDiameter(node.type, degree.get(node.id), true) : Math.max(node.type === 'document' ? 18 : 7, nodeDiameter(node.type, degree.get(node.id), false) * densityScale)
     return {
       id: node.id, name: node.label, value: degree.get(node.id), x, y,
       categoryName: (nodeTypes[node.type] || nodeTypes.entity).label,
       symbol: graphSymbol(node.type, selected), symbolSize: size,
       itemStyle: { opacity: dim ? 0.26 : 1 },
       label: {
+        show: nodes.length <= 100 || selected || node.type === 'document' || highlighted.has(node.id),
         color: selected ? '#163B85' : '#1F2937', opacity: dim ? 0.30 : 1,
         fontSize: node.type === 'document' || selected ? 14 : 13,
-        fontWeight: selected ? 700 : 600, width: selected ? Math.max(labelWidth, 134) : labelWidth,
+        fontWeight: selected ? 600 : 400, width: selected ? Math.max(labelWidth, 134) : labelWidth,
       },
     }
   })
@@ -135,7 +137,7 @@ function render(explicitReset = false) {
     series: [{
       id: seriesId, type: 'graph', layout: ['force', 'circular'].includes(props.layout) ? props.layout : 'none',
       data, links, left: box.left, right: box.left, top: box.top, bottom: height - box.top - box.height,
-      roam: true, draggable: true, nodeScaleRatio: 0.18, scaleLimit: { min: 0.25, max: 5 },
+      roam: true, draggable: true, nodeScaleRatio: 0.5, scaleLimit: { min: 0.25, max: 8 },
       ...(reset ? { zoom: priorZoom } : {}),
       force: { initLayout: 'none', repulsion: [150, 420], edgeLength: 88, gravity: 0.11, friction: 0.5, layoutAnimation: false },
       edgeSymbol: ['none', 'arrow'],
@@ -222,7 +224,7 @@ onBeforeUnmount(() => {
 })
 </script>
 
-<template><div ref="element" class="kg-chart" role="img" aria-label="交互知识图谱，可通过搜索节点或节点列表浏览"/></template>
+<template><div ref="element" class="kg-chart" :data-node-count="graph.nodes.length" :data-edge-count="graph.edges.length" role="img" aria-label="交互知识图谱，可通过搜索节点或节点列表浏览"/></template>
 <style scoped>
 .kg-chart { position:absolute; inset:0; touch-action:none; }
 </style>

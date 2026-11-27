@@ -12,8 +12,9 @@ const events = computed(() => workflow.value?.events || [])
 const coordination = computed(() => events.value.findLast((event) => event.agentId === 'SUP'))
 const live = computed(() => props.message.status === 'RUNNING' &&
   coordination.value?.kind !== 'CANCELLED' && !workflow.value?.invalidated)
-const expanded = ref(live.value)
-watch(live, (value) => { expanded.value = value })
+const showProgress = computed(() => live.value && !props.message.text)
+const expanded = ref(showProgress.value)
+watch(showProgress, (value) => { expanded.value = value })
 const agentName = (id) => AGENTS[id].name.replace(' Agent', '')
 const displayStatus = (status) => {
   if (status !== 'RUNNING' || live.value) return status

@@ -1,7 +1,7 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
-import { ChevronLeft, ChevronRight, CircleAlert, FolderSearch, LoaderCircle, PanelRightOpen, Share2 } from 'lucide-vue-next'
-import { filterGraph, graphPage, neighbors, nodeTypes, shortestPath } from '@/utils/workbenchGraph'
+import { CircleAlert, FolderSearch, LoaderCircle, PanelRightOpen, Share2 } from 'lucide-vue-next'
+import { filterGraph, neighbors, nodeTypes, shortestPath } from '@/utils/workbenchGraph'
 import { downloadSource } from './ingestion/ingestionApi'
 import { scopeGraphByDocument } from './scopeByDocument'
 import './knowledge-studio.css'
@@ -17,7 +17,7 @@ const mode = ref('hybrid'), nodeType = ref(''), file = ref(''), hidden = ref([])
 const selectedId = ref(''), pins = ref([]), depth = ref(1), zoom = ref(1)
 const sidebar = ref(!window.matchMedia('(max-width:760px)').matches)
 const detailsOpen = ref(!window.matchMedia('(max-width:1000px)').matches)
-const canvas = ref(null), detail = ref(null), page = ref(0), pageSize = 24
+const canvas = ref(null), detail = ref(null)
 const downloading = ref(false), downloadError = ref('')
 let download
 const scopedDocument = ref('')
@@ -25,14 +25,13 @@ const scopedGraph = computed(() => scopeGraphByDocument(graph.value, scopedDocum
 const filtered = computed(() => filterGraph(scopedGraph.value, { mode:mode.value, type:nodeType.value, file:file.value, hidden:hidden.value }))
 const destination = ref('')
 const path = computed(() => destination.value && selectedId.value ? shortestPath(filtered.value,selectedId.value,destination.value) : [])
-const pages = computed(() => Math.ceil(filtered.value.nodes.length / pageSize))
-const drawn = computed(() => graphPage(filtered.value,page.value,pageSize,selectedId.value,depth.value,path.value))
+const drawn = filtered
 const selected = computed(() => scopedGraph.value.nodes.find(n => n.id === selectedId.value))
 const adjacent = computed(() => selected.value ? neighbors(filtered.value, selectedId.value) : [])
 const pinned = computed(() => pins.value.map(id => scopedGraph.value.nodes.find(node => node.id === id)).filter(Boolean))
 const legend = computed(() => [...new Set(drawn.value.nodes.map(node => node.type))])
 const allJobs = computed(() => source.value === 'uploads' && !jobId.value && !lastQuery.value)
-const scopeTitle = computed(() => ({ catalog:'公开知识库', search:'公开检索结果', turn:'当前回答证据', uploads:'入库资料' })[source.value])
+const scopeTitle = computed(() => ({ all:'全部可访问资料', catalog:'公开知识库', search:'公开检索结果', turn:'当前回答证据', uploads:'入库资料' })[source.value])
 const scopeChunks = computed(() => scopedGraph.value.nodes.filter(node => node.type === 'chunk').length)
 const emptyText = computed(() => {
   if (loading.value) return '正在读取知识节点…'
@@ -41,7 +40,7 @@ const emptyText = computed(() => {
   if (source.value === 'catalog') return '当前发布版本没有公开文档。'
   if (source.value === 'search' && !notice.value) return '输入关键词检索公开资料。'
   if (source.value === 'turn' && !notice.value) return '本轮回答没有可展示的公开知识证据。'
-  if (allJobs.value) return '选择已入库文件，或输入关键词跨文件检索。'
+  if (allJobs.value) return '当前没有已完成入库的文件。'
   return notice.value || '检索没有匹配到知识节点。'
 })
 function resetFilters() { mode.value='hybrid'; nodeType.value=''; file.value=''; hidden.value=[] }
@@ -60,11 +59,10 @@ async function focus(id) {
     index = filtered.value.nodes.findIndex(node => node.id===id)
   }
   if (index === -1) return
-  page.value = Math.floor(index/pageSize); select(id)
+  select(id)
   await nextTick()
   canvas.value?.focus(id)
 }
-function movePage(offset) { page.value+=offset; selectedId.value='' }
 function toggleSidebar() {
   sidebar.value = !sidebar.value
   if (sidebar.value && window.matchMedia('(max-width:760px)').matches) detailsOpen.value=false
@@ -77,7 +75,7 @@ async function downloadFile(hit) {
   catch (e) { if (!request.signal.aborted) downloadError.value=e.message }
   finally { if (request === download) downloading.value=false }
 }
-watch(graph, () => { scopedDocument.value=''; selectedId.value=''; pins.value=[]; page.value=0; resetFilters(); download?.abort(); downloadError.value='' })
+watch(graph, () => { scopedDocument.value=''; selectedId.value=''; pins.value=[]; resetFilters(); download?.abort(); downloadError.value='' })
 // A document jump arrives before its asynchronous job details. Resolve only in the requested job.
 const pendingChunk = ref(props.chunkId)
 watch(graph, value => {
@@ -86,17 +84,16 @@ watch(graph, value => {
     hit.jobId === props.jobId && hit.chunkId === pendingChunk.value))
   if (node) { pendingChunk.value = ''; focus(node.id) }
 }, { flush:'post' })
-watch(scopedDocument, () => { resetFilters(); page.value=0; pins.value=[]; selectedId.value=''; destination.value='' })
+watch(scopedDocument, () => { resetFilters(); pins.value=[]; selectedId.value=''; destination.value='' })
 watch(pins, ids => { if (!ids.includes(destination.value)) destination.value='' })
 watch(filtered, value => {
-  page.value = Math.max(0,Math.min(page.value, pages.value-1))
   if (!value.nodes.some(n => n.id===selectedId.value)) selectedId.value=''
 })
 onBeforeUnmount(() => download?.abort())
 watch(() => props.visible, value => {
   if (!value) return
   if (source.value === 'uploads' && props.canIngest) { listJobs(); search() }
-  if (source.value === 'catalog') search()
+  if (['catalog','all'].includes(source.value)) search()
 })
 </script>
 
@@ -109,6 +106,7 @@ watch(() => props.visible, value => {
     <main class="kg-center">
       <div class="kg-scope" role="status"><strong>{{ scopeTitle }}</strong>
         <span v-if="source==='catalog' && catalog">全库 {{ catalog.counts.documents }} 份文档 · {{ catalog.counts.chunks }} 个片段<template v-if="!documentId"> · {{ graph.nodes.length }} 个节点</template></span>
+        <span v-if="source==='all'">含公开库与授权入库资料 · {{ graph.nodes.filter(n => n.type==='document').length }} 份文档</span>
         <span v-if="graph.nodes.length && (source!=='catalog' || documentId)">{{ documentId && source==='catalog' ? '所选文档' : '当前范围' }} {{ scopeChunks }} 个片段 · {{ scopedGraph.nodes.length }} 个节点</span>
       </div>
       <GraphToolbar :sidebar-open="sidebar" :key="source+jobId" :nodes="filtered.nodes" :layout="layout" :zoom="zoom" @sidebar="toggleSidebar"
@@ -124,15 +122,13 @@ watch(() => props.visible, value => {
         </div>
 
       </div>
+      <div v-if="error && drawn.nodes.length" class="kg-notice" role="alert">{{ error }} <button @click="search">重新加载全部来源</button></div>
       <div v-if="jobsError" class="kg-notice" role="alert">{{ jobsError }} <button @click="listJobs">重试文件列表</button></div>
       
       <footer v-if="drawn.nodes.length">        <div class="kg-overview"><Share2/><span>{{ {hybrid:'混合图谱',rag:'文档片段图',graph:'实体关系图'}[mode] }}</span>
-          <small>本页 {{ drawn.nodes.length }} 节点 · {{ drawn.edges.length }} 条连线</small></div>
-        <div v-if="pages>1" class="kg-pages">
-          <button :disabled="!page" aria-label="上一页节点" @click="movePage(-1)"><ChevronLeft/></button>
-          第 {{ page+1 }} / {{ pages }} 页 · 筛选后 {{ filtered.nodes.length }} 个节点
-          <button :disabled="page+1===pages" aria-label="下一页节点" @click="movePage(1)"><ChevronRight/></button>
-        </div><div class="kg-legend" aria-label="图例"><span v-for="kind in legend" :key="kind"><i :style="{ background:nodeTypes[kind].color }"/>{{ nodeTypes[kind].label }}</span></div>
+          <small>已展示 {{ drawn.nodes.length }} / {{ filtered.nodes.length }} 节点 · {{ drawn.edges.length }} 条连线</small></div>
+        <span v-if="filtered.nodes.length !== scopedGraph.nodes.length" class="kg-filter-count">筛选前 {{ scopedGraph.nodes.length }} 个节点</span>
+        <div class="kg-legend" aria-label="图例"><span v-for="kind in legend" :key="kind"><i :style="{ background:nodeTypes[kind].color }"/>{{ nodeTypes[kind].label }}</span></div>
         <details v-if="notice" class="release-info"><summary>数据来源</summary><div>{{ notice }}</div></details>
       </footer>
     </main>

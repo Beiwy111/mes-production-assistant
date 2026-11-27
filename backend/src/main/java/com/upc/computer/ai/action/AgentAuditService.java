@@ -32,16 +32,33 @@ public class AgentAuditService {
         log.setModuleName("AI Agent-" + action.module());
         log.setOperationType(phase);
         log.setBusinessTable("agent_action_plan");
-        log.setOperationContent(limit(toJson(Map.of(
-                "planId", planId,
-                "actionCode", action.code(),
-                "parameters", redact(parameters)
-        )), 1000));
+        log.setOperationContent(summary(planId, action.code(), parameters));
         log.setIpAddress("agent");
         log.setResultStatus(success ? "SUCCESS" : "FAIL");
         log.setErrorMessage(error == null ? null : limit(error, 500));
         log.setOperatedAt(LocalDateTime.now());
         systemService.insertOperationLog(log);
+    }
+
+    // operation_log.operation_content is VARCHAR(500). The complete proposal lives in the plan repository.
+    private String summary(String planId, String actionCode, Map<String, Object> parameters) {
+        var safe = redact(parameters);
+        String full = toJson(Map.of("planId", planId, "actionCode", actionCode, "parameters", safe));
+        if (full.length() <= 500) return full;
+        var summary = new LinkedHashMap<String, Object>();
+        summary.put("planId", planId);
+        summary.put("actionCode", actionCode);
+        for (String key : java.util.List.of("schedules", "recommendations")) {
+            if (safe.get(key) instanceof java.util.Collection<?> rows) summary.put(key + "Count", rows.size());
+        }
+        for (String key : java.util.List.of("orderId", "planId", "dispatchId", "plannedQty")) {
+            if (safe.get(key) != null) {
+                String label = "target_" + key;
+                summary.put(label, limit(String.valueOf(safe.get(key)), 80));
+                if (toJson(summary).length() > 500) summary.remove(label);
+            }
+        }
+        return toJson(summary);
     }
 
     private Map<String, Object> redact(Map<String, Object> parameters) {

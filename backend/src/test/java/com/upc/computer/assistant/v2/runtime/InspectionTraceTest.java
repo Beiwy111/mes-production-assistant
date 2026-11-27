@@ -27,7 +27,7 @@ class InspectionTraceTest {
     @Test void aPassedSampleCanContainRejectsWithoutProvingWholeBatchFailed(){
         var faults=InspectionTrace.quantityConflicts(Map.of("inspection_status","PASSED","inspection_result","QUALIFIED",
             "sample_quantity",150,"qualified_quantity",148,"unqualified_quantity",2));
-        assertEquals(1,faults.size());assertTrue(faults.get(0).contains("接受准则"));
+        assertTrue(faults.isEmpty());
         assertEquals(2,InspectionTrace.quantityConflicts(Map.of("inspection_status","FAILED","inspection_result","UNQUALIFIED",
             "sample_quantity",10,"qualified_quantity",8,"unqualified_quantity",0)).size());
     }
@@ -68,6 +68,47 @@ class InspectionTraceTest {
         var result=InspectionTrace.read(new NaturalLanguageRuntime.Data(mapper,null),"QI123",(tool,read)->read.get());
         assertEquals("NOT_FOUND",result.get("status"));verify(mapper).traceInspection("QI123");verifyNoMoreInteractions(mapper);
         assertThrows(IllegalArgumentException.class,()->InspectionTrace.read(new NaturalLanguageRuntime.Data(mapper,null),"QI123,456",(t,f)->f.get()));
+    }
+
+    @Test void passedLotWithRejectsSeparatesAcceptanceFromCountingAndPrioritizesTheMissingCriterion(){
+        var header=Map.<String,Object>of("inspection_id",78,"inspection_no","QI-X78","batch_no","LOT-X",
+            "work_order_id",20,"inspection_status","PASSED","inspection_result","QUALIFIED",
+            "sample_quantity",40,"qualified_quantity",39,"unqualified_quantity",1);
+        var facts=new LinkedHashMap<String,Object>();
+        InspectionTrace.conclude(facts,header,new ArrayList<>());
+        assertEquals("2.5%",facts.get("confirmedSampleRejectRate"));
+        assertEquals(List.of(),facts.get("conflicts"));
+        assertTrue(facts.get("diagnosticConclusion").toString().contains("39 + 1 = 40"));
+        assertTrue(((List<?>)facts.get("verificationActions")).get(0).toString().contains("接受准则"));
+        assertTrue(facts.get("summary").toString().contains("## 结论"));
+    }
+
+    @Test void distinguishConfirmedWorkOrderCoverageFromInspectionLinksAndDeduplicateLotReferences(){
+        var header=Map.<String,Object>of("inspection_id",78,"inspection_no","QI-X78","batch_no","LOT-X","work_order_id",20);
+        var facts=new LinkedHashMap<String,Object>();
+        facts.put("workOrder",List.of(Map.of("work_order_id",20,"work_order_no","WO-X")));
+        facts.put("routeSteps",List.of(Map.of("step_id",1,"step_name","装配"),Map.of("step_id",2,"step_name","装配"),
+            Map.of("step_id",3,"step_name","测试")));
+        var report=Map.<String,Object>of("step_id",1,"report_id",8,"report_no","WR-X","work_order_id",20,
+            "report_status","CONFIRMED","link_basis","检验单直接报工","step_name","装配");
+        var foreign=new HashMap<>(report);foreign.putAll(Map.of("work_order_id",22,"report_no","WR-OTHER","step_id",3,
+            "link_basis","检验工单与报工工单矛盾"));
+        facts.put("reportRows",List.of(report,report,foreign));
+        facts.put("dispatchRows",List.of(Map.of("work_order_id",20,"dispatch_no","DT-Y","step_id",2)));
+        facts.put("lotReports",List.of(Map.of("inspection_no","QI-X78","report_no","WR-X","batch_no","LOT-X"),
+            Map.of("inspection_no","QI-X79","report_no","WR-X","batch_no","LOT-X")));
+        facts.put("graphStatus","NO_SNAPSHOT");
+        InspectionTrace.conclude(facts,header,new ArrayList<>());
+        var coverage=(Map<?,?>)facts.get("processCoverage");
+        assertEquals(3,coverage.get("routeStepCount"));assertEquals(1,coverage.get("confirmedStepCount"));
+        assertEquals(1,coverage.get("reportedStepCount"));assertEquals(1,coverage.get("dispatchedStepCount"));
+        var steps=(List<Map<String,Object>>)coverage.get("steps");
+        assertEquals(List.of("WR-X"),steps.get(0).get("confirmedReports"));
+        assertEquals(List.of("DT-Y"),steps.get(1).get("dispatches"));
+        assertEquals(List.of(),steps.get(2).get("reports"));
+        String summary=facts.get("summary").toString();
+        for(String term:List.of("1/3","仅有派工","未查到报工","1 张不同报工单","QI-X79","Neo4j","未取得业务图快照"))
+            assertTrue(summary.contains(term),term);
     }
 
     @Test void conflictBetweenStagesIsReportedWithoutDerivingARateOrInventingARecheck(){
@@ -154,8 +195,16 @@ class InspectionTraceTest {
             var reported=mapper.traceInspection("QI202611001");
             var lot=mapper.traceLotReports(((Number)reported.get("inspection_id")).longValue());
             assertTrue(lot.stream().anyMatch(r->"WR202611008".equals(r.get("report_no"))));
+            var reportedTrace=InspectionTrace.read(new NaturalLanguageRuntime.Data(mapper,null),
+                reported.get("inspection_no").toString(),(tool,read)->read.get());
+            assertEquals("10%",reportedTrace.get("confirmedSampleRejectRate"));
+            var coverage=(Map<?,?>)reportedTrace.get("processCoverage");
+            assertEquals(10,coverage.get("routeStepCount"));assertEquals(8,coverage.get("reportedStepCount"));
+            assertEquals(0,coverage.get("confirmedStepCount"));
+            assertTrue(reportedTrace.get("summary").toString().contains("18 + 2 = 20"));
+            assertTrue(reportedTrace.get("summary").toString().contains("完成 20 件、合格 20 件、不合格 0 件"));
             assertEquals(List.of(),mapper.traceLotReports(((Number)optical.get("inspection_id")).longValue()));
-            assertEquals(1,InspectionTrace.quantityConflicts(mapper.traceInspection("QI202607503")).size());
+            assertTrue(InspectionTrace.quantityConflicts(mapper.traceInspection("QI202607503")).isEmpty());
             session.rollback(true);
         }
     }

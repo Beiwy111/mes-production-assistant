@@ -88,6 +88,7 @@ public class MesWorkflowService {
     private MesPlannerAgentService plannerAgentService;
     @Autowired
     private MesPlannerSchedulingService plannerSchedulingService;
+    @Autowired private ProductionPortfolioPlanner portfolioPlanner;
     @Autowired
     private MesDispatchRecommendService dispatchRecommendService;
     @Autowired
@@ -135,7 +136,7 @@ public class MesWorkflowService {
                     parseDate(str(payload, "planEnd")),
                     intVal(payload.get("plannedQty")));
             case "validateProductionPlan" -> plannerSchedulingService.validatePlan(payload);
-            case "saveProductionPlan" -> plannerSchedulingService.savePlanWithSchedule(payload, operator);
+            case "saveProductionPlan" -> payload.containsKey("portfolioInputs") ? portfolioPlanner.saveReviewed(payload, operator) : plannerSchedulingService.savePlanWithSchedule(payload, operator);
             case "saveBatchProductionPlans" -> plannerSchedulingService.saveBatchPlans(payload, operator);
             case "copyProductionPlan" -> plannerSchedulingService.copyPlan(str(payload, "planId"), operator);
             case "loadManualPlanWizard" -> plannerSchedulingService.loadManualWizardContext(
@@ -926,6 +927,38 @@ public class MesWorkflowService {
         return result;
     }
 
+    /** Serialize reviewed whole-plan/step dispatches against other assistant confirmations. */
+    @Transactional
+    public Object executeReviewedDispatch(MesActionRequest request) {
+        Map<String,Object> reviewed = request.getPayload();
+        String planNo = str(reviewed, "planId");
+        if (productionPlanMapper.lockPlanForDispatch(planNo) == null)
+            throw new BusinessException(404, "计划不存在");
+        String step = str(reviewed, "processStep");
+        if (step.isBlank() ? dispatchTaskMapper.hasDispatchForPlan(planNo) : dispatchTaskMapper.hasDispatchForStep(planNo, step))
+            throw new BusinessException(409, "所选计划或工序已有派工，请查看已有任务");
+        if (!(reviewed.get("recommendations") instanceof List<?> values) || values.isEmpty())
+            throw new BusinessException(400,"缺少已核对的工序派工明细");
+        @SuppressWarnings("unchecked") var checkedRows = (List<Map<String,Object>>) values;
+        var checked = dispatchRecommendService.validateRecommendations(planNo,checkedRows);
+        if (!Boolean.TRUE.equals(checked.get("canSubmit")))
+            throw new BusinessException(409,"人员或设备状态已变化，请重新生成派工方案");
+        if ("true".equals(reviewed.get("idleOnly"))) {
+            var available = dispatchRecommendService.operatorAvailability();
+            for(var row : checkedRows) if(available.stream().noneMatch(u -> Objects.equals(u.get("username"),row.get("recommendedOperator")) && Boolean.TRUE.equals(u.get("idle"))))
+                throw new BusinessException(409,"操作员已有在手任务，请重新核对空闲限制");
+        }
+        if (Boolean.TRUE.equals(reviewed.get("preparePlan"))) {
+            if (!"admin".equalsIgnoreCase(request.getRoleKey())) throw new BusinessException(403,"当前角色不能同时发布计划并派工");
+            ProductionPlan plan = findPlanByNo(planNo);
+            if (plan == null || !List.of("DRAFT","PUBLISHED").contains(plan.getPlanStatus()))
+                throw new BusinessException(409,"计划状态已变化，请重新准备派工方案");
+            if ("DRAFT".equals(plan.getPlanStatus())) publishPlan(Map.of("planId",planNo),request.getOperator(),request.getRoleKey());
+            submitPlanToManager(Map.of("planId",planNo),request.getOperator(),request.getRoleKey());
+        }
+        return execute(request);
+    }
+
     @SuppressWarnings("unchecked")
     private Map<String, Object> confirmSmartDispatch(Map<String, Object> p, String operator, String roleKey) {
         String planNo = str(p, "planId");
@@ -942,6 +975,14 @@ public class MesWorkflowService {
         }
         if (recommendations == null || recommendations.isEmpty()) {
             throw new BusinessException("没有可确认的派工推荐");
+        }
+        if ("true".equals(p.get("idleOnly"))) {
+            var available = dispatchRecommendService.operatorAvailability();
+            for (var row : recommendations) {
+                String username = str(row,"recommendedOperator");
+                if (available.stream().noneMatch(u -> username.equals(u.get("username")) && Boolean.TRUE.equals(u.get("idle"))))
+                    throw new BusinessException(409,"操作员任务负载已变化或不符合仅空闲限制，请重新生成派工方案");
+            }
         }
         Map<String, Object> validation = dispatchRecommendService.validateRecommendations(planNo, recommendations);
         if (Boolean.TRUE.equals(validation.get("hasDanger"))) {
@@ -1228,7 +1269,10 @@ public class MesWorkflowService {
         pushDispatchNotice(runtime, dispatchNo, wo.getWorkOrderNo(), step, opUser, eq,
                 decimal(p.get("planQty")), assigner, operator);
         mesRuntimeStore.save(runtime);
-        return Map.of("id", dispatchNo);
+        return Map.of("id", dispatchNo, "operatorUsername",opUser.getUsername(),
+            "operatorName",Objects.toString(opUser.getRealName(),opUser.getUsername()),
+            "processStep",step == null ? "" : step.getStepName(), "status","ASSIGNED",
+            "notificationStatus","任务已写入本人工作台，待操作员接收");
     }
 
     /** 派工通知：仅投递给被派工的操作员账号。 */
@@ -1268,9 +1312,45 @@ public class MesWorkflowService {
             return List.of();
         }
         String target = username.trim();
-        return mesRuntimeStore.load().getOperatorNotices().stream()
-                .filter(n -> target.equals(String.valueOf(n.getOrDefault("targetUsername", "")).trim()))
-                .toList();
+        var result = new ArrayList<Map<String,Object>>(mesRuntimeStore.load().getOperatorNotices().stream()
+                .filter(n -> target.equals(String.valueOf(n.getOrDefault("targetUsername", "")).trim())).toList());
+        // Redis notifications are a convenience. Persisted assignments remain the source of truth
+        // and must still appear for their recipient after cache loss or the global notice cap.
+        User recipient = findUserByUsername(target);
+        if (recipient != null) {
+            Set<String> known = result.stream().map(n -> str(n,"dispatchNo")).collect(java.util.stream.Collectors.toSet());
+            for (DispatchTask task : dispatchTaskMapper.dispatchList()) {
+                if (!Objects.equals(recipient.getUserId(),task.getOperatorId()) || !"ASSIGNED".equals(task.getStatus())
+                    || known.contains(task.getDispatchNo())) continue;
+                result.add(Map.of("id","DISPATCH-" + task.getDispatchNo(),"kind","dispatch","targetUsername",target,
+                    "title","待接收派工任务 " + task.getDispatchNo(),"content","已有任务分配给你，请前往我的派工核对工序和设备并接收。",
+                    "link","/production/my-dispatch","dispatchNo",task.getDispatchNo(),
+                    "createdAt",Objects.toString(task.getAssignedAt(),""),"source","dispatch_task"));
+            }
+        }
+        return result;
+    }
+
+    /** A reminder uses the assignee recorded on the still-open dispatch. */
+    public Map<String, Object> remindDispatch(String dispatchNo, String expectedUsername, String sender) {
+        DispatchTask dispatch = findDispatchByNo(dispatchNo);
+        if (dispatch == null || !List.of("ASSIGNED", "ACCEPTED", "PRODUCING", "RUNNING").contains(dispatch.getStatus()))
+            throw new BusinessException(409, "该派工已结束或不存在，无法提醒");
+        User assignee = dispatch.getOperatorId() == null ? null : userMapper.getUserById(dispatch.getOperatorId());
+        if (assignee == null || !expectedUsername.equals(assignee.getUsername()))
+            throw new BusinessException(409, "派工接收人已变更，请重新预览");
+        MesRuntimeState runtime = mesRuntimeStore.load();
+        String id = "DN-" + java.util.UUID.randomUUID();
+        Map<String, Object> notice = Map.of("id", id, "kind", "dispatch", "targetUsername", expectedUsername,
+                "title", "派工任务提醒 " + dispatchNo, "content", "请查看派工 " + dispatchNo + "，按当前工序安排跟进。",
+                "from", sender, "link", "/production/my-dispatch", "dispatchNo", dispatchNo,
+                "createdAt", LocalDateTime.now().format(DT_FMT));
+        runtime.getOperatorNotices().add(0, notice);
+        if (runtime.getOperatorNotices().size() > 200)
+            runtime.setOperatorNotices(new ArrayList<>(runtime.getOperatorNotices().subList(0, 200)));
+        mesRuntimeStore.save(runtime);
+        return Map.of("dispatchId", dispatchNo, "targetUsername", expectedUsername,
+                "notificationId", id, "message", "已向 " + expectedUsername + " 发送派工任务提醒");
     }
 
     private boolean acceptDispatch(Map<String, Object> p, String operator, String roleKey) {
@@ -3925,10 +4005,7 @@ public class MesWorkflowService {
     private User resolveOperator(Map<String, Object> p) {
         String op = str(p, "operator");
         if (!op.isBlank()) {
-            User u = findUserByUsername(op);
-            if (u != null) {
-                return u;
-            }
+            return findUserByUsername(op);
         }
         return userMapper.userList().stream()
                 .filter(u -> u.getStatus() != null && u.getStatus() == 1)

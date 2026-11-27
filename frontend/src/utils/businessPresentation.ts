@@ -36,6 +36,15 @@ const extraLabels: Record<string, string> = {
   inspection_type: '检验类型', nonconforming_id: '不合格品 ID', nonconforming_no: '不合格品编号',
   before: '前期抽检', after: '后期抽检', difference_percentage_points: '差值（百分点）',
   step_key: '工序标识',
+  sample_fail_percent: '抽检不合格率（%）', record_count: '缺陷记录数', inspectionCount: '检验记录数',
+  validRecordCount: '有效抽检记录数', pendingCount: '待检记录数', conflictCount: '数据冲突记录数',
+  concessionCount: '让步接收记录数', incompleteCount: '资料不完整记录数', acceptanceReviewCount: '需复核接收记录数',
+  recheckRecordCount: '复检记录数', excludedDefectRegistrationCount: '因关联矛盾排除的缺陷登记数', previousComplete: '上期数据完整',
+  comparable_batch_count: '可比批次数', lowest: '不合格率最低批次', highest: '不合格率最高批次',
+  previous_sample_quantity: '上期有效抽检数量', current_sample_quantity: '本期有效抽检数量',
+  previous_fail_percent: '上期抽检不合格率（%）', current_fail_percent: '本期抽检不合格率（%）',
+  basis: '比较口径', previousStartInclusive: '上期开始（含）', previousEndExclusive: '上期结束（不含）',
+  currentStartInclusive: '本期开始（含）', currentEndExclusive: '本期结束（不含）',
   link_basis: '关联依据', remark: '原记录备注', report_status: '报工状态',
   round_id: '检验版本 ID', event_type: '保存或判定动作', source_updated_at: '原记录更新时间',
   recorded_at: '留存时间', operator_source: '操作人来源', binding_id: '样机关联 ID',
@@ -63,7 +72,12 @@ function columnsFor(rows: BusinessRow[], production = false, dateField?: string)
   const first = production ? productionColumns : []
   const columns = [...first, ...evidenceColumns(rows, dateField), ...Object.entries(extraLabels)
     .filter(([key]) => rows.some((row) => Object.hasOwn(row, key))).map(([key, label]) => ({ key, label }))]
-  return columns.filter((column, i) => columns.findIndex((c) => c.key === column.key) === i)
+  const defined = new Map<string, BusinessColumn>()
+  for (const column of columns) if (!defined.has(column.key)) defined.set(column.key, column)
+  for (const row of rows) {
+    for (const key of Object.keys(row)) if (!defined.has(key)) defined.set(key, { key, label: key })
+  }
+  return [...defined.values()]
 }
 function warningLabel(warning: string): string {
   const evidence = evidenceWarning(warning)
@@ -96,9 +110,6 @@ export function businessSnapshot(message: BusinessMessage | null | undefined): B
     const rows = rowsOf(records)
     if (!rows.length) return
     const columns = columnsFor(rows)
-    for (const field of new Set(rows.flatMap(row => Object.keys(row)))) {
-      if (!columns.some(c => c.key === field)) columns.push({ key: field, label: extraLabels[field] || field })
-    }
     snapshot.tables.push({ key, domain, label, rows, columns, total: null, returned: null, partial: false, notes: [] })
   }
   appendRows('workshop-stages', 'production', '车间标准派工工序', facts.process_route?.productionStages)
@@ -214,7 +225,7 @@ export function businessSnapshot(message: BusinessMessage | null | undefined): B
   for (const domain of detailedDomainEvidence(facts)) {
     snapshot.notices.push(...domain.warnings)
     if (domain.pathsIncomplete) snapshot.notices.push(`追溯路径尚不完整。${domain.pathLimit != null ? `本次路径上限 ${domain.pathLimit} 条。` : ''}`)
-    for (const table of domain.tables) snapshot.tables.push({ ...table, key: `${domain.key}-${table.key}`, domain: domain.key,
+    for (const table of domain.tables) snapshot.tables.push({ ...table, columns: columnsFor(table.rows), key: `${domain.key}-${table.key}`, domain: domain.key,
       label: `${domain.label} · ${table.label}`, returned: null, partial: domain.partial || (table.key === 'tracePaths' && domain.pathsIncomplete), notes: [] })
   }
   const delivery = deliveryEvidence(facts)
@@ -236,6 +247,23 @@ export function businessSnapshot(message: BusinessMessage | null | undefined): B
     ['库存分配情景尚未预留，不能直接作为可发货数量。未知数量不按 0 处理。'])
   if (delivery.materials.length) addTable('delivery-materials', 'supply', '物料缺口', delivery.materials,
     ['不同物料分别核算，情景结果受 BOM、领料与订单预留记录完整性影响。'])
+  const stats = facts.quality?.qualityStatistics
+  if (stats && typeof stats === 'object') {
+    const counts = Object.fromEntries(Object.entries(stats).filter(([key, value]) =>
+      key.endsWith('Count') && (value == null || ['number', 'string'].includes(typeof value))))
+    if (Object.keys(counts).length) appendRows('quality-stats-counts', 'quality', '检验记录分类统计', [counts])
+  }
+  appendRows('quality-stats-samples', 'quality', '各检验口径抽检统计', stats?.sampleGroups)
+  appendRows('quality-stats-batches', 'quality', '分批次抽检统计', stats?.batchGroups)
+  appendRows('quality-stats-batch-differences', 'quality', '可比批次差异', stats?.batchDifferences)
+  appendRows('quality-stats-defects', 'quality', '缺陷分类记录数', stats?.defectDistribution)
+  for (const [index, period] of rowsOf(stats?.periodComparisons).entries()) {
+    const { groups, ...range } = period
+    const comparison = rowsOf(groups)
+    appendRows('quality-stats-period-' + index, 'quality', '分期抽检对比',
+      comparison.length ? comparison.map(row => ({ ...range, ...row })) : [range])
+  }
+  if (stats?.scopeNote) snapshot.notices.push(stats.scopeNote)
   snapshot.notices = [...new Set(snapshot.notices)]
   return snapshot
 }

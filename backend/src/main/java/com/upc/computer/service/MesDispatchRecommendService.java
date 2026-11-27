@@ -85,11 +85,20 @@ public class MesDispatchRecommendService {
      * 单笔计划智能派工推荐。
      */
     public Map<String, Object> generateRecommendations(String planNo) {
+        return recommend(planNo, false, Map.of(), Set.of(), false);
+    }
+
+    /** Assistant-only read preview; draft plans are never published here. */
+    public Map<String,Object> previewAssignments(String planNo, Map<String,String> overrides, Set<String> excluded, boolean idleOnly) {
+        return recommend(planNo, true, overrides, excluded, idleOnly);
+    }
+
+    private Map<String,Object> recommend(String planNo, boolean draftPreview, Map<String,String> overrides, Set<String> excluded, boolean idleOnly) {
         ProductionPlan plan = findPlanByNo(planNo);
         if (plan == null) {
             throw new BusinessException("计划不存在：" + planNo);
         }
-        if (!List.of("SUBMITTED", "EXECUTING").contains(plan.getPlanStatus())) {
+        if (!(draftPreview ? List.of("DRAFT","PUBLISHED","SUBMITTED","EXECUTING") : List.of("SUBMITTED","EXECUTING")).contains(plan.getPlanStatus())) {
             throw new BusinessException("计划状态不允许派工推荐，请确认计划已提交生产主管");
         }
 
@@ -106,16 +115,83 @@ public class MesDispatchRecommendService {
         }
 
         int planQty = resolvePlanQty(plan, materialId);
-        List<User> operators = activeOperators();
-        List<DispatchTask> allDispatches = openDispatches(dispatchTaskMapper.dispatchList());
-        List<Equipment> allEquipment = equipmentMapper.equipmentList();
-
         String workOrderNo = wo != null ? wo.getWorkOrderNo() : "待生成";
+        List<User> operators = activeOperators();
+        List<Equipment> allEquipment = equipmentMapper.equipmentList();
+        final var routeSteps=steps;
+        List<Map<String,Object>> recommendations = ProductionCalculationProgress.stage("dispatch_match","岗位、负载与设备匹配",()->assignmentRows(routeSteps,planQty,planNo,workOrderNo,draftPreview,overrides,excluded,idleOnly),v->"已生成 "+v.size()+" 道工序的初步安排；未下发");
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("planId", planNo);
+        result.put("workOrderId", workOrderNo);
+        result.put("planStatus", plan.getPlanStatus());
+        result.put("productModel", orderProductModel(plan.getSourceOrderId()));
+        result.put("planQuantity", planQty);
+        result.put("recommendations", recommendations);
+        result.put("hasWorkOrder", wo != null);
+        result.put("summary", String.format("计划 %s 共 %d 道工序，已生成智能派工推荐",
+                planNo, recommendations.size()));
+        result.put("productionStageCount", ProductionWorkshopCatalog.PRODUCTION_STAGES.size());
+        result.put("schedulingSteps", buildDispatchSchedulingSteps(planNo, planQty, steps,
+                operators, allEquipment, recommendations, wo));
+        result.put("evidenceBase", buildDispatchEvidenceBase(planNo, planQty, steps,
+                operators, allEquipment, recommendations, wo));
+        Map<String, Object> validation = ProductionCalculationProgress.stage("dispatch_validate","校验人员与设备冲突",()->validateRecommendations(planNo, recommendations),v->Boolean.TRUE.equals(v.get("canSubmit"))?"校验通过，等待人工确认":"存在冲突，不能下发");
+        attachConflictHints(recommendations, (List<Map<String, Object>>) validation.get("conflicts"));
+        result.put("validation", validation);
+        result.put("canSubmit", validation.get("canSubmit"));
+        return result;
+    }
+
+    /** A read-only order-based resource study. No synthetic plan, work order, reservation or dispatch. */
+    public Map<String,Object> previewOrderAssignments(String orderNo,int quantity) {
+        if(quantity<=0)throw new BusinessException(400,"请明确本次新增生产数量");
+        CustomerOrder order=customerOrderMapper.customerOrderList().stream().filter(o->orderNo.equals(o.getOrderNo()))
+            .findFirst().orElseThrow(()->new BusinessException(404,"订单不存在："+orderNo));
+        if(!Set.of("APPROVED","PLAN_PENDING").contains(order.getAuditStatus()))
+            throw new BusinessException(409,"订单当前状态不允许新增生产初排");
+        var items=customerOrderItemMapper.orderItemList().stream().filter(i->Objects.equals(order.getOrderId(),i.getOrderId())).toList();
+        if(items.size()!=1 || items.get(0).getMaterialId()==null)throw new BusinessException(409,"订单需明确唯一产品明细后才能初排");
+        var item=items.get(0);
+        Long route=processRouteMapper.routeList().stream().filter(r->item.getMaterialId().equals(r.getMaterialId()))
+            .map(ProcessRoute::getRouteId).findFirst().orElseThrow(()->new BusinessException(409,"产品缺少关联工艺路线"));
+        var steps=ProductionWorkshopCatalog.resolveProductionStepsForRoute(route,processStepMapper.stepList());
+        if(steps.isEmpty())throw new BusinessException(409,"工艺路线没有可用工序");
+        var rows=assignmentRows(steps,quantity,"","",true,Map.of(),Set.of(),false);
+        rows.forEach(r->{r.remove("planId");r.remove("workOrderId");});
+        var validation=validateAssignmentRows(rows,quantity);
+        attachConflictHints(rows,(List<Map<String,Object>>)validation.get("conflicts"));
+        return Map.of("orderId",orderNo,"plannedQty",quantity,"recommendations",rows,"validation",validation,"canSubmit",false,
+            "note","人员和设备按当前岗位、在手任务初排；未锁定班次或资源，未生成计划、工单或派工。需先确认可行生产计划，保存后重新校验并确认下发。");
+    }
+
+    private List<Map<String,Object>> assignmentRows(List<ProcessStep> steps,int planQty,String planNo,String workOrderNo,
+            boolean draftPreview,Map<String,String> overrides,Set<String> excluded,boolean idleOnly) {
+        if (draftPreview) {
+            Set<String> actualSteps = steps.stream().map(ProcessStep::getStepName).collect(Collectors.toSet());
+            if (!actualSteps.containsAll(overrides.keySet())) throw new BusinessException("指定工序不属于该计划工艺路线");
+            Set<String> names = activeOperators().stream().map(User::getUsername).collect(Collectors.toSet());
+            if (!names.containsAll(excluded) || !names.containsAll(overrides.values()))
+                throw new BusinessException("调整条件包含未知或非在岗操作员，请先查询人员名单");
+        }
+        List<User> operators = ProductionCalculationProgress.stage("dispatch_people","读取操作员与岗位",()->activeOperators(),v->"已核对 "+v.size()+" 个在岗账号的岗位");
+        List<DispatchTask> allDispatches = ProductionCalculationProgress.stage("dispatch_load","读取在手任务",()->openDispatches(dispatchTaskMapper.dispatchList()),v->"核对 "+v.size()+" 条未关闭任务；区分排队和正在生产");
+        List<Equipment> allEquipment = ProductionCalculationProgress.stage("dispatch_equipment","读取设备状态",()->equipmentMapper.equipmentList(),v->"读取 "+v.size()+" 台设备及状态");
+
         List<Map<String, Object>> recommendations = new ArrayList<>();
         Set<Long> reservedOperatorIds = new HashSet<>();
 
         for (ProcessStep step : steps) {
-            OperatorPick pick = pickOperator(step, operators, allDispatches, reservedOperatorIds);
+            List<User> eligible = operators.stream().filter(u -> !excluded.contains(u.getUsername()))
+                    .filter(u -> !idleOnly || countActiveLoad(u.getUserId(), allDispatches) == 0).toList();
+            OperatorPick pick = pickOperator(step, eligible, allDispatches, reservedOperatorIds);
+            if (overrides.containsKey(step.getStepName())) {
+                User chosen = eligible.stream().filter(u -> overrides.get(step.getStepName()).equals(u.getUsername()))
+                    .findFirst().orElseThrow(() -> new BusinessException("指定人员被排除或已有任务，不符合本轮空闲限制"));
+                OperatorWorkshopCatalog.ensureOperatorWorkshopMatch(chosen, step);
+                pick = new OperatorPick(chosen.getUserId(),chosen.getUsername(),chosen.getRealName(),chosen.getDepartment(),
+                    "按用户调整；已核对工序岗位与实际任务",countActiveLoad(chosen.getUserId(),allDispatches),countHistory(chosen.getUserId(),allDispatches));
+            }
             if (pick.userId() != null) {
                 reservedOperatorIds.add(pick.userId());
             }
@@ -140,29 +216,19 @@ public class MesDispatchRecommendService {
             row.put("department", pick.department());
             row.put("activeLoad", pick.activeLoad());
             row.put("historyCount", pick.historyCount());
+            if (draftPreview) {
+                User chosen = operators.stream().filter(u -> Objects.equals(u.getUsername(), row.get("recommendedOperator"))).findFirst().orElse(null);
+                int load = chosen == null ? 0 : countActiveLoad(chosen.getUserId(),allDispatches);
+                row.put("activeLoad", load);
+                row.put("availability", chosen == null ? "缺少可用人员" : load == 0 ? "当前无在手任务" : "已有 " + load + " 条在手任务");
+                row.put("recommendReason", chosen == null ? pick.reason() :
+                    (overrides.containsKey(step.getStepName()) ? "用户指定，岗位匹配" : "按岗位匹配、无在手任务优先推荐")
+                    + "；" + row.get("availability"));
+            }
             recommendations.add(row);
         }
 
-        Map<String, Object> result = new LinkedHashMap<>();
-        result.put("planId", planNo);
-        result.put("workOrderId", workOrderNo);
-        result.put("planStatus", plan.getPlanStatus());
-        result.put("productModel", orderProductModel(plan.getSourceOrderId()));
-        result.put("planQuantity", planQty);
-        result.put("recommendations", recommendations);
-        result.put("hasWorkOrder", wo != null);
-        result.put("summary", String.format("计划 %s 共 %d 道工序，已生成智能派工推荐",
-                planNo, recommendations.size()));
-        result.put("productionStageCount", ProductionWorkshopCatalog.PRODUCTION_STAGES.size());
-        result.put("schedulingSteps", buildDispatchSchedulingSteps(planNo, planQty, steps,
-                operators, allEquipment, recommendations, wo));
-        result.put("evidenceBase", buildDispatchEvidenceBase(planNo, planQty, steps,
-                operators, allEquipment, recommendations, wo));
-        Map<String, Object> validation = validateRecommendations(planNo, recommendations);
-        attachConflictHints(recommendations, (List<Map<String, Object>>) validation.get("conflicts"));
-        result.put("validation", validation);
-        result.put("canSubmit", validation.get("canSubmit"));
-        return result;
+        return recommendations;
     }
 
     private List<Map<String, Object>> buildDispatchSchedulingSteps(String planNo, int planQty,
@@ -369,6 +435,25 @@ public class MesDispatchRecommendService {
         return openDispatches(dispatchTaskMapper.dispatchList());
     }
 
+    /** Real outstanding dispatches, excluding closed work orders. No attendance/skills inference. */
+    public List<Map<String,Object>> operatorAvailability() {
+        var tasks = openDispatchList();
+        return activeOperators().stream().map(u -> {
+            Map<String,Object> row = new LinkedHashMap<>();
+            var stage = OperatorWorkshopCatalog.stageForOperator(u.getUsername());
+            row.put("username",u.getUsername()); row.put("name",Objects.toString(u.getRealName(),""));
+            row.put("processStep",stage == null ? "" : stage.stepName());
+            row.put("department",Objects.toString(u.getDepartment(),""));
+            var active = tasks.stream().filter(d -> Objects.equals(d.getOperatorId(),u.getUserId()))
+                .filter(d -> ACTIVE_DISPATCH_STATUS.contains(d.getStatus())).toList();
+            row.put("activeLoad",active.size());
+            row.put("idle",active.isEmpty());
+            row.put("tasks",active.stream().map(d -> Map.of("dispatchId",Objects.toString(d.getDispatchNo(),""),
+                "status",Objects.toString(d.getStatus(),""))).toList());
+            return row;
+        }).toList();
+    }
+
     private OperatorPick pickOperator(ProcessStep step, List<User> operators, List<DispatchTask> dispatches) {
         return pickOperator(step, operators, dispatches, Set.of());
     }
@@ -442,7 +527,8 @@ public class MesDispatchRecommendService {
             if (reservedOperatorIds != null && reservedOperatorIds.contains(user.getUserId())) {
                 continue;
             }
-            int activeLoad = countInProgressLoad(user.getUserId(), dispatches);
+            if (countInProgressLoad(user.getUserId(), dispatches) > 0) continue;
+            int activeLoad = countActiveLoad(user.getUserId(), dispatches);
             int historyCount = countHistory(user.getUserId(), dispatches);
             boolean deptMatch = departmentMatches(user.getDepartment(), stepDept);
             boolean primary = primaryUsername != null && primaryUsername.equals(user.getUsername());
@@ -579,7 +665,7 @@ public class MesDispatchRecommendService {
                 || stepDept.contains(operatorDept.replace("生产", ""));
     }
 
-    private List<User> activeOperators() {
+    public List<User> activeOperators() {
         return userMapper.userList().stream()
                 .filter(u -> u.getStatus() != null && u.getStatus() == 1)
                 .filter(u -> {
@@ -640,7 +726,7 @@ public class MesDispatchRecommendService {
     public Map<String, Object> loadPlanContext(String planNo) {
         ProductionPlan plan = findPlanByNo(planNo);
         if (plan == null) {
-            throw new BusinessException("计划不存在");
+            throw new BusinessException(404,"计划不存在：" + planNo + "；未保存的排程方案没有计划编号，请先按订单核对");
         }
         CustomerOrder order = customerOrderMapper.customerOrderList().stream()
                 .filter(o -> plan.getSourceOrderId().equals(o.getOrderId()))
@@ -685,8 +771,12 @@ public class MesDispatchRecommendService {
     public Map<String, Object> validateRecommendations(String planNo, List<Map<String, Object>> rows) {
         ProductionPlan plan = findPlanByNo(planNo);
         if (plan == null) {
-            throw new BusinessException("计划不存在");
+            throw new BusinessException(404,"计划不存在：" + planNo + "；未保存的排程方案没有计划编号，请先按订单核对");
         }
+        return validateAssignmentRows(rows,resolvePlanQty(plan,resolveMaterialId(plan)));
+    }
+
+    private Map<String,Object> validateAssignmentRows(List<Map<String,Object>> rows,int planQty) {
         if (rows == null || rows.isEmpty()) {
             throw new BusinessException("派工明细为空");
         }
@@ -699,7 +789,6 @@ public class MesDispatchRecommendService {
         List<Map<String, Object>> conflicts = new ArrayList<>();
         Set<String> usedOperators = new HashSet<>();
         Set<String> usedEquipCodes = new HashSet<>();
-        int planQty = resolvePlanQty(plan, resolveMaterialId(plan));
         Integer prevStepNo = null;
 
         for (Map<String, Object> row : rows) {
@@ -722,7 +811,11 @@ public class MesDispatchRecommendService {
                 conflicts.add(conflict("danger", "operator_duplicate", "人员重复", operator + " 被重复派工"));
             } else {
                 User op = operators.stream().filter(u -> operator.equals(u.getUsername())).findFirst().orElse(null);
-                if (op != null) {
+                if (op == null) {
+                    conflicts.add(conflict("danger", "unknown_operator", "人员不可用", operator + " 不是当前可用的车间操作员"));
+                } else {
+                    if (step == null || !OperatorWorkshopCatalog.operatorMatchesStep(op.getUsername(),step))
+                        conflicts.add(conflict("danger","operator_step","岗位不匹配",operator + " 无法承担 " + stepName));
                     long inProgress = allDispatches.stream()
                             .filter(d -> op.getUserId().equals(d.getOperatorId()))
                             .filter(d -> OperatorWorkshopCatalog.IN_PROGRESS_DISPATCH_STATUS.contains(d.getStatus()))
@@ -746,7 +839,9 @@ public class MesDispatchRecommendService {
                     .filter(e -> (!equipCode.isBlank() && !"null".equals(equipCode) && equipCode.equals(e.getEquipmentCode()))
                             || equipName.equals(e.getEquipmentName()) || equipName.equals(e.getEquipmentCode()))
                     .findFirst().orElse(null);
-            if (eq != null) {
+            if (!equipCode.isBlank() && !"null".equals(equipCode) && (eq == null || !equipCode.equals(eq.getEquipmentCode()))) {
+                conflicts.add(conflict("danger", "unknown_equipment", "设备不可用", equipCode + " 未匹配到指定设备"));
+            } else if (eq != null) {
                 if ("FAULT".equals(eq.getStatus()) || "MAINTENANCE".equals(eq.getStatus())) {
                     conflicts.add(conflict("danger", "equipment_fault", "设备故障", eq.getEquipmentName() + " 不可用"));
                 }
@@ -760,6 +855,7 @@ public class MesDispatchRecommendService {
                     conflicts.add(conflict("warning", "equipment_busy", "设备占用", eq.getEquipmentName() + " 使用中"));
                 }
             }
+            if(eq == null) conflicts.add(conflict("danger","no_equipment","设备缺失",stepName + " 未匹配到可用设备"));
             String workshop = String.valueOf(row.getOrDefault("workshopName", ""));
             if (!workshop.isBlank() && qty > 300) {
                 conflicts.add(conflict("warning", "workshop_overload", "车间负载", workshop + " 派工量偏大"));
@@ -779,9 +875,12 @@ public class MesDispatchRecommendService {
         for (Map<String, Object> row : rows) {
             String step = String.valueOf(row.get("processStep"));
             List<Map<String, Object>> rowConflicts = conflicts.stream()
-                    .filter(c -> String.valueOf(c.get("detail")).contains(step))
+                    .filter(c -> java.util.stream.Stream.of(step,Objects.toString(row.get("recommendedOperatorName"),""),
+                        Objects.toString(row.get("recommendedOperator"),""),Objects.toString(row.get("equipmentName"),""))
+                        .filter(v -> !v.isBlank()).anyMatch(v -> String.valueOf(c.get("detail")).contains(v)))
                     .toList();
             row.put("conflicts", rowConflicts);
+            row.put("conflictSummary", rowConflicts.stream().map(c -> Objects.toString(c.get("detail"),"")).collect(Collectors.joining("；")));
             row.put("conflictStatus", rowConflicts.stream().anyMatch(c -> "danger".equals(c.get("level")))
                     ? "冲突" : rowConflicts.isEmpty() ? "正常" : "提示");
         }

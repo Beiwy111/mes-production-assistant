@@ -32,6 +32,13 @@ function elapsed(milliseconds) {
           </template>
           <span v-else>{{ stage.status === 'running' ? '解析中' : stage.status === 'pending' ? '等待解析' : '暂无提取记录' }}</span>
         </div>
+        <div v-if="stage.status === 'success' && stage.counts && ['chunk','vector','entities','relations','graph'].includes(stage.key)" class="extraction">
+          <span v-if="stage.key==='chunk'">实际切分 {{ stage.counts.chunks }} 个片段</span>
+          <span v-else-if="stage.key==='vector'">已写入 {{ stage.counts.chunks }} 个向量点</span>
+          <span v-else-if="stage.key==='entities'">已抽取 {{ stage.counts.entities }} 个实体（待复核）</span>
+          <span v-else-if="stage.key==='relations'">已构建 {{ stage.counts.relations }} 条候选关系</span>
+          <span v-else>已写入文档、{{ stage.counts.chunks }} 个片段、{{ stage.counts.entities }} 个实体及关联</span>
+        </div>
         <p v-if="stage.error" class="failure" role="alert">{{ stage.error }}</p>
       </li>
     </ol>

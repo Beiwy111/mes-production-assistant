@@ -1,12 +1,15 @@
 package com.upc.computer.controller;
 
 import com.upc.computer.common.Result;
+import com.upc.computer.common.BusinessException;
+import com.upc.computer.common.JwtUtil;
 import com.upc.computer.dto.MesActionRequest;
 import com.upc.computer.service.MesDispatchRecommendService;
 import com.upc.computer.service.MesPlannerSchedulingService;
 import com.upc.computer.service.MesResourceOccupancyService;
 import com.upc.computer.service.MesSnapshotService;
 import com.upc.computer.service.MesWorkflowService;
+import com.upc.computer.service.AuthService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 
@@ -33,6 +36,10 @@ public class MesController {
     private MesDispatchRecommendService dispatchRecommendService;
     @Autowired
     private MesResourceOccupancyService resourceOccupancyService;
+    @Autowired
+    private JwtUtil jwt;
+    @Autowired
+    private AuthService auth;
 
     @GetMapping("/snapshot")
     public Result<Map<String, Object>> snapshot() {
@@ -41,8 +48,13 @@ public class MesController {
 
     /** 操作员业务通知（派工等），按登录账号过滤 */
     @GetMapping("/notifications/inbox")
-    public Result<List<Map<String, Object>>> operatorNotifications(@RequestParam String username) {
-        return Result.success(mesWorkflowService.listOperatorNotices(username));
+    public Result<List<Map<String, Object>>> operatorNotifications(@RequestParam(required = false) String username,
+            @RequestHeader(value="Authorization", required=false) String authorization) {
+        String token = jwt.extractTokenFromHeader(authorization);
+        var session = token != null && jwt.validateToken(token) ? auth.getLoginSession(token) : null;
+        if (session == null || session.getUsername() == null) throw new BusinessException(401, "请登录后查看收件箱");
+        if (username != null && !username.equals(session.getUsername())) throw new BusinessException(403, "只能查看本人的收件箱");
+        return Result.success(mesWorkflowService.listOperatorNotices(session.getUsername()));
     }
 
     @PostMapping("/action")

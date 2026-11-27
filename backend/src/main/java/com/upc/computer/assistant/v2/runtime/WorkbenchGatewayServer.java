@@ -80,18 +80,32 @@ public final class WorkbenchGatewayServer implements AutoCloseable {
             boolean intake=path.equals("/assistant-workbench/order-intake");
             long owner=intake?services.authenticateOrderIntake(auth.get(0)):services.authenticate(auth.get(0));
             if(owner<=0)throw new Failure(401,"UNAUTHORIZED");
+            if(path.equals("/assistant-workbench/task-plan")) {
+                method(exchange,"POST");
+                JsonNode input=body(exchange,Set.of("question","state","observations","catalog","history"),131072);
+                field(input,"question",4000);
+                if(!chatSlots.tryAcquire())throw new Failure(429,"CAPACITY_REACHED");
+                try {
+                    exchange.getResponseHeaders().set("Content-Type","application/x-ndjson; charset=utf-8");
+                    exchange.getResponseHeaders().set("Cache-Control","no-store");
+                    exchange.getResponseHeaders().set("X-Accel-Buffering","no");exchange.sendResponseHeaders(200,0);
+                    var out=exchange.getResponseBody();
+                    try{everyday.event(out,"result",everyday.planTask(input,out));}
+                    catch(Exception e){everyday.event(out,"error","任务模型连接中断或返回格式无效；未执行生产操作");}
+                } finally {chatSlots.release();}
+                return;
+            }
             if(path.equals("/assistant-workbench/chat-entry")) {
                 method(exchange,"POST");
                 var input=body(exchange,Set.of("text","history","context"));
                 field(input,"text",2000);
-                if(!Set.of("NEW","GENERAL","BUSINESS","ORDER").contains(field(input,"context",16)))throw new Failure(400,"INVALID_REQUEST");
+                if(!Set.of("NEW","GENERAL","BUSINESS","ORDER","PRODUCTION_ACTION").contains(field(input,"context",24)))throw new Failure(400,"INVALID_REQUEST");
                 if(input.has("history")){
                     var history=input.get("history");
                     if(!"GENERAL".equals(input.path("context").asText()) || !history.isObject() || history.size()!=2)
                         throw new Failure(400,"INVALID_REQUEST");
                     field(history,"user",2000);field(history,"assistant",4000);
                 }
-                if(!everyday.available())throw new Failure(503,"CHAT_ENTRY_UNAVAILABLE");
                 if(!chatSlots.tryAcquire())throw new Failure(429,"CAPACITY_REACHED");
                 try {
                     exchange.getResponseHeaders().set("Content-Type","application/x-ndjson; charset=utf-8");
@@ -118,7 +132,7 @@ public final class WorkbenchGatewayServer implements AutoCloseable {
             if(path.equals("/assistant-workbench/status")) {
                 method(exchange,"GET");boolean configured=services.configured();
                 respond(exchange,200,Map.of("configured",configured,"available",configured,"message",configured?"READY":"请配置新工作台的 Dify SUP 应用 API 密钥。",
-                        "directChat",everyday.available(),"capabilities",services.capabilities(owner),"authorizationStamp",services.authorizationStamp(owner),"naturalLanguage",services.naturalLanguage(),"allowedOrderIds",services.legacyAllowed(owner)?orders.stream().sorted().toList():List.of(),"profiles",services.legacyAllowed(owner)?PROFILES.stream().sorted().toList():List.of()));return;
+                        "directChat",everyday.available(),"productionActions",true,"capabilities",services.capabilities(owner),"authorizationStamp",services.authorizationStamp(owner),"naturalLanguage",services.naturalLanguage(),"allowedOrderIds",services.legacyAllowed(owner)?orders.stream().sorted().toList():List.of(),"profiles",services.legacyAllowed(owner)?PROFILES.stream().sorted().toList():List.of()));return;
             }
             if(path.equals("/assistant-workbench/runs/stream")) {
                 method(exchange,"POST");JsonNode input=body(exchange,Set.of("text","orderPk","profile","sessionId","requestId","previousRunId"));

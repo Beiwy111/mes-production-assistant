@@ -78,7 +78,7 @@ public class MesPlannerAgentService {
     private MesRuntimeStore mesRuntimeStore;
 
     public Map<String, Object> analyze(String orderNo, LocalDate planStart, LocalDate planEnd) {
-        CustomerOrder order = findOrderByNo(orderNo);
+        CustomerOrder order = ProductionCalculationProgress.stage("order","订单与截止日期",()->findOrderByNo(orderNo),o->o==null?"未找到订单":o.getOrderNo()+" · 交期 "+o.getRequiredDeliveryDate());
         if (order == null) {
             throw new BusinessException("订单不存在：" + orderNo);
         }
@@ -95,19 +95,19 @@ public class MesPlannerAgentService {
             throw new BusinessException("订单数量无效，无法排产");
         }
 
-        Map<String, Object> inventoryCheck = buildInventoryAnalysis(item, orderQuantity);
+        Map<String, Object> inventoryCheck = ProductionCalculationProgress.stage("materials","成品库存与 BOM 齐套",()->buildInventoryAnalysis(item, orderQuantity),v->"成品可用 "+v.get("finishedGoodsStock")+"；订单 "+orderQuantity+"；生产缺口 "+v.get("needToProduce"));
         int materialRecommendedQty = intVal(inventoryCheck.get("recommendedPlanQty"));
         int shipFromStock = intVal(inventoryCheck.get("shipFromStock"));
         int quantity = materialRecommendedQty > 0 ? materialRecommendedQty : orderQuantity;
 
         long workDays = Math.max(1, ChronoUnit.DAYS.between(planStart, planEnd) + 1);
 
-        List<ProcessStep> steps = resolveRouteSteps(item);
-        List<Equipment> allEquipment = equipmentMapper.equipmentList();
-        List<User> operatorPool = activeOperators();
+        List<ProcessStep> steps = ProductionCalculationProgress.stage("route","工艺路线",()->resolveRouteSteps(item),v->"已读取 "+v.size()+" 道路线工序");
+        List<Equipment> allEquipment = ProductionCalculationProgress.stage("equipment","设备台账",()->equipmentMapper.equipmentList(),v->"已读取 "+v.size()+" 台设备及当前状态");
+        List<User> operatorPool = ProductionCalculationProgress.stage("people","人员产能",()->activeOperators(),v->"读取 "+v.size()+" 个在岗账号；计划阶段仅核算产能，不派工");
         int needToProduce = intVal(inventoryCheck.get("needToProduce"));
         int capacityTarget = needToProduce > 0 ? needToProduce : orderQuantity;
-        CapacityPlan capacityPlan = buildCapacityPlan(steps, allEquipment, operatorPool, capacityTarget, workDays);
+        CapacityPlan capacityPlan = ProductionCalculationProgress.stage("capacity","产能约束计算",()->buildCapacityPlan(steps, allEquipment, operatorPool, capacityTarget, workDays),v->"周期 "+workDays+" 天；产能估算 "+v.feasibleQty()+" 台");
         int recommendedPlanQty = capacityPlan.feasibleQty();
         if (recommendedPlanQty <= 0) {
             recommendedPlanQty = materialRecommendedQty;
@@ -222,6 +222,7 @@ public class MesPlannerAgentService {
                     Equipment primary = slot.equipment().isEmpty() ? null : slot.equipment().get(0);
                     Map<String, Object> suggestion = new LinkedHashMap<>();
                     suggestion.put("processStep", stage.stepName());
+                    suggestion.put("standardHours", hours);
                     suggestion.put("workshop", ws.workshopName());
                     suggestion.put("department", ws.department());
                     suggestion.put("equipment", primary != null ? primary.getEquipmentName() : ws.workshopName() + "设备");
@@ -883,7 +884,7 @@ public class MesPlannerAgentService {
         String recommendation;
         if (needToProduce == 0) {
             decision = "FULL_STOCK";
-            recommendation = String.format("成品仓可用 %d 台，订单 %d 台可全部现货交付，无需新建生产计划。",
+            recommendation = String.format("成品账面可用 %d 台，可覆盖订单 %d 台，无需新增生产；发运仍需核对质量放行及预留状态。",
                     finishedAvailable, orderQuantity);
         } else if (recommendedPlanQty >= needToProduce) {
             decision = shipFromStock > 0 ? "PARTIAL_STOCK" : "PRODUCE_ALL";

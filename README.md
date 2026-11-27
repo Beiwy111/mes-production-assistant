@@ -1,5 +1,7 @@
 # 晶程智造——电脑显示器制造 MES 系统
 
+**2026-11-27 团队同步**：最新生产计划/派工、协作流、全量知识图谱与 PDF 入库展示的更新步骤见[团队同步说明](backend/assistant/deploy/TEAM-SYNC-2026-11-27.md)。公开论文和知识源随仓库提供，Qdrant/Neo4j 在各自电脑初始化；本机密钥和私有数据不随 Git 分享。
+
 **新电脑独立运行生产协作助手**：在项目根目录运行 `Initialize-Assistant.cmd`。首次初始化的依赖、队友需要填写的两把模型 Key 和验收方法见[新电脑部署说明](backend/assistant/deploy/NEW-COMPUTER.md)。
 
 ## 一、项目简介

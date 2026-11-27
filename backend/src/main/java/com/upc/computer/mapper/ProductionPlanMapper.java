@@ -10,6 +10,9 @@ public interface ProductionPlanMapper {
     @Select("SELECT plan_id, plan_no, plan_name, source_order_id, planned_start_date, planned_end_date, priority, plan_status, planner_id, approved_by, approved_at, remark, version_no, parent_plan_no, adjust_reason, scheduling_mode, created_at, updated_at FROM production_plan ORDER BY created_at DESC, plan_id DESC")
     ArrayList<ProductionPlan> planList();
 
+    @Select("SELECT plan_id FROM production_plan WHERE plan_no=#{planNo} FOR UPDATE")
+    Long lockPlanForDispatch(String planNo);
+
     @Select("SELECT plan_id, plan_no, plan_name, source_order_id, planned_start_date, planned_end_date, priority, plan_status, planner_id, approved_by, approved_at, remark, version_no, parent_plan_no, adjust_reason, scheduling_mode, created_at, updated_at FROM production_plan WHERE plan_id = #{planId}")
     ProductionPlan getPlanById(Long planId);
 

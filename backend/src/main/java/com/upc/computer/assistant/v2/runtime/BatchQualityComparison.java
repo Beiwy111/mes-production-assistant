@@ -25,7 +25,8 @@ final class BatchQualityComparison {
         void add(Map<String,Object> row,boolean unique){
             var n=count(row,"sample_quantity");var g=count(row,"qualified_quantity");var b=count(row,"unqualified_quantity");
             var result=value(row,"status");var state=value(row,"inspection_status");
-            if(!unique||n==null||g==null||b==null||g.add(b).compareTo(n)!=0||!InspectionSampleCheck.conflicts(row,List.of(),List.of()).isEmpty()||
+            if(!unique||n==null||n.signum()==0||g==null||b==null||g.add(b).compareTo(n)!=0
+                ||(result.equals("QUALIFIED")&&b.signum()>0)||!InspectionSampleCheck.conflicts(row,List.of(),List.of()).isEmpty()||
                 !((state.equals("PASSED")&&result.equals("QUALIFIED"))||(state.equals("FAILED")&&result.equals("UNQUALIFIED")))){
                 invalid=true;return;
             }
@@ -36,7 +37,7 @@ final class BatchQualityComparison {
     }
     static Map<String,Object> read(NaturalLanguageRuntime.Data db,String batch,List<BusinessDateRange> periods){
         db.policy().require("QUALITY");
-        if(periods.size()!=2||batch==null||!BusinessSelectors.BATCH_CODE.matcher(batch).matches())
+        if(periods.size()!=2||periods.get(0).endExclusive().isAfter(periods.get(1).start())||batch==null||!BusinessSelectors.BATCH_CODE.matcher(batch).matches())
             throw new IllegalArgumentException("An exact batch and two comparison periods are required");
         var results=new ArrayList<BusinessToolRegistry.Result>();
         for(var period:periods)results.add(BusinessToolRegistry.execute(db.overview(),
@@ -64,7 +65,8 @@ final class BatchQualityComparison {
             var group=entry.getKey();var samples=entry.getValue();
             if(!complete){samples[0].invalid=true;samples[1].invalid=true;}
             var first=samples[0].rate();var second=samples[1].rate();
-            var diff=first==null||second==null?null:second.subtract(first);
+            var diff=first==null||second==null?null:samples[1].bad.multiply(samples[0].total).subtract(samples[0].bad.multiply(samples[1].total))
+                    .movePointRight(2).divide(samples[0].total.multiply(samples[1].total),2,RoundingMode.HALF_UP);
             var item=new LinkedHashMap<String,Object>();
             item.put("material_id",group.material);item.put("unit",group.unit);item.put("inspection_category",group.category);
             item.put("inspection_type",group.type);item.put("before",samples[0].description());item.put("after",samples[1].description());
@@ -74,7 +76,8 @@ final class BatchQualityComparison {
         }
         if(groups.isEmpty())summary.add("两个期间均无该批授权检验样本，无法判断不良率变化。");
         summary.add("同物料、单位及检验类别内按抽检件数加权，复检另列。以上为现存检验记录；不能据此判定整批良率或设备根因。");
-        return Map.of("traceConclusion",String.join("\n",summary),"batchComparison",comparisons,"comparisonPeriods",labels,
+        String conclusion=String.join("\n",summary);
+        return Map.of("traceConclusion",conclusion,"analysisConclusion",conclusion,"presentationMode","ANALYSIS","batchComparison",comparisons,"comparisonPeriods",labels,
             "overview",Map.of("domain","QUALITY","rows",allRecords,"totalRecords",results.get(0).total()+results.get(1).total(),
                 "returnedRecords",allRecords.size(),"truncated",!complete,"period","COMPARISON","dateField","inspected_at","timeZone","Asia/Shanghai","selectors",Map.of("batch_no",batch)));
     }

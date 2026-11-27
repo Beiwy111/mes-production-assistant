@@ -5,6 +5,7 @@ import FileUploadZone from './FileUploadZone.vue'
 import DocumentTable from './DocumentTable.vue'
 import ParsingPipelineStatus from './ParsingPipelineStatus.vue'
 import ChunkExplorer from './ChunkExplorer.vue'
+import IngestionGraphPreview from './IngestionGraphPreview.vue'
 import { downloadSource, ingestionRequest, uploadFile, validateFile } from './ingestionApi'
 import { fileType, jobStates } from './documentPresentation'
 
@@ -163,6 +164,7 @@ async function download() {
         <progress v-if="!row.error" :value="row.percent" max="100"/>
         <button v-else type="button" :aria-label="'移除上传提示 ' + row.name" @click="uploads = uploads.filter(transfer => transfer.id !== row.id)"><X :size="14"/></button>
       </li></ul>
+      <IngestionGraphPreview :job="detail || job" @graph="id=>emit('graph',id)"/>
       <section class="library-list" aria-label="文档管理">
         <header class="list-title"><h3>入库文档 <small>{{ jobs.length }}</small></h3>
           <button type="button" class="control" aria-label="刷新资料列表" @click="refresh()"><RotateCw :size="14"/>刷新</button></header>

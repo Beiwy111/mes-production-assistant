@@ -86,13 +86,19 @@ public class MesPlannerSchedulingService {
         ctx.put("orderQuantity", item != null ? intVal(item.getQuantity()) : 0);
         ctx.put("deliveryDate", delivery != null ? delivery.format(DATE_FMT) : "");
         ctx.put("amount", order.getOrderAmount());
-        ctx.put("inventory", analysis.get("inventoryCheck"));
         ctx.put("materialGaps", extractMaterialGaps(analysis));
         ctx.put("processRoute", loadProcessRouteForItem(item));
         ctx.put("capacityRisks", buildCapacityRisks(analysis));
-        ctx.put("recommendedPlanQty", analysis.get("recommendedPlanQty"));
+        var stockAnalysis = analysis.get("inventoryCheck") instanceof Map<?,?> m ? m : Map.of();
+        int actualGap = intVal(stockAnalysis.get("needToProduce"));
+        int recommendedQty = Math.min(actualGap, intVal(analysis.get("recommendedPlanQty")));
+        Map<String, Object> inventoryContext = new LinkedHashMap<>();
+        stockAnalysis.forEach((key, value) -> inventoryContext.put(String.valueOf(key), value));
+        inventoryContext.put("recommendedPlanQty", recommendedQty);
+        ctx.put("inventory", inventoryContext);
+        ctx.put("recommendedPlanQty", recommendedQty);
         ctx.put("recommendation", analysis.get("recommendation"));
-        ctx.put("summary", analysis.get("summary"));
+        ctx.put("summary", "订单 " + orderNo + "；" + analysis.getOrDefault("recommendation","") + "；新增生产缺口 " + actualGap + " 台。");
         ctx.put("readOnly", false);
         return ctx;
     }
@@ -154,9 +160,9 @@ public class MesPlannerSchedulingService {
         final int planQty = qty;
 
         List<Map<String, Object>> schemes = List.of(
-                buildScheme("DELIVERY", "交期优先", base, planQty, planStart, planEnd, 0.85, 1.15, 3),
-                buildScheme("BALANCE", "负载均衡", base, planQty, planStart, planEnd, 1.0, 1.0, 5),
-                buildScheme("COST", "成本优先", base, planQty, planStart, planEnd, 1.1, 0.82, 2)
+                ProductionCalculationProgress.stage("scheme_DELIVERY", "交期优先排程算法", ()->buildScheme("DELIVERY", "交期优先", base, planQty, planStart, planEnd, 0.85, 1.15, 3), v->"预计完工 "+v.get("finishDate")+"；延期 "+v.get("delayDays")+" 天"),
+                ProductionCalculationProgress.stage("scheme_BALANCE", "负载均衡排程算法", ()->buildScheme("BALANCE", "负载均衡", base, planQty, planStart, planEnd, 1.0, 1.0, 5), v->"预计完工 "+v.get("finishDate")+"；延期 "+v.get("delayDays")+" 天"),
+                ProductionCalculationProgress.stage("scheme_COST", "成本优先排程算法", ()->buildScheme("COST", "成本优先", base, planQty, planStart, planEnd, 1.1, 0.82, 2), v->"预计完工 "+v.get("finishDate")+"；延期 "+v.get("delayDays")+" 天")
         );
 
         Map<String, Object> result = new LinkedHashMap<>();
@@ -731,6 +737,13 @@ public class MesPlannerSchedulingService {
         @SuppressWarnings("unchecked")
         List<Map<String, Object>> suggestions = (List<Map<String, Object>>) base.getOrDefault("dispatchSuggestions", List.of());
         List<Map<String, Object>> schedules = buildSchedulesFromSuggestions(suggestions, qty, planStart, finishDate, key);
+        // Estimated windows must never hide unfinished process steps.
+        LocalDate scheduledFinish = null;
+        for (Map<String, Object> row : schedules) {
+            LocalDateTime actualEnd = parseDateTime(str(row, "plannedEnd"));
+            if (actualEnd != null && (scheduledFinish == null || actualEnd.toLocalDate().isAfter(scheduledFinish))) scheduledFinish = actualEnd.toLocalDate();
+        }
+        if (scheduledFinish != null) finishDate = scheduledFinish;
 
         Map<String, Object> validation = new LinkedHashMap<>();
         validation.put("orderId", base.get("orderId"));
@@ -763,59 +776,28 @@ public class MesPlannerSchedulingService {
             return List.of();
         }
         List<Map<String, Object>> uniqueSteps = dedupeSuggestionsByProcessStep(suggestions);
-        long availableDays = Math.max(1, ChronoUnit.DAYS.between(start, end) + 1);
-
         List<Long> needDaysList = new ArrayList<>();
         for (Map<String, Object> s : uniqueSteps) {
-            needDaysList.add(stepDaysForSchedule(str(s, "processStep"), qty));
-        }
-        long totalNeed = needDaysList.stream().mapToLong(Long::longValue).sum();
-        if (totalNeed > availableDays) {
-            double scale = (double) availableDays / totalNeed;
-            for (int i = 0; i < needDaysList.size(); i++) {
-                needDaysList.set(i, Math.max(1L, (long) Math.floor(needDaysList.get(i) * scale)));
-            }
-            long scaled = needDaysList.stream().mapToLong(Long::longValue).sum();
-            if (scaled > availableDays) {
-                needDaysList.set(needDaysList.size() - 1,
-                        Math.max(1L, needDaysList.get(needDaysList.size() - 1) - (scaled - availableDays)));
-            }
+            needDaysList.add(Math.max(1L,(long)Math.ceil(suggestionHours(s) * Math.max(1,qty) / SHIFT_HOURS)));
         }
 
         List<Map<String, Object>> rows = new ArrayList<>();
         LocalDate cursor = start;
         for (int idx = 0; idx < uniqueSteps.size(); idx++) {
             Map<String, Object> s = uniqueSteps.get(idx);
-            if (cursor.isAfter(end)) {
-                break;
-            }
             long stepDays = needDaysList.get(idx);
-            long remainingDays = ChronoUnit.DAYS.between(cursor, end) + 1;
-            if (remainingDays <= 0) {
-                break;
-            }
-            stepDays = Math.min(stepDays, remainingDays);
-
-            int splitQty = qty;
-            if ("BALANCE".equals(schemeKey) && uniqueSteps.size() > 1) {
-                splitQty = (int) Math.ceil(qty / (double) uniqueSteps.size());
-            } else if ("COST".equals(schemeKey) && idx > 0) {
-                splitQty = Math.max(1, qty / uniqueSteps.size());
-            }
 
             LocalDate rowStart = cursor;
             LocalDate rowEnd = rowStart.plusDays(stepDays - 1);
-            if (rowEnd.isAfter(end)) {
-                rowEnd = end;
-            }
 
             String stepName = str(s, "processStep");
-            double hours = lookupStandardHours(stepName);
+            double hours = suggestionHours(s);
             Map<String, Object> row = new LinkedHashMap<>();
             row.put("stepName", stepName);
             row.put("workshop", s.get("workshop"));
             row.put("equipmentCode", s.get("equipmentCode"));
-            row.put("plannedQuantity", splitQty);
+            // These are sequential operations on the same units, not alternative batches.
+            row.put("plannedQuantity", qty);
             row.put("plannedStart", rowStart.atTime(8, 0).format(DT_FMT));
             row.put("plannedEnd", rowEnd.atTime(18, 0).format(DT_FMT));
             row.put("standardHours", hours);
@@ -850,6 +832,11 @@ public class MesPlannerSchedulingService {
                 .mapToInt(ProductionWorkshopCatalog.ProcessStageDef::stepOrder)
                 .findFirst()
                 .orElse(99);
+    }
+
+    private double suggestionHours(Map<String,Object> suggestion) {
+        if(suggestion.get("standardHours") instanceof Number n && n.doubleValue()>0)return n.doubleValue();
+        return lookupStandardHours(str(suggestion,"processStep"));
     }
 
     private long stepDaysForSchedule(String stepName, int qty) {

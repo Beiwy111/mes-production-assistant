@@ -1,5 +1,5 @@
 [CmdletBinding()]
-param([switch]$Build)
+param([switch]$Build, [switch]$PassThru)
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'AgentRuntime.Common.ps1')
 $agentConfig = Read-AgentRuntimeConfig
@@ -52,12 +52,14 @@ $classpath = $classDirectory + ';' + [IO.File]::ReadAllText($classpathFile).Trim
 $argFile = Join-Path $dataDirectory 'workbench-java.args'
 $argumentText = '-Xms64m' + "`n" + '-Xmx384m' + "`n" + '-Dsun.net.httpserver.maxReqTime=15' + "`n" + '-Dsun.net.httpserver.maxRspTime=360' + "`n" + '-cp' + "`n" + '"' + $classpath.Replace('\','/') + '"' + "`n" + 'com.upc.computer.assistant.v2.runtime.WorkbenchRuntimeMain' + "`n"
 [IO.File]::WriteAllText($argFile,$argumentText,(New-Object Text.UTF8Encoding($false)))
+$javaExe = Resolve-AssistantJava
 $old = @{}
 try {
     foreach ($name in $config.Keys) { $old[$name] = [Environment]::GetEnvironmentVariable($name,'Process'); [Environment]::SetEnvironmentVariable($name,$config[$name],'Process') }
-    $process = Start-Process -FilePath 'java' -ArgumentList ('@"' + $argFile + '"') -WorkingDirectory $projectRoot -WindowStyle Hidden -PassThru `
+    $process = Start-Process -FilePath $javaExe -ArgumentList ('@"' + $argFile + '"') -WorkingDirectory $projectRoot -WindowStyle Hidden -PassThru `
         -RedirectStandardOutput (Join-Path $logDirectory 'workbench-java.stdout.log') -RedirectStandardError (Join-Path $logDirectory 'workbench-java.stderr.log')
     $process.Id | Set-Content (Join-Path $dataDirectory 'workbench-java.pid')
+    if ($PassThru) { $process }
     Write-Host ('Independent workbench starting on 127.0.0.1:18083; PID ' + $process.Id + '. MES was not restarted.')
 } finally {
     foreach ($name in $old.Keys) { [Environment]::SetEnvironmentVariable($name,$old[$name],'Process') }

@@ -8,7 +8,48 @@ const source = readFileSync(new URL('./agentWorkbench.js', import.meta.url), 'ut
   .replace("'@/utils/assistantStream'", JSON.stringify(new URL('../utils/assistantStream.js', import.meta.url).href))
   .replace("'../utils/sessionExpiry.js'", JSON.stringify(new URL('../utils/sessionExpiry.js', import.meta.url).href))
   .replace("'../utils/taskEventStream.js'", JSON.stringify(new URL('../utils/taskEventStream.js', import.meta.url).href))
-const { streamWorkbench } = await import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`)
+const { streamWorkbench, previewProductionOperation, decideProductionOperation } = await import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`)
+
+test('dynamic production planning forwards real SSE events before completion and binds confirmation to its session', async (t) => {
+  const observed = [], requests = []
+  let controller
+  const stream = new ReadableStream({ start(value) { controller = value } })
+  t.mock.method(globalThis, 'fetch', async (url, options) => {
+    requests.push({ url, body: JSON.parse(options.body) })
+    return url.endsWith('/stream') ? new Response(stream, { headers: { 'Content-Type': 'text/event-stream' } })
+      : new Response(JSON.stringify({ code: 200, data: { status: 'REJECTED' } }))
+  })
+  const push = (sequence, type, legacy) => controller.enqueue(new TextEncoder().encode('data: ' + JSON.stringify({
+    event_id: String(sequence), task_id: 'task', conversation_id: 'session', sequence,
+    timestamp: '2026-11-26T00:00:00Z', type, payload: { legacy },
+  }) + '\n\n'))
+  const pending = previewProductionOperation('token', { text: '安排生产', sessionId: 'session' }, { onEvent: e => observed.push(e) })
+  push(1, 'task_started', { type: 'run' })
+  push(2, 'tool_started', { type: 'workflow', events: [{ agentId: 'ORDER', kind: 'STEP_STARTED', toolId: 'TASK_ORDERS' }] })
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(observed.length, 2)
+  push(3, 'message_completed', { type: 'result', data: { status: 'PENDING', taskManaged: true } })
+  push(4, 'task_completed', { type: 'done' })
+  assert.equal((await pending).taskManaged, true)
+  await decideProductionOperation('token', 'proposal', 'SKIP', { sessionId: 'session' })
+  assert.deepEqual(requests.map(r => r.url), ['/api/assistant-v2/tasks/stream', '/api/assistant-v2/tasks/session/proposals/proposal/decision'])
+  assert.deepEqual(requests[1].body, { decision: 'SKIP' })
+})
+
+test('production decisions post only the opaque proposal and decision with the current bearer token', async (t) => {
+  const requests = []
+  t.mock.method(globalThis, 'fetch', async (url, options) => {
+    requests.push([url, options.headers.Authorization, JSON.parse(options.body)])
+    return new Response(JSON.stringify({ code: 200, data: { status: 'PENDING' } }))
+  })
+  const preview = { text: '请排产', sessionId: 'session' }
+  assert.equal((await previewProductionOperation('planner-token', preview)).status, 'PENDING')
+  await decideProductionOperation('planner-token', 'opaque/id', 'SKIP')
+  assert.deepEqual(requests, [
+    ['/api/assistant-v2/operations/preview', 'Bearer planner-token', preview],
+    ['/api/assistant-v2/operations/opaque%2Fid/decision', 'Bearer planner-token', { decision: 'SKIP' }],
+  ])
+})
 
 test('a rejected continuation keeps its scope and reports the error without retrying', async (t) => {
   const requests = []

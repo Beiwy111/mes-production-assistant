@@ -235,3 +235,20 @@ def test_resource_answer_names_shared_demand_even_without_shortage_and_identifie
     reply=json.loads(load_nodes().compact_response_context(json.dumps(packet),200,RUN)['context'])['required_reply']
     for text in ('PCB','SO1、SO2','可计算的供料情景未发现缺口','实际领用的批号','派工ID 41、51','13:00 至 14:00'):
         assert text in reply
+
+
+def test_quality_analysis_keeps_only_verifiable_graph_claims_within_their_source_bundle():
+    hit=lambda ref: {'evidence_ref':ref,'text':'excerpt'}
+    def claim(key, ref, review='SOURCE_VERIFIED'):
+        return {'claim_id':key,'subject_name':key,'relation':'supported','object_name':'article','evidence_refs':[ref], 'review_status':review}
+    groups=[{'group_id':i} for i in range(24)]
+    data={'runRef':RUN,'sourceMode':'LOCAL_READONLY_PREVIEW','verdict':'EVIDENCE_READY','intents':['QUALITY'],
+          'facts':{'quality':{'qualityStatistics':{'sampleGroups':groups},'presentationMode':'ANALYSIS'}},
+          'knowledgeEvidence':[{'status':'MATCHES','graph_status':'MATCHES','hits':[hit('A')],
+                                'graph_paths':[claim('first','A'),claim('outside','B'),claim('unreviewed','A','PENDING')]},
+                               {'status':'MATCHES','graph_status':'NO_ENTITY_MATCH','hits':[hit('B')],'graph_paths':[claim('wrong status','B')]}]}
+    result=json.loads(load_nodes().compact_response_context(json.dumps(data),200,RUN)['context'])
+    assert result['answer_mode']=='quality_analysis'
+    assert result['partial_group_preview'] and len(result['statistics']['sampleGroups'])==12
+    assert len(data['facts']['quality']['qualityStatistics']['sampleGroups'])==24
+    assert [(p['subject'],p['citations']) for p in result['reference_graph_relations']]==[('first',['S1'])]

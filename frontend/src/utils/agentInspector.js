@@ -58,10 +58,20 @@ export function inspectAgentMessage(message) {
         status: ['SUCCESS', 'SUCCEEDED'].includes(step.status) ? 'COMPLETED'
           : ['RUNNING', 'COMPLETED', 'FAILED', 'CANCELLED', 'INTERRUPTED', 'SKIPPED', 'WAITING', 'PENDING'].includes(step.status) ? step.status : 'UNKNOWN',
       })) : []
-  const events = [...workflowEvents, ...orderSteps]
-  const serviceActivity = available && !orderFlow?.needsRecovery ? text(orderFlow?.pending, 200) : ''
+  const production = message?.productionFlow
+  const productionSteps = available && Array.isArray(production?.steps) ? production.steps
+    .filter(step => step?.agentId === 'SERVICE')
+    .map((step, index) => ({ seq: `production-${index}`, id: `production-${index}`, kind: 'PRODUCTION_STEP',
+      agentId: 'SERVICE', toolId: text(step.toolId, 80), label: text(step.label, 120), detail: text(step.detail),
+      at: text(step.at, 40), startedAt: text(step.startedAt, 40),
+      status: ['RUNNING', 'COMPLETED', 'FAILED', 'CANCELLED', 'INTERRUPTED'].includes(step.status) ? step.status : 'UNKNOWN',
+    })) : []
+  const events = [...workflowEvents, ...orderSteps, ...productionSteps]
+  const serviceActivity = available ? production?.deciding ? '正在提交生产操作决定'
+    : production?.status === 'PREPARING' && message?.status === 'RUNNING' ? '正在准备生产操作预览'
+    : !orderFlow?.needsRecovery ? text(orderFlow?.pending, 200) : '' : ''
   const cancelled = events.some((event) => event.agentId === 'SUP' && event.kind === 'CANCELLED')
-  const live = message?.status === 'RUNNING' && !cancelled && !invalidated && !omitted
+  const live = (message?.status === 'RUNNING' || Boolean(production?.deciding)) && !cancelled && !invalidated && !omitted
   const statusOf = (status) => status === 'RUNNING' && !live
     ? cancelled || message?.status === 'CANCELLED' ? 'CANCELLED' : 'INTERRUPTED' : status
   const observed = new Map((message?.agents || []).filter((agent) => isAgent(agent.agentId)).map((agent) => [agent.agentId, agent]))
@@ -81,6 +91,8 @@ export function inspectAgentMessage(message) {
     const logs = events.filter((event) => event.agentId === agentId)
     const currentLogs = logs.filter((event) => !call?.taskId || event.taskId === call.taskId)
     let status = call?.kind === 'AGENT_COMPLETED' ? call.status : agent?.status || call?.status
+    const summary = agentId === 'SUP' && logs.at(-1)?.kind === 'SUMMARIZING' ? logs.at(-1) : null
+    if (summary && (live || summary.status !== 'RUNNING')) status = summary.status
     // Coordination events establish activity but never establish successful completion.
     const roleOrderSteps = orderSteps.filter((step) => step.agentId === agentId)
     if (!status && roleOrderSteps.length) {
@@ -107,7 +119,7 @@ export function inspectAgentMessage(message) {
     })
     const steps = available ? [...combinedSteps, ...streamedSteps.values(), ...roleOrderSteps]
       .map((step) => ({ ...step, status: statusOf(step.status) })) : []
-    const lastStep = currentLogs.findLast((event) => ['STEP_STARTED', 'STEP_COMPLETED'].includes(event.kind)) || steps.at(-1)
+    const lastStep = summary || currentLogs.findLast((event) => ['STEP_STARTED', 'STEP_COMPLETED'].includes(event.kind)) || steps.at(-1)
       || (agentId === 'SUP' && live ? currentLogs.at(-1) : undefined)
     const evidence = available && Array.isArray(agent?.evidence) ? agent.evidence.slice(0, 8).map((item) => ({
       ...queryPreview(item),
@@ -125,12 +137,12 @@ export function inspectAgentMessage(message) {
       dependencies: available ? (message?.workflow?.plan?.dependencies?.[agentId] || []).filter(isAgent) : [],
     }
   })
-  const requestStatus = orderFlow?.needsRecovery ? '状态待确认' : serviceActivity ? '处理中' : ({ RUNNING: '处理中', COMPLETED: '已收到响应',
+  const requestStatus = orderFlow?.needsRecovery || (production?.status === 'PENDING' && production?.uncertainDecision) ? '状态待确认' : serviceActivity ? '处理中' : ({ RUNNING: '处理中', COMPLETED: '已收到响应',
     FAILED: '请求未完成', CANCELLED: '已取消', INTERRUPTED: '状态待确认' })[message?.status] || ''
   const draftStatus = orderFlow?.needsRecovery ? '待恢复核对' : ({ COLLECTING: '待补充', READY: '待确认',
     SUBMITTED: '已提交', CANCELLED: '已取消', EXPIRED: '已过期' })[orderFlow?.orderDraft?.status] || ''
   return { roles, events, live, invalidated, omitted, serviceActivity,
-    serviceLogs: orderSteps.filter((step) => step.agentId === 'SERVICE').map((step) => ({ ...step, status: statusOf(step.status) })), requestStatus, draftStatus,
+    serviceLogs: [...orderSteps.filter((step) => step.agentId === 'SERVICE'), ...productionSteps].map((step) => ({ ...step, status: statusOf(step.status) })), requestStatus, draftStatus,
     truncated: message?.workflow?.truncated === true,
     notice: invalidated ? '查询期间数据发生变化，此前证据已失效，请重新查询。'
       : omitted ? '历史证据未保存，请重新查询。'

@@ -130,7 +130,11 @@ export function spatialLayout(nodes, edges, width, height) {
       return
     }
     const padX = Math.min(w * 0.20, 45), padY = Math.min(h * 0.20, 36)
-    const local = relax(ids, adjacent, w, h)
+    // Large uploads keep every node, but avoid quadratic force calculation.
+    const local = ids.length > 600 ? ids.map((_, i) => ({
+      x:Math.sqrt(i / ids.length) * Math.cos(i * goldenAngle),
+      y:Math.sqrt(i / ids.length) * Math.sin(i * goldenAngle),
+    })) : relax(ids, adjacent, w, h)
     const xs = local.map(p => p.x), ys = local.map(p => p.y)
     const minX = Math.min(...xs), minY = Math.min(...ys)
     const extentX = Math.max(1, Math.max(...xs) - minX), extentY = Math.max(1, Math.max(...ys) - minY)
@@ -139,7 +143,7 @@ export function spatialLayout(nodes, edges, width, height) {
       y + padY + (p.y - minY) / extentY * (h - 2 * padY),
     ]))
   })
-  separateCaptions(positions, width, height)
+  if (nodes.length <= 600) separateCaptions(positions, width, height)
   return positions
 }
 

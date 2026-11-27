@@ -1,5 +1,5 @@
 [CmdletBinding()]
-param([switch]$Build)
+param([switch]$Build, [switch]$PassThru)
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'AgentRuntime.Common.ps1')
 $config = Read-AgentRuntimeConfig
@@ -42,12 +42,14 @@ $argumentText = '-Xms64m' + "`n" + '-Xmx384m' + "`n" + '-cp' + "`n" + '"' + $cla
 [IO.File]::WriteAllText($argFile,$argumentText,(New-Object Text.UTF8Encoding($false)))
 $logDirectory = Join-Path $ragDirectory 'logs'
 New-Item -ItemType Directory -Path $logDirectory -Force | Out-Null
+$javaExe = Resolve-AssistantJava
 $old = @{}
 try {
     foreach ($name in $config.Keys) { $old[$name] = [Environment]::GetEnvironmentVariable($name,'Process'); [Environment]::SetEnvironmentVariable($name,$config[$name],'Process') }
-    $process = Start-Process -FilePath 'java' -ArgumentList ('@"' + $argFile + '"') -WorkingDirectory $projectRoot -WindowStyle Hidden -PassThru `
+    $process = Start-Process -FilePath $javaExe -ArgumentList ('@"' + $argFile + '"') -WorkingDirectory $projectRoot -WindowStyle Hidden -PassThru `
         -RedirectStandardOutput (Join-Path $logDirectory 'stage5-java.stdout.log') -RedirectStandardError (Join-Path $logDirectory 'stage5-java.stderr.log')
     $process.Id | Set-Content (Join-Path $ragDirectory 'data\stage5-java.pid')
+    if ($PassThru) { $process }
     Write-Host ('Independent read-only preview starting on port ' + $port + '; PID ' + $process.Id + '. MES was not restarted.')
 } finally {
     foreach ($name in $old.Keys) { [Environment]::SetEnvironmentVariable($name,$old[$name],'Process') }

@@ -11,6 +11,7 @@ const props = defineProps({
 })
 const emit = defineEmits(['source', 'mode', 'query', 'search', 'type', 'file', 'relation', 'job', 'document', 'scoped-document'])
 const sources = computed(() => [
+  ...(props.canIngest ? [{ id:'all', label:'全部可访问资料', icon:Database }] : []),
   { id: 'catalog', label: '公开知识库总览', icon: Database },
   { id: 'search', label: '公开资料检索', icon: FileSearch },
   ...(props.canIngest ? [{ id: 'uploads', label: '入库资料', icon: FolderOpen }] : []),
@@ -44,6 +45,7 @@ const relations = computed(() => {
         </button>
       </nav>
 
+      <div v-if="source === 'all'" class="source-fields"><button type="button" class="refresh" :disabled="loading" @click="emit('search')"><RefreshCw/>刷新全部资料</button></div>
       <div v-if="source === 'catalog'" class="source-fields">
         <div class="section-caption">
           <label for="kg-catalog-document">浏览文档</label>
@@ -69,7 +71,7 @@ const relations = computed(() => {
             <input :value="query" maxlength="200" :aria-label="source === 'search' ? '公开知识检索词' : '入库资料检索词'"
               placeholder="输入检索关键词" @input="emit('query', $event.target.value)"/>
           </label>
-          <button class="search" :disabled="loading || (!query.trim() && !(source === 'uploads' && jobId))">
+          <button class="search" :disabled="loading || (!query.trim() && source !== 'uploads')">
             <Search aria-hidden="true"/>{{ loading ? '检索中…' : '检索资料' }}
           </button>
         </form>
