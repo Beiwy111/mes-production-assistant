@@ -6,7 +6,7 @@ import './knowledge/knowledge-studio.css'
 const WorkflowStudio = defineAsyncComponent(() => import('./workflow/WorkflowStudio.vue'))
 const KnowledgeStudio = defineAsyncComponent(() => import('./knowledge/KnowledgeStudio.vue'))
 const IngestionWorkspace = defineAsyncComponent(() => import('./knowledge/ingestion/KnowledgeIngestionWorkspace.vue'))
-const props = defineProps({ mode: String, message: Object, token: String, canIngest: Boolean })
+const props = defineProps({ mode: String, workflowModel: String, message: Object, token: String, canIngest: Boolean })
 const emit = defineEmits(['close'])
 const dialog = ref(null)
 const maximized = ref(false)
@@ -39,7 +39,7 @@ watch(() => props.canIngest, allowed => { if (!allowed) { tab.value = 'graph'; u
       <div class="studio-actions"><button :aria-label="maximized?'退出全屏':'全屏查看'" :title="maximized?'退出全屏':'全屏查看'" @click="maximized=!maximized"><Minimize v-if="maximized"/><Expand v-else/></button>
       <button aria-label="关闭窗口" title="关闭窗口" @click="emit('close')"><X/></button></div>
     </header>
-    <div v-if="isWorkflow" class="studio-pane"><WorkflowStudio :message="message"/></div>
+    <div v-if="isWorkflow" class="studio-pane"><WorkflowStudio :message="message" :workflow-model="workflowModel"/></div>
     <template v-else>
       <div v-show="tab==='graph'" class="studio-pane"><KnowledgeStudio :key="graphVisit" :message="message" :token="token" :can-ingest="canIngest" :job-id="graphJob" :chunk-id="graphChunk" :visible="tab==='graph'"/></div>
       <div v-if="canIngest && uploadOpened" v-show="tab==='upload'" class="studio-pane"><IngestionWorkspace :token="token" :visible="tab==='upload'" @graph="showGraph"/></div>

@@ -1,5 +1,6 @@
 package com.upc.computer.assistant.v2.orders;
 
+import com.upc.computer.assistant.v2.runtime.WorkflowModel;
 import com.upc.computer.common.*;
 import com.upc.computer.assistant.v2.chat.ChatMode;
 import org.springframework.web.bind.annotation.*;
@@ -19,15 +20,24 @@ public class OrderDraftController {
     @PostMapping("/turn") public Result<?> turn(@RequestHeader(value="Authorization",required=false) String auth,@RequestBody Map<String,Object> body){
         var user = sessions.require(auth);
         ChatMode mode = null;
+        WorkflowModel workflow = WorkflowModel.API;
         if (body != null && (body.containsKey("modelSource") || body.containsKey("ragEnabled"))) {
             fields(body, Set.of("sessionId", "requestId", "text", "modelSource", "ragEnabled"));
             mode = ChatMode.parse(body.get("modelSource"), body.get("ragEnabled"));
+        } else if (body != null && body.containsKey("workflowModel")) {
+            fields(body, Set.of("sessionId", "requestId", "text", "workflowModel"));
+            try { workflow = WorkflowModel.fromRequest(text(body, "workflowModel")); }
+            catch (IllegalArgumentException e) { throw new BusinessException(400, "不支持的工作流模型"); }
         } else {
             fields(body, Set.of("sessionId", "requestId", "text"));
         }
-        var result = service.turn(user, auth, text(body,"sessionId"), text(body,"requestId"), text(body,"text"), mode);
-        if (mode == null) return Result.success(result);
+        var result = service.turn(user, auth, text(body,"sessionId"), text(body,"requestId"), text(body,"text"), mode, workflow);
+        if (mode == null && !body.containsKey("workflowModel")) return Result.success(result);
         var selected = new LinkedHashMap<>(result);
+        if (mode == null) {
+            selected.put("workflowModel", workflow.name());
+            return Result.success(selected);
+        }
         selected.put("modelSource", mode.modelSource());
         selected.put("ragEnabled", mode.ragEnabled());
         return Result.success(selected);

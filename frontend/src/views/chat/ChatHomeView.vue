@@ -12,7 +12,8 @@ import { asr, interpretStream, execute } from '@/api/assistant'
 import ChatBubble from '@/components/chat/ChatBubble.vue'
 import ChatComposer from '@/components/chat/ChatComposer.vue'
 
-defineProps({ embedded: Boolean })
+const props = defineProps({ embedded: Boolean, workflowModel: String })
+const emit = defineEmits(['workflow-command'])
 const user = useUserStore()
 const mes = useMesStore()
 const chat = useChatStore()
@@ -151,6 +152,11 @@ function push(role, text) {
 async function send(text) {
   const t = (text ?? inputText.value).trim()
   if (!t || busy.value) return
+  if (props.embedded && props.workflowModel === 'LOCAL') {
+    inputText.value = ''
+    emit('workflow-command', t)
+    return
+  }
   inputText.value = ''
   push('user', t)
   const targetSession = chat.activeSession

@@ -390,6 +390,7 @@ export function restoreSessions(raw) {
         id: clip(s.id, 160),
         title: clip(s.title, 80),
         modelSource: ['API', 'LOCAL'].includes(s.modelSource) ? s.modelSource : 'WORKFLOW',
+        workflowModel: s.workflowModel === 'LOCAL' ? 'LOCAL' : 'API',
         ragEnabled: s.ragEnabled === true,
         renamed: s.renamed === true,
         updatedAt: Number(s.updatedAt) || 0,
@@ -453,6 +454,7 @@ export function restoreSessions(raw) {
             if (m.photoComparison && !m.evidenceInvalidated && !m.workflow?.invalidated) item.photoComparison = clip(m.photoComparison, 8000)
             if (m.imageQuestion === true) item.imageQuestion = true
             if (m.orderMessage === true) item.orderMessage = true
+            if (['API','LOCAL'].includes(m.workflowModel)) item.workflowModel = m.workflowModel
             if (['API', 'LOCAL'].includes(m.modelSource)) {
               item.modelSource = m.modelSource
               item.ragEnabled = m.ragEnabled === true
@@ -516,6 +518,7 @@ export function serializeWorkbenchSessions(sessions) {
     title: !session.renamed && session.messages.some((m) => m.orderMessage || m.orderFlow) ? '订单会话' : session.title,
     messages: session.messages.slice(-40).map((message) => message.orderMessage || message.orderFlow ? {
       id: message.id, role: message.role, status: message.status, profile: 'AUTO',
+      ...(message.workflowModel ? { workflowModel:message.workflowModel } : {}),
       ...(message.modelSource ? { modelSource: message.modelSource, ragEnabled: message.ragEnabled === true } : {}),
       text: message.role === 'user' ? '订单信息（仅在当前页面显示）' : '订单会话已保存，请恢复草稿查看当前状态。',
       orderMessage: true,

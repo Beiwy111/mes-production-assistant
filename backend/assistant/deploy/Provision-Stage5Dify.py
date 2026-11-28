@@ -7,6 +7,8 @@ import re
 import subprocess
 import sys
 import tempfile
+from urllib.parse import urlsplit
+from urllib.request import ProxyHandler, build_opener
 
 
 DEPLOY = Path(__file__).resolve().parent
@@ -14,6 +16,8 @@ ROLES = ('KNOWLEDGE', 'ORDER', 'SUPPLY', 'PRODUCTION', 'QUALITY', 'EQUIPMENT', '
 CONTAINER = 'mes-dify-local-api-1'
 DEFAULT_PROVIDER = 'langgenius/deepseek/deepseek'
 DEFAULT_MODEL = 'deepseek-flash'
+V2_MODEL = 'mes-qwen14b-v2'
+V2_PROVIDER = 'langgenius/openai_api_compatible/openai_api_compatible'
 
 
 def read_keys(path, keys):
@@ -77,8 +81,32 @@ def prepare(provider, model, deploy=DEPLOY):
     return dict(files=read_templates(deploy), secrets=secrets, provider=provider, model=model, expected_tenant=tenant)
 
 
-def provision(provider, model):
+def offers_pinned_model(base_url):
+    try:
+        with build_opener(ProxyHandler({})).open(base_url + '/models', timeout=4) as response:
+            models = json.loads(response.read(1_048_576)).get('data', [])
+        return any(isinstance(item, dict) and item.get('id') == V2_MODEL for item in models)
+    except (OSError, ValueError, AttributeError):
+        return False
+
+
+def provision(provider, model, *, v2_base_url=None, if_online=False):
     request = prepare(provider, model)
+    if v2_base_url is not None:
+        url = urlsplit(v2_base_url.rstrip('/'))
+        if url.scheme not in ('http', 'https') or not url.hostname or url.username or url.password or url.path != '/v1' or url.query or url.fragment:
+            raise ValueError('Provide the Ubuntu server base URL ending in /v1, without credentials.')
+        v2_base_url = url.geturl()
+        settings = DEPLOY/'.env.workbench-v2.local'
+        if not settings.exists():
+            private_write(settings, f'MES_WORKFLOW_V2_BASE_URL={v2_base_url}\n')
+        if not offers_pinned_model(v2_base_url):
+            message = 'Ubuntu is unavailable or does not advertise mes-qwen14b-v2. Local workflow publication is pending.'
+            if if_online:
+                print(message)
+                return
+            raise ValueError(message)
+        request.update(provider=V2_PROVIDER, model=V2_MODEL, v2_base_url=v2_base_url)
     # Verify the Compose labels before passing any credentials into a container.
     fmt = '{{index .Config.Labels "com.docker.compose.project"}}|{{index .Config.Labels "com.docker.compose.service"}}|{{.Config.Image}}|{{.State.Running}}'
     inspected = subprocess.run(['docker', 'inspect', '-f', fmt, CONTAINER], capture_output=True, timeout=30)
@@ -102,18 +130,31 @@ def provision(provider, model):
     token = result.pop('api_key')
     if not re.fullmatch(r'app-[A-Za-z0-9]+', token) or set(result['apps']) != set(ROLES):
         raise ValueError('Dify returned an incomplete workspace configuration.')
-    private_write(DEPLOY/'.env.stage5-bindings.local', json.dumps(result, ensure_ascii=False, indent=2) + '\n')
-    private_write(DEPLOY/'.env.workbench.local', f'MES_WORKBENCH_DIFY_API_KEY={token}\n'
-                  'MES_WORKBENCH_DIFY_BASE_URL=http://127.0.0.1:18080/v1\n')
-    print('Stage5 ready: public knowledge, six expert tools and SUP published. Local workbench key saved.')
+    if v2_base_url is not None:
+        private_write(DEPLOY/'.env.stage5-v2-bindings.local', json.dumps(result, ensure_ascii=False, indent=2) + '\n')
+        private_write(DEPLOY/'.env.workbench-v2.local', f'MES_WORKBENCH_V2_DIFY_API_KEY={token}\n'
+                      f'MES_WORKFLOW_V2_BASE_URL={request["v2_base_url"]}\n')
+    else:
+        private_write(DEPLOY/'.env.stage5-bindings.local', json.dumps(result, ensure_ascii=False, indent=2) + '\n')
+        private_write(DEPLOY/'.env.workbench.local', f'MES_WORKBENCH_DIFY_API_KEY={token}\n'
+                      'MES_WORKBENCH_DIFY_BASE_URL=http://127.0.0.1:18080/v1\n')
+    published_model = V2_MODEL if v2_base_url is not None else model
+    print(f'Stage5 ready: {published_model}, public knowledge, six expert tools and SUP published.')
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--provider', default=DEFAULT_PROVIDER)
     parser.add_argument('--model', default=DEFAULT_MODEL)
+    parser.add_argument('--local-v2', action='store_true', help='Publish a separate workflow family pinned to the Ubuntu fine-tune.')
+    parser.add_argument('--base-url', default=os.getenv('MES_WORKFLOW_V2_BASE_URL'), help='Ubuntu OpenAI-compatible base URL for --local-v2.')
+    parser.add_argument('--if-online', action='store_true', help='Skip pending v2 setup when Ubuntu is offline.')
     args = parser.parse_args()
     try:
-        provision(args.provider, args.model)
+        if args.if_online and not args.local_v2:
+            parser.error('--if-online requires --local-v2')
+        if args.local_v2 and not args.base_url:
+            args.base_url = read_keys(DEPLOY/'.env.workbench-v2.local', ['MES_WORKFLOW_V2_BASE_URL'])['MES_WORKFLOW_V2_BASE_URL']
+        provision(args.provider, args.model, v2_base_url=args.base_url if args.local_v2 else None, if_online=args.if_online)
     except (ValueError, OSError, subprocess.SubprocessError) as error:
         sys.exit(str(error) if isinstance(error, ValueError) else f'Local Dify setup failed ({type(error).__name__}).')

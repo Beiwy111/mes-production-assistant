@@ -27,7 +27,9 @@ public class ProductionTaskController {
             try {
                 var result=tasks.run(turn,authorization,event->{try{stream.accept(json.valueToTree(event));}catch(IOException e){throw new UncheckedIOException(e);}});
                 if(!Boolean.TRUE.equals(result.get("answerStreamed")))stream.accept(json.valueToTree(Map.of("type","delta","text",Objects.toString(result.get("message"),""),"source","business_response")));
-                stream.accept(json.valueToTree(Map.of("type","result","data",result)));
+                var receipt=new LinkedHashMap<>(result);
+                receipt.put("workflowModel",turn.workflowModel().name());
+                stream.accept(json.valueToTree(Map.of("type","result","data",receipt)));
                 stream.accept(json.valueToTree(Map.of("type","done")));
             }catch(UncheckedIOException disconnected){throw disconnected.getCause();}
             catch(Exception e){stream.accept(json.valueToTree(Map.of("type","error","message",e instanceof BusinessException?e.getMessage():"任务处理失败，请重新查询状态；未自动重试写入")));}

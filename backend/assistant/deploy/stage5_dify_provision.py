@@ -4,6 +4,7 @@ from copy import deepcopy
 from pathlib import Path
 import runpy
 import tempfile
+import time
 import uuid
 
 
@@ -11,8 +12,8 @@ class SetupError(Exception):
     """Operator-facing diagnostic with no private service response or credentials."""
 
 
-def identity(tenant_id, kind, role):
-    return str(uuid.uuid5(uuid.UUID(tenant_id), f'computer-mes:stage5:{kind}:{role}'))
+def identity(tenant_id, kind, role, variant=''):
+    return str(uuid.uuid5(uuid.UUID(tenant_id), f'computer-mes:stage5{variant}:{kind}:{role}'))
 
 
 def configure_model(dsl, provider, model):
@@ -31,7 +32,7 @@ def configure_model(dsl, provider, model):
         config['provider'] = provider
 
 
-def build_specs(tenant_id, files, provider, model):
+def build_specs(tenant_id, files, provider, model, variant=''):
     import yaml
     # The generator reads its sibling prompts and node source relative to its own file.
     with tempfile.TemporaryDirectory(prefix='mes-stage5-') as directory:
@@ -46,7 +47,7 @@ def build_specs(tenant_id, files, provider, model):
         tool_spec = runpy.run_path(str(root/'manage.py'))['tool_spec']
         tools = builder['TOOLS']
         roles = ('KNOWLEDGE', *tools, 'SUP')
-        providers = {r: identity(tenant_id, 'tool', r) for r in roles if r != 'SUP'}
+        providers = {r: identity(tenant_id, 'tool', r, variant) for r in roles if r != 'SUP'}
         specs = {}
         for role in roles:
             if role == 'KNOWLEDGE':
@@ -55,8 +56,19 @@ def build_specs(tenant_id, files, provider, model):
             else:
                 dsl = builder['build'](role, providers)
             configure_model(dsl, provider, model)
-            specs[role] = dict(app_id=identity(tenant_id, 'app', role), tool_id=providers.get(role),
-                               tool=tool_spec(role, dsl['app']['name'], tools), dsl=dsl)
+            tool = tool_spec(role, dsl['app']['name'], tools)
+            if variant:
+                # These names also occur in planner instructions and explicit workflow tool nodes.
+                encoded = json.dumps(dsl, ensure_ascii=False)
+                for name in (*tools.values(), 'public_display_knowledge'):
+                    encoded = encoded.replace(name, name + '_v2')
+                dsl = json.loads(encoded)
+                dsl['app']['name'] += ' · v2'
+                if tool:
+                    tool['name'] += '_v2'
+                    tool['label'] += ' · v2'
+            specs[role] = dict(app_id=identity(tenant_id, 'app', role, variant), tool_id=providers.get(role),
+                               tool=tool, dsl=dsl)
         return specs
 
 
@@ -174,10 +186,10 @@ def ensure_tool(session, account, spec, published):
         WorkflowToolManageService.create_workflow_tool(workflow_app_id=spec['app_id'], import_id=spec['tool_id'], **params)
 
 
-def workbench_token(session, tenant_id, sup_app_id):
+def workbench_token(session, tenant_id, sup_app_id, variant=''):
     from models.enums import ApiTokenType
     from models.model import ApiToken
-    token_id = identity(tenant_id, 'api-key', 'SUP')
+    token_id = identity(tenant_id, 'api-key', 'SUP', variant)
     token = session.get(ApiToken, token_id)
     if token is None:
         token = ApiToken(id=token_id, type=ApiTokenType.APP, app_id=sup_app_id, tenant_id=tenant_id,
@@ -187,6 +199,45 @@ def workbench_token(session, tenant_id, sup_app_id):
     elif token.app_id != sup_app_id or token.type != ApiTokenType.APP or token.tenant_id != tenant_id:
         raise SetupError('The existing Stage5 API key is bound to a different app.')
     return token.token
+
+
+def ensure_v2_provider(account, provider, model, base_url):
+    from core.plugin.plugin_service import PluginService
+    from flask import g
+    from services.model_provider.service import ModelProviderService
+    tenant = account.current_tenant_id
+    plugin = 'langgenius/openai_api_compatible'
+    package = plugin + ':0.0.87@f91aff12eb99ddf7a35c82403f25f086fd65391914c3f5d48ce6f702bc7274ef'
+    installed = lambda: any(p.plugin_id == plugin for p in PluginService.list(tenant))
+    if not installed():
+        PluginService.install_from_marketplace_pkg(tenant, [package])
+        deadline = time.monotonic() + 240
+        while not installed():
+            if time.monotonic() > deadline:
+                raise SetupError('The signed OpenAI-compatible provider did not finish installation. Check Dify Marketplace access.')
+            time.sleep(3)
+    g._login_user = account
+    service = ModelProviderService()
+    def check_endpoint(binding):
+        settings = binding.get('credentials') or {}
+        if (settings.get('endpoint_url', '').rstrip('/') != base_url or
+                settings.get('endpoint_model_name', model) not in ('', model) or settings.get('function_calling_type') != 'tool_call'):
+            raise SetupError('The existing v2 provider has different settings. Verify its endpoint, model and tool-call support in Dify.')
+    current = service.get_model_credential(tenant, provider, 'llm', model, None)
+    if current:
+        check_endpoint(current)
+        return
+    config = {'endpoint_url':base_url, 'endpoint_model_name':model, 'mode':'chat',
+              'context_size':'32768', 'max_tokens_to_sample':'4096', 'function_calling_type':'tool_call',
+              'stream_function_calling':'supported', 'structured_output_support':'supported'}
+    credentials = service.get_provider_model_available_credentials(tenant, provider, 'llm', model)
+    existing = next((c for c in credentials if c.credential_name == 'MES workflow v2'), None)
+    if existing:
+        credential_id = existing.credential_id
+        check_endpoint(service.get_model_credential(tenant, provider, 'llm', model, credential_id) or {})
+    else:
+        credential_id = service.create_model_credential(tenant, provider, 'llm', model, config, 'MES workflow v2')
+    service.add_model_credential_to_model_list(tenant, provider, 'llm', model, credential_id)
 
 
 def provision(session, request):
@@ -201,8 +252,11 @@ def provision(session, request):
     account = session.get(Account, owners[0].account_id)
     account.set_tenant_id_with_session(tenant_id, session=session)
     provider, model = request['provider'], request['model']
+    variant = ':v2' if request.get('v2_base_url') else ''
+    if variant:
+        ensure_v2_provider(account, provider, model, request['v2_base_url'])
     check_dependencies(account, provider, model)
-    specs = build_specs(tenant_id, request['files'], provider, model)
+    specs = build_specs(tenant_id, request['files'], provider, model, variant)
     check_targets(session, tenant_id, specs)
     apps = {}
     for role, spec in specs.items():
@@ -216,7 +270,7 @@ def provision(session, request):
             raise
         except Exception as exc:
             raise SetupError(f'Could not publish {role} ({type(exc).__name__}). Check Dify readiness and rerun setup.') from None
-    token = workbench_token(session, tenant_id, specs['SUP']['app_id'])
+    token = workbench_token(session, tenant_id, specs['SUP']['app_id'], variant)
     return dict(tenant_id=tenant_id, provider=provider, model=model, apps=apps, api_key=token)
 
 

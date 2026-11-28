@@ -1,5 +1,6 @@
 package com.upc.computer.assistant.v2.orders;
 
+import com.upc.computer.assistant.v2.runtime.WorkflowModel;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.*;
 import com.upc.computer.common.BusinessException;
@@ -30,10 +31,13 @@ public class OrderDraftService {
     }
 
     public Map<String,Object> turn(LoginResponse user,String authorization,String sessionId,String requestId,String text,ChatMode mode) {
+        return turn(user, authorization, sessionId, requestId, text, mode, WorkflowModel.API);
+    }
+    public Map<String,Object> turn(LoginResponse user,String authorization,String sessionId,String requestId,String text,ChatMode mode,WorkflowModel workflow) {
         identifier(sessionId);identifier(requestId);
         if(text==null||text.isBlank()||text.length()>2000)throw bad("问题须为1至2000个字符");
         Draft before=repository.bySession(user.getUserId(),sessionId);
-        String hash=OrderProductCatalog.hash(mode == null ? text : mode.modelSource() + "\n" + mode.ragEnabled() + "\n" + text);
+        String hash=OrderProductCatalog.hash(mode == null ? (workflow == WorkflowModel.LOCAL ? "workflow-v2\n" + text : text) : mode.modelSource() + "\n" + mode.ragEnabled() + "\n" + text);
         if(before!=null) {
             owner(before,user);
             if(requestId.equals(before.lastRequest)) {sameHash(before,hash);return envelope(before,"已恢复本轮订单草稿。",steps("ORDER","恢复草稿","读取已保存的结果，没有重复执行"));}
@@ -41,7 +45,10 @@ public class OrderDraftService {
         Map<String,Object> context=new LinkedHashMap<>();context.put("currentDate",LocalDate.now(clock).toString());context.put("dateTimezone","Asia/Shanghai");
         context.put("draft",before==null?Map.of():Map.of("status",before.status,"fields",before.fields));
         context.put("customerIdentityLocked","CUSTOMER".equals(user.getRoleCode()));
-        JsonNode parsed = mode == null ? intake.interpret(authorization, text, context) : intake.interpret(mode, text, context);
+        JsonNode parsed;
+        if (mode != null) parsed = intake.interpret(mode, text, context);
+        else if (workflow == WorkflowModel.LOCAL) parsed = intake.interpret(authorization, text, context, workflow);
+        else parsed = intake.interpret(authorization, text, context);
         String action=parsed.path("action").asText();
         if(!Set.of("ORDER","QUERY","CANCEL").contains(action))throw bad("未能识别需求，请说明要下单还是查询");
         if(action.equals("QUERY"))return Map.of("handled",false,"reply","","steps",List.of());

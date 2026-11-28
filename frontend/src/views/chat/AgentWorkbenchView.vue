@@ -50,8 +50,7 @@ import ProductionCalculationFlow from '@/components/assistant/ProductionCalculat
 import AgentCollaborationStream from '@/components/assistant/AgentCollaborationStream.vue'
 import WorkbenchComposer from '@/components/assistant/WorkbenchComposer.vue'
 import WorkbenchModeSelector from '@/components/assistant/WorkbenchModeSelector.vue'
-import { modelChatStatus, modelChatTurn } from '@/api/workbenchModels'
-import { isDirectSource, modelHistory, needsModelOrderTurn } from '@/utils/workbenchModes'
+import { isDirectSource } from '@/utils/workbenchModes'
 import { precedingWorkRun, imageFollowup, comparePhoto } from '@/utils/imageConversation'
 import { prefersReadOnlyQuery, entryContext, productionPreviewContext, productionPreviewIntent } from '@/utils/workbenchRouting'
 
@@ -104,17 +103,14 @@ let lastAuthorizationStamp = null
 const orderConnection = ref(null)
 const proposalSessions = new WeakMap()
 const productionAllowed = computed(() => ['ADMIN', 'ORDER', 'PLANNER', 'MANAGER', 'OPERATOR'].includes(user.userInfo?.roleCode))
-const modelConnection = ref(null)
-const modelError = ref('')
-const source = ref('WORKFLOW')
-const rag = ref(false)
-const direct = computed(() => isDirectSource(source.value))
-let explicitlySelected = false
+const workflowModel = ref('API')
+const bindingReady = computed(() => connection.value?.workflowModels
+  ? connection.value.workflowModels[workflowModel.value] === true : workflowModel.value === 'API')
 let statusRequest = 0
 const followTail = ref(true)
 const orderAllowed = computed(() => ['ADMIN', 'ORDER', 'CUSTOMER'].includes(user.userInfo?.roleCode))
 const orderReady = computed(() => orderAllowed.value && orderConnection.value?.available === true)
-const readDomains = computed(() => (direct.value ? modelConnection.value : connection.value)?.capabilities?.domains)
+const readDomains = computed(() => connection.value?.capabilities?.domains)
 const admin = computed(() => user.userInfo?.roleCode === 'ADMIN')
 const active = computed(() =>
   sessions.value.find((s) => s.id === activeId.value),
@@ -145,7 +141,7 @@ function pasteFiles(files) {
 async function attachFile(file) {
   if (busy.value) return
   if (/^image\/(png|jpeg)$/i.test(file.type) || /\.(png|jpe?g)$/i.test(file.name)) {
-    if (direct.value) { ElMessage.warning('图片分析请使用业务工作流。'); return }
+    if (workflowModel.value === 'LOCAL') { ElMessage.warning('微调 v2 是文本模型。分析图片请切换到 API模型。'); return }
     if (file.size > 6 * 1024 * 1024) { ElMessage.warning('请选择 6 MB 内的图片。'); return }
     pendingImage.value = file
     imageMode.value = 'auto'
@@ -173,31 +169,22 @@ async function attachFile(file) {
 const visibleSessions = computed(() =>
   sessions.value.filter((s) => s.title.includes(search.value.trim())),
 )
-const queryReady = computed(() => (admin.value || Array.isArray(connection.value?.capabilities?.domains)) && connection.value?.configured === true && connection.value?.naturalLanguage === true)
+const queryReady = computed(() => (admin.value || Array.isArray(connection.value?.capabilities?.domains)) && (connection.value?.workflowModels ? bindingReady.value : connection.value?.configured === true) && connection.value?.naturalLanguage === true)
 const entryAvailable = computed(() => connection.value?.directChat === true || connection.value?.productionActions === true)
-const modelConfigured = computed(() => Boolean(source.value === 'LOCAL' ? modelConnection.value?.localConfigured : modelConnection.value?.apiConfigured))
-const ready = computed(() => direct.value
-  ? modelConfigured.value && (!rag.value || modelConnection.value?.ragConfigured === true)
-  : orderReady.value || queryReady.value || entryAvailable.value)
+const ready = computed(() => bindingReady.value && (orderReady.value || queryReady.value || entryAvailable.value))
 const needsUpgrade = computed(() => connection.value != null && connection.value.naturalLanguage !== true)
 const BusinessActions = defineAsyncComponent(() => import('./ChatHomeView.vue'))
 const businessToolsOpen = ref(false)
 const graphWindow = ref('')
 const WorkbenchGraphWindow = defineAsyncComponent(() => import('@/components/assistant/WorkbenchGraphWindow.vue'))
 watch([activeId, () => user.token], () => { graphWindow.value = '' })
-const canSend = computed(() => !busy.value && (ready.value || (!direct.value && user.token && productionAllowed.value &&
-  productionPreviewIntent(input.value, messages.value.at(-1)))) && (input.value.trim().length > 0 || Boolean(pendingImage.value)))
-const statusText = computed(() => checking.value ? '正在连接' : direct.value ? (ready.value ? '已配置' : '未就绪') :
-  ready.value ? '已连接' : needsUpgrade.value ? '服务待升级' : '服务未连接')
+const canSend = computed(() => !busy.value && ready.value && (input.value.trim().length > 0 || Boolean(pendingImage.value)))
+const statusText = computed(() => checking.value ? '正在连接' : ready.value ? '已连接' : needsUpgrade.value ? '服务待升级' : '服务未连接')
 const statusHint = computed(() => {
   if (ready.value) return ''
-  if (direct.value) {
-    if (modelError.value) return modelError.value
-    if (!modelConfigured.value) return source.value === 'LOCAL' ? '请在 MES 后端配置本地模型地址和模型名称。' : '请在 MES 后端配置 API 模型和密钥。'
-    if (rag.value) return 'RAG 已开启，请配置知识服务或关闭 RAG 后发送。'
-  }
-  if (needsUpgrade.value) return '当前协作服务尚未升级为自然语言查询，请联系维护人员升级后重新连接。'
-  return connectionError.value || '订单服务尚未连接，请稍后重新连接。'
+  if (!connection.value) return connectionError.value || '无法连接生产协作工作流。'
+  if (!bindingReady.value) return workflowModel.value === 'LOCAL' ? '本地工作流尚未就绪。Ubuntu 上线并完成微调 v2 的首次发布后，请点「重新连接」。' : '云端 API 工作流尚未配置。'
+  return needsUpgrade.value ? '当前协作服务尚未升级为自然语言查询，请联系维护人员升级后重新连接。' : '工作流暂不可用，请重新连接。'
 })
 const productionExamples = {
   ADMIN: { title: '智能排产', description: '制定生产计划或安排工序派工', prompt: '帮我智能排产。' },
@@ -213,8 +200,8 @@ const productionExample = computed(() => {
 })
 const introductory = computed(() => [
   ...(orderAllowed.value ? [{ title: '创建订单', icon: ClipboardPlus, description: '产品选型与订单草稿', prompt: '我想下单，请帮我选择产品并填写订单信息。' }] : []),
-  ...(!direct.value && productionExample.value ? [{ ...productionExample.value, icon: Factory }] : []),
-  ...((admin.value || queryReady.value || (direct.value && Array.isArray(readDomains.value))) ? [
+  ...(productionExample.value ? [{ ...productionExample.value, icon: Factory }] : []),
+  ...((admin.value || queryReady.value) ? [
     { title: '查库存', icon: PackageSearch, description: '物料、仓库与可用数量', prompt: '帮我查一下当前库存，列出需要关注的物料。' },
     { title: '看生产进度', icon: Factory, description: '工单进展与生产状态', prompt: '帮我看看当前生产进度，哪些工单需要关注？' },
     { title: '分析质量问题', icon: ScanLine, description: '检验结果与缺陷依据', prompt: '查询质检情况，列出检验记录并概括主要质量问题。' },
@@ -231,22 +218,15 @@ function persist() {
     /* Quota limits do not interrupt a running answer. */
   }
 }
-function setMode(nextSource, nextRag = rag.value) {
-  if (busy.value || !(nextSource === 'WORKFLOW' || isDirectSource(nextSource))) return
-  if (pendingImage.value && isDirectSource(nextSource)) { ElMessage.warning('发送或移除图片后可切换模型。'); return }
-  if (nextSource !== source.value && active.value?.messages.some(m => m.orderFlow?.orderDraft?.id)) {
-    const unsent = input.value
+function setWorkflowModel(next) {
+  if (busy.value || !['API','LOCAL'].includes(next) || workflowModel.value === next) return
+  if (next === 'LOCAL' && pendingImage.value) { ElMessage.warning('微调 v2 支持文本。请先发送或移除图片。'); return }
+  if (active.value?.messages.length) {
+    const draft = input.value
     newSession()
-    input.value = unsent
+    input.value = draft
   }
-  source.value = nextSource
-  rag.value = nextRag === true
-  explicitlySelected = true
-  if (active.value) {
-    active.value.modelSource = nextSource
-    active.value.ragEnabled = rag.value
-    persist()
-  }
+  workflowModel.value = next
 }
 function stop() {
   controller?.abort()
@@ -271,25 +251,18 @@ async function checkConnection() {
   const sequence = ++statusRequest
   checking.value = true
   connectionError.value = ''
-  const [orderResult, queryResult, modelResult] = await Promise.allSettled([
+  const [orderResult, queryResult] = await Promise.allSettled([
     orderAllowed.value ? orderStatus(token) : Promise.resolve(null),
     workbenchStatus(token),
-    modelChatStatus(token),
   ])
   if (disposed || token !== user.token || sequence !== statusRequest) return
   orderConnection.value = orderResult.status === 'fulfilled' ? orderResult.value : null
   connection.value = queryResult.status === 'fulfilled' ? queryResult.value : null
-  modelConnection.value = modelResult.status === 'fulfilled' ? modelResult.value : null
-  modelError.value = modelResult.status === 'rejected' ? '无法获取模型配置，请确认 MES 后端已更新并启动。' : ''
-  if (!explicitlySelected && !active.value && !queryReady.value && !connection.value?.directChat && modelConnection.value &&
-      (!orderReady.value || modelConnection.value.apiConfigured || modelConnection.value.localConfigured)) {
-    source.value = !modelConnection.value.apiConfigured && modelConnection.value.localConfigured ? 'LOCAL' : 'API'
-  }
-  if ([queryResult, modelResult].some(result => result.status === 'rejected' && [401, 403].includes(result.reason?.code))) {
+  if ([queryResult, orderResult].some(result => result.status === 'rejected' && [401, 403].includes(result.reason?.code))) {
     stop(); sessions.value = []; activeId.value = null; pendingHistory = null
     try { localStorage.removeItem(historyKey(user.userInfo?.userId)) } catch { /* In-memory history is already cleared. */ }
   }
-  const stamp = connection.value?.authorizationStamp || modelConnection.value?.authorizationStamp
+  const stamp = connection.value?.authorizationStamp
   if (typeof stamp === 'string') {
     const cacheKey = historyKey(user.userInfo?.userId), stampKey = `${cacheKey}:authorization`
     let stored = lastAuthorizationStamp
@@ -315,11 +288,7 @@ watch(
     clearImage()
     owner = id
     statusRequest++
-    explicitlySelected = false
-    source.value = 'WORKFLOW'
-    rag.value = false
-    modelConnection.value = null
-    modelError.value = ''
+    workflowModel.value = 'API'
     activeId.value = null
     input.value = ''
     connection.value = null
@@ -342,6 +311,7 @@ onBeforeUnmount(() => {
 })
 
 function newSession() {
+  workflowModel.value = 'API'
   clearImage()
   if (busy.value) stop()
   followTail.value = true
@@ -357,9 +327,7 @@ function selectSession(session) {
   if (busy.value) stop()
   followTail.value = true
   activeId.value = session.id
-  source.value = isDirectSource(session.modelSource) ? session.modelSource : 'WORKFLOW'
-  rag.value = session.ragEnabled === true
-  explicitlySelected = true
+  workflowModel.value = session.workflowModel === 'LOCAL' ? 'LOCAL' : 'API'
   input.value = ''
   recoverSessionOrders(session)
   showHistory.value = false
@@ -391,6 +359,12 @@ function removeSession(id) {
   if (activeId.value === id) activeId.value = null
   persist()
 }
+async function sendWorkflowCommand(text) {
+  if (busy.value) return
+  businessToolsOpen.value = false
+  input.value = text
+  await send()
+}
 function chooseExample(item) {
   input.value = item.prompt
   composer.value?.focus()
@@ -409,7 +383,7 @@ function trackScroll() {
   if (el) followTail.value = el.scrollHeight - el.scrollTop - el.clientHeight < 100
 }
 function canRegenerate(message) {
-  return !direct.value && !message.modelSource && message === messages.value.at(-1) && message.status === 'COMPLETED' &&
+  return !message.modelSource && message === messages.value.at(-1) && message.status === 'COMPLETED' &&
     !busy.value && !input.value && !pendingImage.value && !message.imageQuestion &&
     !message.orderMessage && !message.orderFlow && !message.productionFlow && !message.evidenceInvalidated &&
     messages.value.at(-2)?.role === 'user' && !messages.value.at(-2)?.orderMessage &&
@@ -423,18 +397,18 @@ async function send(replay = null, supplement = null) {
     token = user.token,
     capturedOwner = owner
   let session = active.value
-  const mode = direct.value ? { modelSource: source.value, ragEnabled: rag.value } : null
-  const history = mode ? modelHistory(session?.messages || [], mode) : []
-  const directOrder = mode && orderAllowed.value && needsModelOrderTurn(text, session?.messages || []) &&
-    !prefersReadOnlyQuery(text, { canQuery: true })
+  const selected = workflowModel.value
+  const modelInput = selected === 'LOCAL' || connection.value?.workflowModels ? { workflowModel:selected } : {}
+  // Direct-chat history remains readable. A new workflow must acquire fresh evidence and its own task scope.
+  if (isDirectSource(session?.modelSource)) session = null
   if (!session) {
     const id = uniqueId()
     sessions.value.unshift({
       id,
       title: text.slice(0, 25),
       profile: 'AUTO',
-      modelSource: source.value,
-      ragEnabled: rag.value,
+      modelSource: 'WORKFLOW',
+      workflowModel: selected,
       updatedAt: Date.now(),
       messages: [],
     })
@@ -444,19 +418,19 @@ async function send(replay = null, supplement = null) {
   }
   const previousMessages = replay ? session.messages.slice(0, -2) : session.messages.slice()
   const previous = previousMessages.at(-1)
-  if (!mode && !imageFile && !replay && previous?.productionFlow?.status === 'PENDING' &&
+  if (!imageFile && !replay && previous?.productionFlow?.status === 'PENDING' &&
       /^(?:好[的啊]?|嗯|是的?|行|可以|确认(?:执行)?|同意|确定|执行|取消|跳过|不执行|ok)[\s!！。]*$/i.test(text)) {
     previous.error = '请核对方案，在卡片上选择确认执行或取消。'
     input.value = ''
     followScroll(true)
     return
   }
-  const photoTurn = mode || imageFile || replay ? null : imageFollowup(previousMessages, text)
+  const photoTurn = imageFile || replay ? null : imageFollowup(previousMessages, text)
   const previousTask = previousMessages.findLast(item => item.productionFlow)
-  let needsProductionPreview = !!supplement || (!mode && !replay && !imageFile && !photoTurn && productionAllowed.value && productionPreviewIntent(text, previousTask || previous))
+  let needsProductionPreview = !!supplement || (!replay && !imageFile && !photoTurn && productionAllowed.value && productionPreviewIntent(text, previousTask || previous))
   // Explicit production requests already have a safe preview destination. Do not let
   // the general classifier turn them into order intake or a conversational answer.
-  const classify = !mode && !needsProductionPreview && !supplement && !imageFile && !photoTurn && (!replay || replay.directChat) && entryAvailable.value
+  const classify = !needsProductionPreview && !supplement && !imageFile && !photoTurn && (!replay || replay.directChat) && entryAvailable.value
   const context = classify ? entryContext(previousMessages) : null
   const workAnchor = imageFile ? precedingWorkRun(session.messages) : null
   session.updatedAt = Date.now()
@@ -465,14 +439,14 @@ async function send(replay = null, supplement = null) {
     role: 'user',
     text,
     profile: 'AUTO',
-    orderMessage: mode ? Boolean(directOrder) : orderReady.value,
-    ...mode,
+    orderMessage: orderReady.value,
+    workflowModel: selected,
   })
   session.messages.push(createAssistantMessage())
   const message = session.messages.at(-1)
   message.conversationId = session.id
-  if (mode) Object.assign(message, mode)
-  let needsOrderIntake = !needsProductionPreview && !replay && !imageFile && !photoTurn && orderReady.value && (mode ? directOrder : !prefersReadOnlyQuery(text, { canQuery: queryReady.value }))
+  message.workflowModel = selected
+  let needsOrderIntake = !needsProductionPreview && !replay && !imageFile && !photoTurn && orderReady.value && !prefersReadOnlyQuery(text, { canQuery: queryReady.value })
   if (!classify && !needsOrderIntake) session.messages.at(-2).orderMessage = false
   if (!classify && needsOrderIntake) message.orderFlow = { steps: [], classifying: true }
   activeMessage = message
@@ -484,10 +458,9 @@ async function send(replay = null, supplement = null) {
   persist()
   followScroll(true)
   try {
-    if (directOrder && !orderReady.value) throw new Error('订单草稿服务尚未就绪，请先完成下单模块初始化。')
     if (classify) {
       message.routing = true
-      const { route } = await chatEntry(token, { text, ...context }, {
+      const entry = await chatEntry(token, { text, ...context, ...modelInput }, {
         signal: controller.signal,
         onDelta: delta => {
           if (disposed || owner !== capturedOwner || token !== user.token || message.status !== 'RUNNING') return
@@ -497,6 +470,8 @@ async function send(replay = null, supplement = null) {
         },
       })
       if (disposed || owner !== capturedOwner || token !== user.token || message.status !== 'RUNNING') return
+      if (modelInput.workflowModel && entry?.workflowModel !== selected) throw new Error('工作流未确认本次模型选择，请重新连接。')
+      const route = entry.route
       delete message.routing
       if (route === 'GENERAL' || route === 'WEATHER') {
         session.messages.at(-2).orderMessage = false
@@ -521,7 +496,7 @@ async function send(replay = null, supplement = null) {
       const request = supplement ? { text: '', actionCode: supplement.actionCode, fields: supplement.fields }
         : { text, ...productionPreviewContext(previous, text) }
       const history = previousMessages.slice(-6).map(item => ({ role: item.role, text: String(item.text || item.result?.reply || '').slice(0, 1200) }))
-      const preview = await previewProductionOperation(token, { ...request, sessionId: session.id, history }, {
+      const preview = await previewProductionOperation(token, { ...request, sessionId: session.id, history, ...modelInput }, {
         signal: controller.signal,
         onEvent: (event) => {
           if (disposed || owner !== capturedOwner || token !== user.token || activeId.value !== session.id || message.status !== 'RUNNING') return
@@ -530,6 +505,7 @@ async function send(replay = null, supplement = null) {
         },
       })
       if (disposed || owner !== capturedOwner || token !== user.token || activeId.value !== session.id || message.status !== 'RUNNING') return
+      if (modelInput.workflowModel && preview?.workflowModel !== selected) throw new Error('生产服务未确认本轮工作流模型。')
       if (!['PENDING', 'NEEDS_INPUT', 'UNHANDLED', 'COMPLETED'].includes(preview?.status) ||
           (preview.status === 'PENDING' && (!preview.confirmation?.proposalId || !preview.confirmation.params))) {
         throw new Error('生产服务未返回完整的方案，请重新发起请求。')
@@ -569,6 +545,7 @@ async function send(replay = null, supplement = null) {
     }
     let photoEvidence
     if (photoTurn) {
+      if (selected === 'LOCAL') throw new Error('微调 v2 支持文本。图片追问请使用原来的 API模型会话。')
       message.imageStreaming = true
       photoEvidence = await continueImage(token, { imageRef: photoTurn.imageRef, action: photoTurn.action, sessionId: session.id, question: text }, {
         signal: controller.signal,
@@ -590,13 +567,13 @@ async function send(replay = null, supplement = null) {
     if (needsOrderIntake) {
       let envelope
       try {
-        envelope = await orderTurn(token, { sessionId: session.id, requestId: message.id, text, ...mode }, { signal: controller.signal })
-        if (mode && (envelope?.modelSource !== mode.modelSource || envelope.ragEnabled !== mode.ragEnabled)) {
-          throw new Error('订单服务没有确认本次所选模型和 RAG 状态。')
+        envelope = await orderTurn(token, { sessionId: session.id, requestId: message.id, text, ...modelInput }, { signal: controller.signal })
+        if (modelInput.workflowModel && envelope?.workflowModel !== selected) {
+          throw new Error('订单服务未确认本轮工作流模型。')
         }
       } catch (error) {
         const unavailable = error.name === 'TypeError' || error.code === 503
-        if (mode || !unavailable || error.name === 'AbortError' || controller.signal.aborted || !queryReady.value) throw error
+        if (selected === 'LOCAL' || !unavailable || error.name === 'AbortError' || controller.signal.aborted || !queryReady.value) throw error
         // Intake never confirms an order. Continue the existing read-only path once,
         // retaining privacy markers because the unclassified text may contain PII.
         message.orderIntakeNotice = '订单信息识别暂不可用，当前仅执行只读查询。订单草稿状态请稍后核对。'
@@ -608,37 +585,26 @@ async function send(replay = null, supplement = null) {
         applyOrderEnvelope(message, envelope)
         return
       }
-      if (!mode && !queryReady.value) {
+      if (!queryReady.value) {
         applyOrderEnvelope(message, { handled: true, reply: '当前账号可办理订单，请说明需要购买的产品和数量。', steps: envelope.steps || [] })
         return
       }
       delete message.orderFlow
       if (!message.orderIntakeNotice) session.messages.at(-2).orderMessage = false
     }
-    if (mode) {
-      const signal = controller.signal
-      const result = await modelChatTurn(token, { ...mode, text, history }, signal)
-      if (signal.aborted || disposed || capturedOwner !== owner || token !== user.token) return
-      if (result?.modelSource !== mode.modelSource || result.ragEnabled !== mode.ragEnabled || !result.reply?.trim()) {
-        throw new Error('后端没有确认本次所选模型和 RAG 状态。')
-      }
-      message.result = result
-      message.text = result.reply
-      message.status = 'COMPLETED'
-      followScroll()
-      return
-    }
     if (!queryReady.value) throw new Error('查询服务暂不可用，请稍后重新连接。')
     await streamWorkbench(
       token,
       photoTurn?.action === 'compare'
-        ? { sessionId: session.id, requestId: message.id, previousRunId: photoEvidence.workRun, text: '这张工单的质检情况怎么样' }
-        : buildNaturalRequest(replay ? { ...session, messages: previousMessages } : session, text, message.id),
+        ? { ...modelInput, sessionId: session.id, requestId: message.id, previousRunId: photoEvidence.workRun, text: '这张工单的质检情况怎么样' }
+        : { ...buildNaturalRequest(replay ? { ...session, messages: previousMessages } : session, text, message.id), ...modelInput },
       {
         signal: controller.signal,
         onEvent: (event) => {
           if (capturedOwner !== owner || token !== user.token || disposed)
             return
+          if (event.type === 'result' && modelInput.workflowModel && event.data?.workflowModel !== selected)
+            throw new Error('工作流返回的模型与本轮选择不一致。')
           applyWorkbenchEvent(message, event)
           if (photoTurn?.action === 'compare' && event.type === 'result' && !message.evidenceInvalidated)
             message.photoComparison = comparePhoto(photoEvidence.count, message.result)
@@ -893,7 +859,7 @@ async function copy(text) {
 </script>
 
 <template>
-  <div class="agent-workbench" :class="{ 'has-messages': messages.length, 'inspector-open': !direct && inspectorOpen, 'history-collapsed': historyCollapsed }">
+  <div class="agent-workbench" :class="{ 'has-messages': messages.length, 'inspector-open': inspectorOpen, 'history-collapsed': historyCollapsed }">
     <button v-if="showHistory" class="history-overlay" aria-label="关闭会话列表" @click="showHistory = false" />
     <aside class="workbench-history" :class="{ 'is-open': showHistory }" aria-label="新助手会话">
       <div class="history-heading"><span class="brand-mark" aria-hidden="true"><DisplayMark /></span><strong>生产协作助手</strong><button class="icon-button history-collapse" aria-label="收起会话栏" @click="historyCollapsed = true"><PanelLeft /></button><button class="icon-button mobile-close" aria-label="关闭会话列表" @click="showHistory = false"><Close /></button></div>
@@ -918,10 +884,10 @@ async function copy(text) {
       </div>
     </aside>
     <el-drawer v-model="businessToolsOpen" title="业务指令与语音" size="min(680px, 100vw)" append-to-body destroy-on-close>
-      <BusinessActions v-if="businessToolsOpen" embedded />
+      <BusinessActions v-if="businessToolsOpen" embedded :workflow-model="workflowModel" @workflow-command="sendWorkflowCommand" />
     </el-drawer>
     <main class="workbench-main">
-      <WorkbenchGraphWindow v-if="graphWindow" :key="graphWindow" :mode="graphWindow" :message="inspectedMessage" :token="user.token" :can-ingest="user.userInfo?.roleCode === 'ADMIN'" @close="graphWindow = ''" />
+      <WorkbenchGraphWindow v-if="graphWindow" :key="graphWindow" :mode="graphWindow" :workflow-model="workflowModel" :message="inspectedMessage" :token="user.token" :can-ingest="user.userInfo?.roleCode === 'ADMIN'" @close="graphWindow = ''" />
       <header class="workbench-header">
         <button class="icon-button mobile-history" aria-label="打开会话列表" @click="toggleHistory"><PanelLeft /></button>
         <div class="workspace-breadcrumb"><span>生产协作</span><ChevronRight /><strong class="assistant-header-title">{{ active?.title || '新对话' }}</strong></div>
@@ -931,14 +897,14 @@ async function copy(text) {
           <button aria-haspopup="dialog" aria-label="查看联合知识图" title="查看联合知识图" @click="graphWindow = 'knowledge'"><Share2/><span>联合知识图</span></button>
         </div>
         <button class="connection-status" :class="{ online: ready }" :disabled="checking" aria-label="刷新连接状态" @click="checkConnection"><i />{{ statusText }}<Loading v-if="checking" class="spin" /></button>
-        <button v-if="!direct" class="icon-button inspector-toggle" :aria-pressed="inspectorOpen" :aria-label="inspectorOpen ? '收起 Agent 面板' : '展开 Agent 面板'" @click="inspectorOpen = !inspectorOpen"><PanelRight /></button>
+        <button class="icon-button inspector-toggle" :aria-pressed="inspectorOpen" :aria-label="inspectorOpen ? '收起 Agent 面板' : '展开 Agent 面板'" @click="inspectorOpen = !inspectorOpen"><PanelRight /></button>
       </header>
       <div class="chat-stage" :class="{ 'is-empty': !messages.length }">
         <section v-if="!messages.length" class="workbench-welcome">
             <div class="welcome-emblem" aria-hidden="true"><DisplayMark /></div>
             <div class="welcome-eyebrow">MES WORKSPACE</div>
             <h1>从一个生产问题开始</h1>
-            <p>{{ direct ? '输入生产问题，或选择快捷业务查询。' : productionExample ? '查询生产进度，或提出业务操作并核对执行方案。' : queryReady ? '查询生产现场的数据，跟进工单与质量问题。' : '描述订购需求，核对信息后提交订单审核。' }}</p>
+            <p>{{ productionExample ? '查询生产进度，或提出业务操作并核对执行方案。' : queryReady ? '查询生产现场的数据，跟进工单与质量问题。' : '描述订购需求，核对信息后提交订单审核。' }}</p>
         </section>
         <div v-show="messages.length" ref="list" class="conversation-scroll" @scroll.passive="trackScroll">
           <div class="conversation-content">
@@ -949,7 +915,8 @@ async function copy(text) {
                 <AgentCollaborationStream v-if="!message.modelSource && !message.routing && !message.directChat" :message="message" />
                 <OrderFlowCard v-if="message.orderFlow && !message.orderFlow.classifying" :flow="message.orderFlow" :busy="busy || !orderReady" :customer="user.userInfo?.roleCode === 'CUSTOMER'" :historical="historicalOrder(message)" @action="orderAction(message, $event)" />
                 <ProductionOperationCard v-if="message.productionFlow?.confirmation || message.productionFlow?.planning || message.productionFlow?.status === 'NEEDS_INPUT'" :flow="message.productionFlow" :latest="messages.at(-1) === message" :busy="busy || !!pendingImage" @decision="productionDecision(message, $event)" @supplement="supplementProduction(message, $event)" @operator-change="changeProductionOperator(message, $event)" />
-                <small v-if="isDirectSource(message.modelSource)" class="model-caption">{{ message.modelSource === 'API' ? 'API 模型' : '本地模型' }}{{ message.result?.model ? ' · ' + message.result.model : '' }} · {{ message.ragEnabled ? (message.result?.ragStatus === 'NO_MATCHES' ? 'RAG 未检索到匹配资料' : 'RAG 开启') : 'RAG 关闭' }}</small>
+                <small v-if="message.workflowModel" class="model-caption">业务工作流 · {{ message.workflowModel === 'LOCAL' ? '本地模型 · 微调 v2' : 'API模型' }}</small>
+                <small v-else-if="isDirectSource(message.modelSource)" class="model-caption">{{ message.modelSource === 'API' ? 'API 模型' : '本地模型' }}{{ message.result?.model ? ' · ' + message.result.model : '' }} · {{ message.ragEnabled ? (message.result?.ragStatus === 'NO_MATCHES' ? 'RAG 未检索到匹配资料' : 'RAG 开启') : 'RAG 关闭' }}</small>
                 <p v-if="message.orderIntakeNotice" class="message-error" role="status">{{ message.orderIntakeNotice }}</p>
                 <div v-if="(!message.orderFlow || message.orderFlow.classifying) && message.status === 'RUNNING' && !message.directChat && !message.agents.length && !message.workflow" class="waiting-line"><Loading class="spin" />{{ isDirectSource(message.modelSource) ? '正在等待模型回复…' : message.productionFlow ? '正在准备生产方案…' : message.imageQuestion ? '正在分析图片…' : message.routing || message.orderFlow?.classifying ? '正在理解请求…' : message.runId ? '任务已接收，等待协调执行…' : '正在连接协调服务…' }}</div>
                 <WorkbenchMarkdown v-if="message.photoObservation" :content="message.photoObservation" :smooth="message.imageStreaming" :streaming="message.status === 'RUNNING' && !message.text" :stopped="['FAILED','CANCELLED','INTERRUPTED'].includes(message.status)" @progress="followScroll()" />
@@ -979,7 +946,7 @@ async function copy(text) {
           </div>
         </div>
         <footer ref="composerArea" class="composer-area">
-          <WorkbenchModeSelector :source="source" :rag="rag" :busy="busy" @source="setMode($event)" @rag="setMode(source, $event)" />
+          <WorkbenchModeSelector :model="workflowModel" :busy="busy" @change="setWorkflowModel" />
           <div v-if="statusHint" class="connection-notice" role="status"><span>{{ statusHint }}</span><button v-if="!busy" @click="checkConnection">重新连接</button></div>
           <input ref="attachmentInput" class="attachment-input" type="file" accept=".txt,.md,.csv,.json,.jpg,.jpeg,.png" aria-label="选择图片或文本资料" @change="attachTextFile" />
           <div v-if="pendingImage" class="image-attachment">
@@ -994,7 +961,7 @@ async function copy(text) {
         </nav>
       </div>
     </main>
-    <aside v-if="!direct && inspectorOpen" class="workbench-inspector" aria-label="Agent 执行检查面板"><AgentInspector :message="inspectedMessage" @close="inspectorOpen = false" /></aside>
+    <aside v-if="inspectorOpen" class="workbench-inspector" aria-label="Agent 执行检查面板"><AgentInspector :message="inspectedMessage" @close="inspectorOpen = false" /></aside>
   </div>
 </template>
 

@@ -39,6 +39,51 @@ def test_templates_use_target_workspaces_ids_and_selected_model():
                 assert data['provider_id'] == expected[data['tool_name']]
 
 
+def test_v2_family_uses_only_pinned_models_and_its_own_expert_tools():
+    workspace = str(uuid.uuid4())
+    files = HOST['read_templates'](DEPLOY)
+    cloud = WORKER['build_specs'](workspace, files, HOST['DEFAULT_PROVIDER'], HOST['DEFAULT_MODEL'])
+    local = WORKER['build_specs'](workspace, files, HOST['V2_PROVIDER'], HOST['V2_MODEL'], ':v2')
+    assert set(local) == set(cloud) == set(HOST['ROLES'])
+    tools = {s['tool']['name']: s['tool_id'] for s in local.values() if s['tool']}
+    assert len(tools) == 7
+    for role, spec in local.items():
+        assert spec['app_id'] != cloud[role]['app_id']
+        if spec['tool']:
+            assert spec['tool_id'] != cloud[role]['tool_id']
+            assert spec['tool']['name'] == cloud[role]['tool']['name'] + '_v2'
+        for node in spec['dsl']['workflow']['graph']['nodes']:
+            data = node['data']
+            if data['type'] == 'agent':
+                params = data['agent_parameters']
+                model = params['model']['value']
+                assert (model['provider'], model['model']) == (HOST['V2_PROVIDER'], HOST['V2_MODEL'])
+                for tool in params['tools']['value']:
+                    assert tool['provider_name'] == tools[tool['tool_name']]
+            elif data['type'] == 'llm':
+                assert (data['model']['provider'], data['model']['name']) == (HOST['V2_PROVIDER'], HOST['V2_MODEL'])
+            elif data['type'] == 'tool':
+                assert data['provider_id'] == tools[data['tool_name']]
+
+
+def test_offline_setup_records_address_and_preserves_published_credentials(tmp_path, monkeypatch):
+    provision = HOST['provision']
+    env = provision.__globals__
+    monkeypatch.setitem(env, 'DEPLOY', tmp_path)
+    monkeypatch.setitem(env, 'prepare', lambda *_: {})
+    monkeypatch.setitem(env, 'offers_pinned_model', lambda _: False)
+    url = 'http://127.0.0.1:21434/v1'
+    settings = tmp_path/'.env.workbench-v2.local'
+    provision('cloud', 'cloud', v2_base_url=url, if_online=True)
+    assert settings.read_text().splitlines() == ['MES_WORKFLOW_V2_BASE_URL=' + url]
+    installed = 'MES_WORKBENCH_V2_DIFY_API_KEY=app-LocalFixture\nMES_WORKFLOW_V2_BASE_URL=' + url + '\n'
+    settings.write_text(installed)
+    with pytest.raises(ValueError, match='publication is pending'):
+        provision('cloud', 'cloud', v2_base_url=url)
+    assert settings.read_text() == installed
+    assert not (tmp_path/'.env.workbench.local').exists()
+
+
 def test_private_setting_errors_never_include_values(tmp_path):
     path = tmp_path/'private.env'
     path.write_text('ROLE=sample-secret\nROLE=another-secret\n', encoding='utf-8')

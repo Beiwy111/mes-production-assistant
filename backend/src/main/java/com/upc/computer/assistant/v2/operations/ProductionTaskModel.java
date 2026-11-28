@@ -19,8 +19,9 @@ public class ProductionTaskModel {
     public ProductionTaskModel(ObjectMapper json){this.json=json;}
     public JsonNode plan(String authorization, Map<String,Object> input,Consumer<String> onText) {
         try {
+            boolean local="LOCAL".equals(String.valueOf(input.get("workflowModel")));
             var request=HttpRequest.newBuilder(URI.create("http://127.0.0.1:18083/assistant-workbench/task-plan"))
-                .timeout(Duration.ofSeconds(40)).header("Authorization",authorization).header("Content-Type","application/json")
+                .timeout(Duration.ofSeconds(local ? 120 : 40)).header("Authorization",authorization).header("Content-Type","application/json")
                 .POST(HttpRequest.BodyPublishers.ofString(json.writeValueAsString(input))).build();
             var response=http.send(request,HttpResponse.BodyHandlers.ofInputStream());
             try(var reader=new BufferedReader(new InputStreamReader(response.body(),StandardCharsets.UTF_8))){
@@ -31,7 +32,7 @@ public class ProductionTaskModel {
                     JsonNode event=json.readTree(line);
                     if("delta".equals(event.path("type").asText()))onText.accept(event.path("text").asText());
                     else if("result".equals(event.path("type").asText()))return event.path("data");
-                    else if("error".equals(event.path("type").asText()))throw new BusinessException(503,"任务规划中断，请重试；未执行生产操作");
+                    else if("error".equals(event.path("type").asText()))throw new BusinessException(503,local ? "Ubuntu 微调 v2 任务规划未完成，请检查远端连接；未执行生产操作" : "任务规划中断，请重试；未执行生产操作");
                 }
                 throw new BusinessException(503,"任务规划连接中断，未执行生产操作");
             }

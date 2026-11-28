@@ -1,5 +1,6 @@
 package com.upc.computer.assistant.v2.operations;
 
+import com.upc.computer.assistant.v2.runtime.WorkflowModel;
 import com.fasterxml.jackson.databind.*;
 import com.upc.computer.ai.action.AgentActionPlanService;
 import com.upc.computer.assistant.v2.orders.OrderSessionGuard;
@@ -14,7 +15,12 @@ import java.util.function.Consumer;
 /** Bounded observe/plan/act loop. Model output can call reads or prepare a proposal, never commit it. */
 @Service
 public class ProductionTaskService {
-    public record Turn(String text,String sessionId,String actionCode,Map<String,Object> fields,List<Map<String,String>> history){}
+    public record Turn(String text,String sessionId,String actionCode,Map<String,Object> fields,List<Map<String,String>> history,WorkflowModel workflowModel){
+        public Turn(String text,String sessionId,String actionCode,Map<String,Object> fields,List<Map<String,String>> history){
+            this(text,sessionId,actionCode,fields,history,WorkflowModel.API);
+        }
+        public Turn { if(workflowModel==null) workflowModel=WorkflowModel.API; }
+    }
     private final ProductionTaskModel model;
     private final ProductionTaskTools tools;
     private final ProductionOperationService operations;
@@ -45,6 +51,9 @@ public class ProductionTaskService {
         try {
             if(turn.text()==null||turn.text().length()>4000)throw new BusinessException(400,"任务文字过长或为空");
             var state=load(key);
+            if (!state.isEmpty() && !turn.workflowModel().name().equals(state.getOrDefault("workflowModel","API")))
+                throw new BusinessException(409,"本任务使用其他模型，请新建会话。");
+            state.put("workflowModel",turn.workflowModel().name());
             // Old natural-language answers are not execution records (and may contain invented IDs).
             state.remove("lastAnswer");
             state.put("executionStatus",map(state.get("receipt")).getOrDefault("status","NOT_EXECUTED"));
@@ -108,7 +117,7 @@ public class ProductionTaskService {
                 // them again after success. Parameterized tools remain available for other entities.
                 var available=(round == 3 ? List.<Map<String,Object>>of() : catalog).stream().filter(t->!Set.of("orders","plans","resources").contains(t.get("tool"))
                     || observations.stream().noneMatch(o->Objects.equals(o.get("tool"),t.get("tool"))&&"COMPLETED".equals(o.get("status")))).toList();
-                try {plan=model.plan(authorization,json.convertValue(Map.of("question",turn.text(),"state",state,"observations",observations,"catalog",available,"history",history),Map.class),delta->{
+                try {plan=model.plan(authorization,json.convertValue(Map.of("question",turn.text(),"state",state,"observations",observations,"catalog",available,"history",history,"workflowModel",turn.workflowModel().name()),Map.class),delta->{
                     if(visible.isEmpty()){
                         emitter.end("SUP",planning,"task.plan","COMPLETED","工具选择已结束，开始生成回答");
                         emitter.summarizing("RUNNING","根据已返回的工具结果整理回答或待补充事项");

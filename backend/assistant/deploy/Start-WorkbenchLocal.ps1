@@ -29,6 +29,32 @@ if (Test-Path -LiteralPath $privatePath -PathType Leaf) {
 # An absent app key starts the gateway in an explicitly unconfigured state.
 if (-not $config.ContainsKey('MES_WORKBENCH_DIFY_API_KEY')) { $config['MES_WORKBENCH_DIFY_API_KEY'] = '' }
 if (-not $config.ContainsKey('MES_WORKBENCH_DIFY_BASE_URL')) { $config['MES_WORKBENCH_DIFY_BASE_URL'] = 'http://127.0.0.1:18080/v1' }
+$v2Config = Join-Path $PSScriptRoot '.env.workbench-v2.local'
+$config['MES_WORKBENCH_V2_BINDING_FILE'] = $v2Config
+if ([IO.File]::Exists($v2Config)) {
+    foreach ($line in [IO.File]::ReadAllLines($v2Config)) {
+        if (!$line.Trim() -or $line.TrimStart().StartsWith('#')) { continue }
+        $pair = $line -split '=',2
+        if ($pair.Count -ne 2 -or $pair[0] -notin @('MES_WORKBENCH_V2_DIFY_API_KEY','MES_WORKFLOW_V2_BASE_URL','MES_WORKFLOW_V2_API_KEY') -or $config.ContainsKey($pair[0])) {
+            throw 'Invalid workflow v2 settings; values omitted.'
+        }
+        $config[$pair[0]] = $pair[1]
+    }
+}
+# The managed desktop launcher imports these settings into Spring after spawning
+# its sidecars. Reuse that same private file for the workflow entry and planner.
+$cloudSettings = $env:MES_WORKFLOW_CLOUD_SETTINGS
+$managed = Join-Path $env:USERPROFILE '.mes-production-assistant'
+if (!$cloudSettings -and $PSScriptRoot -eq (Join-Path $managed 'runtime\backend\assistant\deploy')) {
+    $cloudSettings = Join-Path $managed 'private\assistant-api.properties'
+}
+if ($cloudSettings -and [IO.File]::Exists($cloudSettings)) {
+    foreach ($line in [IO.File]::ReadAllLines($cloudSettings)) {
+        if ($line -match '^(MES_CHAT_API_KEY|DEEPSEEK_API_KEY|MES_CHAT_API_BASE_URL|MES_CHAT_API_MODEL)=(.+)$') {
+            $config[$matches[1]] = $matches[2]
+        }
+    }
+}
 if (Get-NetTCPConnection -State Listen -LocalPort 18083 -ErrorAction SilentlyContinue) {
     throw 'Port 18083 is already in use. No process was stopped or changed.'
 }
@@ -61,6 +87,15 @@ try {
     $process.Id | Set-Content (Join-Path $dataDirectory 'workbench-java.pid')
     if ($PassThru) { $process }
     Write-Host ('Independent workbench starting on 127.0.0.1:18083; PID ' + $process.Id + '. MES was not restarted.')
+    if ($config['MES_WORKFLOW_V2_BASE_URL'] -and !$config['MES_WORKBENCH_V2_DIFY_API_KEY']) {
+        $python = Join-Path $projectRoot 'backend\assistant\rag\.venv\Scripts\python.exe'
+        if ([IO.File]::Exists($python)) {
+            $resume = Join-Path $PSScriptRoot 'Resume-WorkflowV2Local.ps1'
+            $shell = (Get-Process -Id $PID).Path
+            Start-Process -FilePath $shell -ArgumentList ('-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "' + $resume + '" -GatewayProcessId ' + $process.Id) -WorkingDirectory $PSScriptRoot -WindowStyle Hidden `
+                -RedirectStandardOutput (Join-Path $logDirectory 'workflow-v2-setup.log') -RedirectStandardError (Join-Path $logDirectory 'workflow-v2-setup.err') | Out-Null
+        }
+    }
 } finally {
     foreach ($name in $old.Keys) { [Environment]::SetEnvironmentVariable($name,$old[$name],'Process') }
 }

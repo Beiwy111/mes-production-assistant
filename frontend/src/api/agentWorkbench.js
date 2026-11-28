@@ -4,6 +4,9 @@ import { notifySessionExpired } from '../utils/sessionExpiry.js'
 
 const BASE = '/api/assistant-workbench'
 const errorMessages = {
+  LOCAL_WORKFLOW_NOT_CONFIGURED: '本地工作流尚未就绪。请在 Ubuntu 微调 v2 工作流发布后重新连接。',
+  LOCAL_WORKFLOW_FAILED: 'Ubuntu 微调 v2 工作流未完成，请检查远端服务后重试，或手动选择 API模型。',
+  INVALID_WORKFLOW_MODEL: '不支持的工作流模型。',
   UNAUTHORIZED: '登录已失效，请重新登录。',
   ADMIN_REQUIRED: '此预览接口仅向管理员开放，请使用自然语言查询。',
   BUSINESS_PERMISSION_REQUIRED: '当前账号没有所需业务权限，或客户身份尚未绑定。',

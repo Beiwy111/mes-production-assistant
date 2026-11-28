@@ -144,3 +144,16 @@ QUALITY/AFTERSALES 的固定 research 节点调用 Java 运行时，运行时以
 新机初始化会将千问密钥保存到本机私有的 `.env.daily-chat.local`。工作台启动脚本每次启动都从该文件读取 `DASHSCOPE_API_KEY` 并传给网关。已有部署也可以继续通过进程环境提供此变量。已配置时，聊天页先使用千问 API 识别请求；日常对话由模型流式回答，业务查询进入原有 Dify 和授权工具，下单进入订单草稿流程。仅上一轮日常问答的文本会随日常追问传入，业务表格和订单草稿不会作为日常历史传入。缺少此变量时沿用原有业务入口。
 
 天气查询使用 Open-Meteo 的地名和预报接口，先确认城市，按当地日期返回未来七天以内的单日预报。网关需要能够访问 DashScope、`geocoding-api.open-meteo.com` 与 `api.open-meteo.com`，可读取 HTTP 类型的 `HTTPS_PROXY`。天气数据未返回时会说明原因。修改环境变量后重新启动独立工作台网关。
+
+### 工作流的模型选择
+
+网页助手默认使用 API 模型。选择本地模型时，MES 网关使用独立的 Dify 应用密钥运行同一份工作流，模型固定为 `mes-qwen14b-v2`。两组工作流共用 MES 授权检查、业务工具和知识库。
+
+在完成原有 Dify 初始化的 Windows 部署目录执行下面的命令。输入 Windows 和 Dify 插件容器都能访问的 Ubuntu 模型服务地址。
+
+```powershell
+$v2BaseUrl = Read-Host '请输入 Ubuntu 模型服务的 Base URL（以 /v1 结尾）'
+python .\Provision-Stage5Dify.py --local-v2 --base-url $v2BaseUrl
+```
+
+脚本使用 Dify 签名供应商注册 v2，生成单独的总协调、专家和知识工作流，并把本机绑定保存到私有文件 `.env.workbench-v2.local`。重复运行可核对和补全同一组应用。首次配置时若 Ubuntu 离线，脚本保存目标地址。只要工作流网关正在运行，助手就会每分钟检查一次，发现 v2 上线后自动完成首次发布。发布完成后，在助手中点击「重新连接」即可。手动重试可在同一部署目录运行 `python .\Provision-Stage5Dify.py --local-v2`。已发布的绑定会直接复用。

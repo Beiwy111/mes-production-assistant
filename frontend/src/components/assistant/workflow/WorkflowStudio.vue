@@ -1,7 +1,7 @@
 <script setup>
 import { computed, nextTick, ref, watch } from 'vue'
 import { GitBranch } from 'lucide-vue-next'
-import catalog from 'virtual:mes-workflows'
+import templates from 'virtual:mes-workflows'
 import { inspectAgentMessage } from '../../../utils/agentInspector.js'
 import { flowGraph, overviewGraph } from './workflowModel'
 import WorkflowCanvas from './WorkflowCanvas.vue'
@@ -9,16 +9,18 @@ import WorkflowDetailPanel from './WorkflowDetailPanel.vue'
 import WorkflowListPanel from './WorkflowListPanel.vue'
 import WorkflowToolbar from './WorkflowToolbar.vue'
 
-const props = defineProps({ message: Object })
-const overview = overviewGraph(catalog)
+const props = defineProps({ message: Object, workflowModel: String })
+const catalog = computed(() => props.workflowModel === 'LOCAL' ? templates.map(flow => ({ ...flow, nodes: flow.nodes.map(node =>
+  ['agent','llm'].includes(node.kind) ? { ...node, config: [...node.config.filter(([key]) => key !== '模型'), ['模型','mes-qwen14b-v2']] } : node) })) : templates)
+const overview = computed(() => overviewGraph(catalog.value))
 const active = ref('overview'), selected = ref('SUP'), scope = ref('')
 const direction = ref('horizontal'), mainOnly = ref(false), revision = ref(0)
 const libraryOpen = ref(false), detailsOpen = ref(false), canvas = ref(null)
 const observation = computed(() => inspectAgentMessage(props.message))
 const roles = computed(() => props.message ? Object.fromEntries(observation.value.roles.map(role => [role.agentId, role])) : {})
 const isOverview = computed(() => active.value === 'overview')
-const flow = computed(() => catalog.find(f => f.name === active.value))
-const graph = computed(() => isOverview.value ? overview : flowGraph(flow.value, scope.value, mainOnly.value))
+const flow = computed(() => catalog.value.find(f => f.name === active.value))
+const graph = computed(() => isOverview.value ? overview.value : flowGraph(flow.value, scope.value, mainOnly.value))
 const current = computed(() => graph.value.nodes.find(n => n.id === selected.value))
 const parent = computed(() => flow.value?.nodes.find(n => n.id === scope.value))
 const childCount = computed(() => current.value && flow.value?.nodes.filter(n => n.parent === current.value.id).length || 0)

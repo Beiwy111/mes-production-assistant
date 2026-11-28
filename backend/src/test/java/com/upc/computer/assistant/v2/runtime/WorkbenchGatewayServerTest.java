@@ -14,6 +14,39 @@ import static org.junit.jupiter.api.Assertions.*;
 
 /** HTTP boundary tests: an external workflow is the only substituted dependency. */
 class WorkbenchGatewayServerTest {
+    @Test void reconnectPicksUpOnlyThePublishedKeyForTheConfiguredUbuntu(@org.junit.jupiter.api.io.TempDir java.nio.file.Path dir)throws Exception {
+        var path=dir.resolve("local.env");
+        String base="http://127.0.0.1:21434/v1";
+        var env=Map.of("MES_WORKBENCH_V2_BINDING_FILE",path.toString(),"MES_WORKFLOW_V2_BASE_URL",base);
+        assertNull(WorkbenchRuntimeMain.localWorkflowKey(env));
+        java.nio.file.Files.writeString(path,"MES_WORKFLOW_V2_BASE_URL="+base+"\n");
+        assertNull(WorkbenchRuntimeMain.localWorkflowKey(env));
+        java.nio.file.Files.writeString(path,"MES_WORKFLOW_V2_BASE_URL="+base+"\nMES_WORKBENCH_V2_DIFY_API_KEY=app-testV2\n");
+        assertEquals("app-testV2",WorkbenchRuntimeMain.localWorkflowKey(env));
+        java.nio.file.Files.writeString(path,"MES_WORKFLOW_V2_BASE_URL=http://different/v1\nMES_WORKBENCH_V2_DIFY_API_KEY=app-testOther\n");
+        assertNull(WorkbenchRuntimeMain.localWorkflowKey(env));
+    }
+    @Test void twoPublishedModelBindingsAreIndependentAndStopUsesTheIssuingApp()throws Exception {
+        server.close();
+        FakeServices local=new FakeServices();
+        local.block=true;
+        server=new WorkbenchGatewayServer(services,() -> local,new EverydayChat(),EverydayChat.localV2(Map.of("MES_WORKFLOW_V2_BASE_URL","http://127.0.0.1:1/v1")),
+                Set.of("100"),Clock.fixed(now.get(),ZoneOffset.UTC),Duration.ofSeconds(4),0,ConversationScopeStore.disabled(),RunAuditStore.disabled());
+        server.start();base="http://127.0.0.1:"+server.port()+"/assistant-workbench";
+        var inputs=json.readTree(input("local")).deepCopy();
+        ((com.fasterxml.jackson.databind.node.ObjectNode)inputs).put("workflowModel","LOCAL");
+        var running=http.sendAsync(builder("POST","/runs/stream","owner",inputs.toString()),HttpResponse.BodyHandlers.ofString());
+        assertTrue(local.started.await(3,TimeUnit.SECONDS));
+        String localRun=services.lastRun;
+        var cloud=request("POST","/runs/stream","owner",input("cloud"));
+        assertEquals(200,cloud.statusCode());assertTrue(cloud.body().contains("\"workflowModel\":\"API\""));
+        var cancel=request("POST","/runs/"+localRun+"/cancel","owner","{}");
+        assertEquals(200,cancel.statusCode());assertTrue(local.stopped.get());assertFalse(services.stopped.get());
+        assertEquals(200,running.get(5,TimeUnit.SECONDS).statusCode());
+        ((com.fasterxml.jackson.databind.node.ObjectNode)inputs).put("workflowModel","mes-auto");
+        assertEquals(400,request("POST","/runs/stream","owner",inputs.toString()).statusCode());
+        assertEquals(1,local.streamed.get());assertEquals(1,services.streamed.get());
+    }
     @Test void auditSurvivesRestartAndStillRequiresFreshOwnerAuthorization(@org.junit.jupiter.api.io.TempDir java.nio.file.Path dir)throws Exception {
         Clock fixed=Clock.fixed(now.get(),ZoneOffset.UTC);String key="audit-only-test-signing-key-123456";
         server.close();server=new WorkbenchGatewayServer(services,Set.of("100"),fixed,Duration.ofSeconds(3),0,ConversationScopeStore.disabled(),new RunAuditStore(dir,fixed,key));

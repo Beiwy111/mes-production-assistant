@@ -2,6 +2,7 @@ package com.upc.computer.assistant.v2.runtime;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.upc.computer.assistant.v2.operations.ProductionCommand;
 import java.io.*;
 import java.net.*;
@@ -32,8 +33,43 @@ final class EverydayChat {
         遇到最新外部事实时解释缺少的来源，不要猜测。不要声称已运行 MES 工具。
         """;
     private final ObjectMapper json = new ObjectMapper();
-    private final String key = System.getenv("DASHSCOPE_API_KEY");
-    boolean available() { return key != null && !key.isBlank(); }
+    private final String endpoint, modelName, key;
+    private final boolean local;
+
+    EverydayChat() {
+        this(cloudEndpoint(), cloudModel(), cloudKey(), false);
+    }
+    private EverydayChat(String endpoint,String modelName,String key,boolean local) {
+        this.endpoint=endpoint;
+        this.modelName=modelName;
+        this.key=key;
+        this.local=local;
+    }
+    private static boolean usesDashscope() {
+        return !System.getenv().getOrDefault("DASHSCOPE_API_KEY","").isBlank();
+    }
+    private static String cloudEndpoint() {
+        if (usesDashscope()) return API;
+        String base=System.getenv().getOrDefault("MES_CHAT_API_BASE_URL","https://api.deepseek.com").replaceAll("/+$","");
+        return base+"/chat/completions";
+    }
+    private static String cloudModel() {
+        return usesDashscope() ? "qwen-plus" : System.getenv().getOrDefault("MES_CHAT_API_MODEL","deepseek-v4-flash");
+    }
+    private static String cloudKey() {
+        return usesDashscope() ? System.getenv("DASHSCOPE_API_KEY")
+                : System.getenv().getOrDefault("MES_CHAT_API_KEY",System.getenv("DEEPSEEK_API_KEY"));
+    }
+    static EverydayChat localV2(Map<String,String> env) {
+        String base=env.getOrDefault("MES_WORKFLOW_V2_BASE_URL","").replaceAll("/+$","");
+        if (base.isBlank()) return null;
+        URI uri=URI.create(base);
+        if (!Set.of("http","https").contains(uri.getScheme()) || uri.getHost()==null || uri.getUserInfo()!=null ||
+                !"/v1".equals(uri.getPath()) || uri.getFragment()!=null || uri.getQuery()!=null)
+            throw new IllegalArgumentException("Invalid Ubuntu workflow endpoint");
+        return new EverydayChat(base+"/chat/completions",WorkflowModel.LOCAL_MODEL_ID,env.get("MES_WORKFLOW_V2_API_KEY"),true);
+    }
+    boolean available() { return local || key != null && !key.isBlank(); }
 
     JsonNode planTask(JsonNode input, OutputStream out) throws IOException {
         if (!available()) throw new IOException("Task model is not configured");
@@ -88,7 +124,7 @@ final class EverydayChat {
         functions.add(Map.of("type","function","function",Map.of("name","respond","description","结束本轮工具选择，基于已有结果向用户回答或询问缺失信息；本函数不执行任何业务写入。不能与其他函数同时调用。",
             "parameters",Map.of("type","object","properties",Map.of(),"additionalProperties",false))));
         var requestInput=input.deepCopy();((com.fasterxml.jackson.databind.node.ObjectNode)requestInput).remove("catalog");
-        HttpURLConnection c = open(API, Map.of("model","qwen-plus","messages",List.of(msg("system",instruction),msg("user",json.writeValueAsString(requestInput))),
+        HttpURLConnection c = open(endpoint, Map.of("model",modelName,"messages",List.of(msg("system",instruction),msg("user",json.writeValueAsString(requestInput))),
                 "temperature",0,"enable_thinking",false,"max_tokens",1800,"tools",functions,"tool_choice","required","stream",true));
         var planText=new TaskToolStream(json);
         JsonNode decision=null;
@@ -130,7 +166,7 @@ final class EverydayChat {
         var messages = List.of(msg("system", ROUTING), msg("user", json.writeValueAsString(input)));
         JsonNode classification;
         try { classification = requestModel(messages); }
-        catch(IOException e) { return fallback; }
+        catch(IOException e) { if (local) throw e; return fallback; }
         String route = classification.path("route").asText();
         if ((route.equals("GENERAL") || route.equals("ORDER") || route.equals("PRODUCTION_ACTION")) && BusinessReadIntent.INSPECTION_ID.matcher(question).find()
                 && BusinessReadIntent.inspectionRead(question)) return "BUSINESS";
@@ -169,7 +205,7 @@ final class EverydayChat {
     private Map<String,String> msg(String role,String text) { return Map.of("role",role,"content",text); }
 
     private JsonNode requestModel(List<Map<String,String>> messages) throws IOException {
-        HttpURLConnection c = open(API, Map.of("model","qwen-plus","messages",messages,"temperature",0,
+        HttpURLConnection c = open(endpoint, Map.of("model",modelName,"messages",messages,"temperature",0,
                 "enable_thinking",false,"max_tokens",120,"response_format", Map.of("type","json_object")));
         try {
             String content = read(c).path("choices").path(0).path("message").path("content").asText();
@@ -180,7 +216,7 @@ final class EverydayChat {
     }
 
     private String stream(List<Map<String,String>> messages, OutputStream out) throws IOException {
-        HttpURLConnection c = open(API,Map.of("model","qwen-plus","messages",messages,"enable_thinking",false,
+        HttpURLConnection c = open(endpoint,Map.of("model",modelName,"messages",messages,"enable_thinking",false,
                 "max_tokens",2048,"stream",true));
         try (var reader = new BufferedReader(new InputStreamReader(c.getInputStream(), StandardCharsets.UTF_8))) {
             int size = 0; boolean received = false;var answer=new StringBuilder();
@@ -256,19 +292,36 @@ final class EverydayChat {
         URL endpoint=URI.create(url).toURL();
         String configuredProxy=System.getenv("HTTPS_PROXY");
         Proxy proxy=Proxy.NO_PROXY;
-        if (configuredProxy!=null && !configuredProxy.isBlank()) {
+        if ((!local || body==null) && configuredProxy!=null && !configuredProxy.isBlank()) {
             URI uri=URI.create(configuredProxy);
             if ("http".equalsIgnoreCase(uri.getScheme()) && uri.getHost()!=null)
                 proxy=new Proxy(Proxy.Type.HTTP,new InetSocketAddress(uri.getHost(),uri.getPort()>0?uri.getPort():80));
         }
         HttpURLConnection c=(HttpURLConnection)endpoint.openConnection(proxy);
-        c.setConnectTimeout(6000);c.setReadTimeout(25000);c.setInstanceFollowRedirects(false);
+        c.setConnectTimeout(6000);c.setReadTimeout(local && body!=null ? 90000 : 35000);c.setInstanceFollowRedirects(false);
         if (body!=null) {
             c.setDoOutput(true);c.setRequestMethod("POST");
-            c.setRequestProperty("Authorization","Bearer "+key);
+            if (key!=null && !key.isBlank()) c.setRequestProperty("Authorization","Bearer "+key);
             c.setRequestProperty("Content-Type","application/json");
-            try (var out=c.getOutputStream()) { out.write(json.writeValueAsBytes(body)); }
+            try (var out=c.getOutputStream()) {
+                ObjectNode request=json.valueToTree(body);
+                if (local) {
+                    request.remove("enable_thinking");
+                    request.putObject("chat_template_kwargs").put("enable_thinking",false);
+                } else if (!API.equals(url)) {
+                    request.remove("enable_thinking");
+                    if (URI.create(url).getHost().equalsIgnoreCase("api.deepseek.com")) request.putObject("thinking").put("type","disabled");
+                }
+                out.write(json.writeValueAsBytes(request));
+            }
             catch (IOException e) { c.disconnect(); throw e; }
+        }
+        if (local && body != null) {
+            String actual=c.getHeaderField("X-MES-Model");
+            if (actual!=null && !modelName.equals(actual)) {
+                c.disconnect();
+                throw new IOException("Ubuntu returned a different model");
+            }
         }
         return c;
     }

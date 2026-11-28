@@ -306,108 +306,51 @@ test('natural answers retain full replies including limitations', () => {
 
 const draftEnvelope = (version = 1, status = 'READY') => ({ handled: true, reply: '请核对订单后确认', steps: [{ agentId: 'ORDER', label: '校验草稿', status: 'COMPLETED' }], orderDraft: { id: 'draft-1', version, status, fields: { materialId: 3, quantity: 5 }, products: [], missing: [] } })
 
-for (const modelSource of ['API', 'LOCAL']) for (const ragEnabled of [false, true]) {
-  test(`model turn: ${modelSource}, RAG=${ragEnabled} with the gateway and order tables offline`, async () => {
+const bindings = { configured:true, naturalLanguage:true, directChat:true, workflowModels:{API:true,LOCAL:true} }
+for (const workflowModel of ['API','LOCAL']) {
+  test(`workflow entry and supervised business query use the same ${workflowModel} binding`, async () => {
     const calls = []
-    const { view, sent } = setupView({
-      workbenchStatus: async () => { throw new Error('gateway offline') },
-      orderStatus: async () => ({ available: false }),
-      modelChatStatus: async () => ({ apiConfigured: true, localConfigured: true, ragConfigured: true }),
-      modelChatTurn: async (_token, body) => { calls.push(body); return { ...body, reply: '已回答', queryMode: 'MODEL_CHAT' } },
-    }, 'ORDER')
+    const {view} = setupView({
+      workbenchStatus: async () => bindings,
+      chatEntry: async (_token, body) => { calls.push(body.workflowModel); return {route:'BUSINESS',workflowModel:body.workflowModel} },
+      streamWorkbench: async (_token, body, {onEvent}) => {
+        calls.push(body.workflowModel)
+        onEvent({type:'run',runId:'r1'})
+        onEvent({type:'result',data:{reply:'授权工单清单',queryMode:'NATURAL',workflowModel:body.workflowModel}})
+      },
+    })
     await view.checkConnection()
-    view.setMode(modelSource, ragEnabled)
-    view.input.value = '显示器工艺是什么？'
-    assert.equal(view.canSend.value, true)
-    await view.send()
-    assert.equal(calls.length, 1)
-    assert.deepEqual(calls[0], { text: '显示器工艺是什么？', modelSource, ragEnabled, history: [] })
-    assert.equal(view.messages.value.at(-1).status, 'COMPLETED')
-    assert.equal(view.messages.value.at(-1).modelSource, modelSource)
-    assert.equal(sent.length, 0)
+    assert.equal(view.workflowModel.value,'API')
+    view.setWorkflowModel(workflowModel)
+    view.input.value='查询生产工单'; await view.send()
+    assert.deepEqual(calls,[workflowModel,workflowModel])
+    assert.equal(view.messages.value.at(-1).text,'授权工单清单')
+    const [saved]=workbench.restoreSessions(workbench.serializeWorkbenchSessions(view.sessions.value))
+    assert.equal(saved.workflowModel,workflowModel)
+    assert.equal(saved.messages.at(-1).workflowModel,workflowModel)
   })
 }
-
-test('selected local model bypasses the available workflow classifier; photo input stays in the workflow', async () => {
-  let classifications = 0, modelTurns = 0
-  const { view } = setupView({
-    workbenchStatus: async () => ({ configured: true, naturalLanguage: true, directChat: true }),
-    modelChatStatus: async () => ({ localConfigured: true }),
-    chatEntry: async () => { classifications++; return { route: 'BUSINESS' } },
-    modelChatTurn: async (_token, body) => { modelTurns++; return { ...body, queryMode: 'MODEL_CHAT', reply: '模型回复' } },
+test('unavailable or mismatched v2 never becomes a successful API response',async()=>{
+  const {view,sent}=setupView({
+    workbenchStatus:async()=>({...bindings,workflowModels:{API:true,LOCAL:false}}),
+    chatEntry:async()=>({route:'GENERAL',workflowModel:'API'}),
   })
-  await view.checkConnection()
-  view.setMode('LOCAL', false)
-  await view.attachFile({ type: 'image/png', size: 10, name: 'screen.png' })
-  assert.equal(view.pendingImage.value, null)
-  view.input.value = '解释工序'
-  await view.send()
-  assert.equal(modelTurns, 1)
-  assert.equal(classifications, 0)
-  view.setMode('WORKFLOW', false)
-  await view.attachFile({ type: 'image/png', size: 10, name: 'screen.png' })
-  assert.equal(view.canSend.value, true)
-  view.setMode('LOCAL', false)
-  assert.equal(view.source.value, 'WORKFLOW')
+  await view.checkConnection(); view.setWorkflowModel('LOCAL'); view.input.value='你好'
+  assert.equal(view.canSend.value,false)
+  view.connection.value=bindings; await view.send()
+  assert.notEqual(view.messages.value.at(-1).status,'COMPLETED')
+  assert.match(view.messages.value.at(-1).error,/模型选择/)
+  assert.equal(view.workflowModel.value,'LOCAL'); assert.equal(sent.length,0)
 })
-
-test('direct history stays within the same model source and RAG setting', async () => {
-  const calls = []
-  const { view } = setupView({
-    modelChatStatus: async () => ({ apiConfigured: true, localConfigured: true, ragConfigured: true }),
-    modelChatTurn: async (_token, body) => { calls.push(body); return { ...body, queryMode: 'MODEL_CHAT', reply: '第一轮回复' } },
-  })
-  await view.checkConnection()
-  view.setMode('LOCAL', true)
-  for (const question of ['一般工艺', '继续']) { view.input.value = question; await view.send() }
-  assert.equal(calls[1].history.length, 2)
-  view.setMode('LOCAL', false); view.input.value = '继续'; await view.send()
-  view.setMode('API', false); view.input.value = '继续'; await view.send()
-  assert.deepEqual(calls[2].history, [])
-  assert.deepEqual(calls[3].history, [])
-  const [saved] = workbench.restoreSessions(workbench.serializeWorkbenchSessions(view.sessions.value))
-  assert.equal(saved.modelSource, 'API')
-  assert.equal(saved.messages.at(-1).ragEnabled, false)
-  assert.equal(saved.messages.at(-1).modelSource, 'API')
-})
-
-test('direct order turn forwards mode, never silently uses the gateway on failure', async () => {
-  const orders = []
-  const { view, sent } = setupView({
-    modelChatStatus: async () => ({ localConfigured: true, ragConfigured: true }),
-    orderTurn: async (_token, body) => { orders.push(body); throw Object.assign(new Error('本地模型不可用'), { code: 503 }) },
-    modelChatTurn: async () => { throw new Error('unexpected fallback') },
-  }, 'ORDER')
-  await view.checkConnection()
-  view.setMode('LOCAL', true)
-  view.input.value = '我想订购5台显示器'
-  await view.send()
-  assert.equal(orders.length, 1); assert.equal(orders[0].modelSource, 'LOCAL'); assert.equal(orders[0].ragEnabled, true)
-  assert.equal(sent.length, 0); assert.match(view.messages.value.at(-1).error, /本地模型不可用/)
-})
-
-test('unconfigured model / retrieval disables sending without disabling the selector', async () => {
-  const { view } = setupView({ modelChatStatus: async () => ({ apiConfigured: true, localConfigured: false, ragConfigured: false }) })
-  await view.checkConnection()
-  view.input.value = '解释工序'; view.setMode('LOCAL', false)
-  assert.equal(view.canSend.value, false)
-  view.setMode('API', true); assert.equal(view.canSend.value, false)
-  view.setMode('API', false); assert.equal(view.canSend.value, true)
-})
-
-test('switching providers with an order draft leaves it in its original conversation', async () => {
-  const { view } = setupView({
-    modelChatStatus: async () => ({ localConfigured: true, apiConfigured: true, ragConfigured: true }),
-    orderTurn: async (_token, body) => ({ ...draftEnvelope(), modelSource: body.modelSource, ragEnabled: body.ragEnabled }),
-  }, 'ORDER')
-  await view.checkConnection()
-  view.setMode('LOCAL', false)
-  view.input.value = '订购 8 台显示器'; await view.send()
-  assert.equal(view.messages.value.at(-1).orderFlow.orderDraft.id, 'draft-1')
-  view.setMode('API', false)
-  assert.equal(view.activeId.value, null)
-  assert.equal(view.sessions.value[0].modelSource, 'LOCAL')
-  assert.equal(view.sessions.value[0].messages.at(-1).orderFlow.orderDraft.id, 'draft-1')
+test('a provider switch starts a separate workflow and preserves existing order drafts',async()=>{
+  const {view}=setupView({workbenchStatus:async()=>bindings,chatEntry:async()=>({route:'ORDER',workflowModel:'LOCAL'}),
+    orderTurn:async (_token,body)=>({...draftEnvelope(),workflowModel:body.workflowModel})},'ORDER')
+  await view.checkConnection();view.setWorkflowModel('LOCAL');view.input.value='帮我创建订单';await view.send()
+  assert.equal(view.messages.value.at(-1).orderFlow.orderDraft.id,'draft-1')
+  view.input.value='未发送的文字';view.setWorkflowModel('API')
+  assert.equal(view.activeId.value,null);assert.equal(view.input.value,'未发送的文字')
+  assert.equal(view.sessions.value[0].workflowModel,'LOCAL')
+  assert.equal(view.sessions.value[0].messages.at(-1).orderFlow.orderDraft.id,'draft-1')
 })
 
 test('same-mode follow-ups keep the previous business question without sending previous MES records', () => {
